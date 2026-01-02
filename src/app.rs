@@ -1,13 +1,16 @@
 use std::convert::TryInto;
 
-use iced::widget::{Column, Text, button, container, mouse_area};
-use iced::{Element, Length, Theme, mouse};
+use iced::widget::{button, container, mouse_area, Column, Text};
+use iced::{mouse, Element, Length, Theme};
+use crate::gauge::GaugeModel;
 use iced_layershell::actions::LayershellCustomActionWithId;
 
 #[derive(Debug, Clone)]
 pub enum Message {
     Workspaces(Vec<WorkspaceInfo>),
     Clicked(String),
+    Second(GaugeModel),
+    Day(GaugeModel),
 }
 
 impl TryInto<LayershellCustomActionWithId> for Message {
@@ -16,7 +19,9 @@ impl TryInto<LayershellCustomActionWithId> for Message {
     fn try_into(self) -> Result<LayershellCustomActionWithId, Message> {
         match self {
             // All messages stay within the app; none translate to layer-shell actions.
-            Message::Workspaces(_) | Message::Clicked(_) => Err(self),
+            Message::Workspaces(_) | Message::Clicked(_) | Message::Second(_) | Message::Day(_) => {
+                Err(self)
+            }
         }
     }
 }

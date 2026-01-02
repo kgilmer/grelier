@@ -7,3 +7,4 @@ edition = "2024"
 swayipc = "3"
 iced = { version = "0.14", features = ["image", "svg"] }
 iced_layershell = "0.14.2"
+chrono = { version = "0.4", default-features = false, features = ["clock"] }

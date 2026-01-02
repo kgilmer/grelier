@@ -1,16 +1,27 @@
 #![allow(dead_code)] // workspace handling will be re-enabled later
 mod app;
+mod clock;
+mod gauge;
+mod date;
 mod sway_workspace;
 
 use iced::Subscription;
 use iced::Task;
-use iced::futures::channel::mpsc;
+use iced::futures::{channel::mpsc, StreamExt};
 use iced_layershell::application;
 use iced_layershell::reexport::{Anchor, KeyboardInteractivity, Layer};
 use iced_layershell::settings::{LayerShellSettings, Settings, StartMode};
 use swayipc::Event;
 
 use crate::app::{BarState, Message, WorkspaceInfo};
+
+fn app_subscription(state: &BarState) -> Subscription<Message> {
+    Subscription::batch(vec![
+        workspace_subscription(state),
+        clock_subscription(),
+        date_subscription(),
+    ])
+}
 
 fn workspace_subscription(_state: &BarState) -> Subscription<Message> {
     Subscription::run(workspace_stream)
@@ -54,6 +65,14 @@ fn workspace_stream() -> impl iced::futures::Stream<Item = Message> {
     receiver
 }
 
+fn clock_subscription() -> Subscription<Message> {
+    Subscription::run(|| clock::seconds_stream().map(Message::Second))
+}
+
+fn date_subscription() -> Subscription<Message> {
+    Subscription::run(|| date::day_stream().map(Message::Day))
+}
+
 fn main() -> Result<(), iced_layershell::Error> {
     let settings = Settings {
         layer_settings: LayerShellSettings {
@@ -72,7 +91,7 @@ fn main() -> Result<(), iced_layershell::Error> {
 
     application(BarState::new, BarState::namespace, update, BarState::view)
         .theme(BarState::theme)
-        .subscription(workspace_subscription)
+        .subscription(app_subscription)
         .settings(settings)
         .run()
 }
@@ -84,6 +103,12 @@ fn update(state: &mut BarState, message: Message) -> Task<Message> {
             if let Err(err) = sway_workspace::focus_workspace(&name) {
                 eprintln!("Failed to focus workspace \"{name}\": {err}");
             }
+        }
+        Message::Second(gauge) => {
+            println!("{}: {}", gauge.title, gauge.value);
+        }
+        Message::Day(gauge) => {
+            println!("{}: {}", gauge.title, gauge.value);
         }
     }
 
