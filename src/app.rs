@@ -1,6 +1,6 @@
 use std::convert::TryInto;
 
-use crate::gauge::GaugeModel;
+use crate::gauge::{GaugeModel, GaugeValue, GaugeValueAttention};
 use iced::alignment;
 use iced::widget::text;
 use iced::widget::svg::{self, Svg};
@@ -102,19 +102,71 @@ impl BarState {
                     let icon_view = Svg::new(icon.clone())
                         .width(Length::Fixed(14.0))
                         .height(Length::Fixed(14.0))
-                        .style(|theme: &Theme, _status| svg::Style {
-                            color: Some(theme.palette().text),
+                        .style({
+                            let attention = gauge.attention;
+                            move |theme: &Theme, _status| svg::Style {
+                                color: Some(match attention {
+                                    GaugeValueAttention::Nominal => theme.palette().text,
+                                    GaugeValueAttention::Warning => {
+                                        theme.extended_palette().warning.base.color
+                                    }
+                                    GaugeValueAttention::Danger => {
+                                        theme.extended_palette().danger.base.color
+                                    }
+                                }),
+                            }
                         });
                     let centered_icon =
                         container(icon_view).width(Length::Fill).align_x(alignment::Horizontal::Center);
-                    gauge_column = gauge_column.push(centered_icon);
+                    gauge_column = gauge_column
+                        .push(centered_icon)
+                        .push(Space::new().height(Length::Fixed(3.0)));
                 }
 
-                let value_text = Text::new(gauge.value.clone())
-                    .width(Length::Fill)
-                    .align_x(text::Alignment::Center);
+                let value: Element<'_, Message> = match &gauge.value {
+                    GaugeValue::Text(value) => {
+                        let attention = gauge.attention;
+                        Text::new(value.clone())
+                            .width(Length::Fill)
+                            .align_x(text::Alignment::Center)
+                            .style(move |theme: &Theme| text::Style {
+                                color: Some(match attention {
+                                    GaugeValueAttention::Nominal => theme.palette().text,
+                                    GaugeValueAttention::Warning => {
+                                        theme.extended_palette().warning.base.color
+                                    }
+                                    GaugeValueAttention::Danger => {
+                                        theme.extended_palette().danger.base.color
+                                    }
+                                }),
+                                ..text::Style::default()
+                            })
+                            .into()
+                    }
+                    GaugeValue::Svg(handle) => Svg::new(handle.clone())
+                        .width(Length::Fixed(20.0))
+                        .height(Length::Fixed(20.0))
+                        .style({
+                            let attention = gauge.attention;
+                            move |theme: &Theme, _status| svg::Style {
+                                color: Some(match attention {
+                                    GaugeValueAttention::Nominal => theme.palette().text,
+                                    GaugeValueAttention::Warning => {
+                                        theme.extended_palette().warning.base.color
+                                    }
+                                    GaugeValueAttention::Danger => {
+                                        theme.extended_palette().danger.base.color
+                                    }
+                                }),
+                            }
+                        })
+                        .into(),
+                };
 
-                col.push(gauge_column.push(value_text))
+                let centered_value =
+                    container(value).width(Length::Fill).align_x(alignment::Horizontal::Center);
+
+                col.push(gauge_column.push(centered_value))
             },
         );
 

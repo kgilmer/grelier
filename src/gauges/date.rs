@@ -1,7 +1,7 @@
 use chrono::Local;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use crate::gauge::fixed_interval;
+use crate::gauge::{fixed_interval, GaugeValue, GaugeValueAttention};
 use crate::svg_asset;
 
 const SECS_PER_DAY: u64 = 86_400;
@@ -32,7 +32,10 @@ pub fn day_stream() -> impl iced::futures::Stream<Item = crate::gauge::GaugeMode
         },
         || {
             let now = Local::now();
-            Some(format!("{}\n{}", now.format("%m"), now.format("%d")))
+            Some((
+                GaugeValue::Text(format!("{}\n{}", now.format("%m"), now.format("%d"))),
+                GaugeValueAttention::Nominal,
+            ))
         },
     )
 }

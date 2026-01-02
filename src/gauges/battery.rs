@@ -1,4 +1,5 @@
-use crate::gauge::{GaugeModel, event_stream};
+use crate::gauge::{event_stream, GaugeModel, GaugeValue, GaugeValueAttention};
+use crate::svg_asset;
 
 /// Stream battery information via udev power_supply events.
 pub fn battery_stream() -> impl iced::futures::Stream<Item = GaugeModel> {
@@ -24,11 +25,12 @@ pub fn battery_stream() -> impl iced::futures::Stream<Item = GaugeModel> {
                 continue;
             }
 
-            if let Some(value) = battery_value(&device) {
+            if let Some((value, attention)) = battery_value(&device) {
                 let _ = sender.try_send(GaugeModel {
                     id: "battery",
                     icon: None,
                     value,
+                    attention,
                 });
             }
         }
@@ -61,11 +63,12 @@ fn send_snapshot(sender: &mut iced::futures::channel::mpsc::Sender<GaugeModel>) 
         if !is_battery(&dev) {
             continue;
         }
-        if let Some(value) = battery_value(&dev) {
+        if let Some((value, attention)) = battery_value(&dev) {
             let _ = sender.try_send(GaugeModel {
                 id: "battery",
                 icon: None,
                 value,
+                attention,
             });
         }
     }
@@ -78,15 +81,46 @@ fn is_battery(dev: &udev::Device) -> bool {
         .unwrap_or(false)
 }
 
-fn battery_value(dev: &udev::Device) -> Option<String> {
+fn battery_value(dev: &udev::Device) -> Option<(GaugeValue, GaugeValueAttention)> {
     let capacity =
         property_str(dev, "POWER_SUPPLY_CAPACITY").or_else(|| property_str(dev, "CAPACITY"));
     let status = property_str(dev, "POWER_SUPPLY_STATUS");
 
-    match (capacity, status) {
-        (Some(cap), Some(status)) => Some(format!("{cap}% ({status})")),
-        (Some(cap), None) => Some(format!("{cap}%")),
-        _ => None,
+    if let Some(cap) = capacity {
+        if let Ok(percent) = cap.parse::<u8>() {
+            let attention = attention_for_capacity(percent);
+            return Some((GaugeValue::Svg(svg_asset(battery_icon(percent))), attention));
+        }
+
+        if let Some(status) = status {
+            return Some((
+                GaugeValue::Text(format!("{cap}% ({status})")),
+                GaugeValueAttention::Nominal,
+            ));
+        }
+
+        return Some((GaugeValue::Text(format!("{cap}%")), GaugeValueAttention::Nominal));
+    }
+
+    None
+}
+
+fn battery_icon(percent: u8) -> &'static str {
+    match percent {
+        0..=19 => "battery-0.svg",
+        20..=39 => "battery-2.svg",
+        40..=59 => "battery-3.svg",
+        60..=79 => "battery-4.svg",
+        80..=99 => "battery-5.svg",
+        _ => "battery-5.svg",
+    }
+}
+
+fn attention_for_capacity(percent: u8) -> GaugeValueAttention {
+    match percent {
+        0..=19 => GaugeValueAttention::Danger,
+        20..=49 => GaugeValueAttention::Warning,
+        _ => GaugeValueAttention::Nominal,
     }
 }
 

@@ -26,7 +26,7 @@ use iced_layershell::settings::{LayerShellSettings, Settings, StartMode};
 use swayipc::Event;
 
 use crate::app::{BarState, Message, WorkspaceInfo};
-use crate::gauge::GaugeModel;
+use crate::gauge::{GaugeModel, GaugeValue, GaugeValueAttention};
 use crate::gauges::{battery, clock, date};
 
 /// Absolute path to the bundled asset directory (e.g. SVG icons).
@@ -279,29 +279,39 @@ mod tests {
         let g1 = GaugeModel {
             id: "clock",
             icon: None,
-            value: "12\n00".to_string(),
+            value: GaugeValue::Text("12\n00".to_string()),
+            attention: GaugeValueAttention::Nominal,
         };
         let g2 = GaugeModel {
             id: "clock",
             icon: None,
-            value: "12\n01".to_string(),
+            value: GaugeValue::Text("12\n01".to_string()),
+            attention: GaugeValueAttention::Nominal,
         };
 
         update_gauge(&mut gauges, g1.clone());
         assert_eq!(gauges.len(), 1);
-        assert_eq!(gauges[0].value, g1.value);
+        assert_text_value(&gauges[0], "12\n00");
 
         update_gauge(&mut gauges, g2.clone());
         assert_eq!(gauges.len(), 1, "should replace existing entry");
-        assert_eq!(gauges[0].value, g2.value);
+        assert_text_value(&gauges[0], "12\n01");
 
         let g3 = GaugeModel {
             id: "date",
             icon: None,
-            value: "01\n01".to_string(),
+            value: GaugeValue::Text("01\n01".to_string()),
+            attention: GaugeValueAttention::Nominal,
         };
         update_gauge(&mut gauges, g3.clone());
         assert_eq!(gauges.len(), 2, "different id should append");
+    }
+
+    fn assert_text_value(model: &GaugeModel, expected: &str) {
+        match &model.value {
+            GaugeValue::Text(text) => assert_eq!(text, expected),
+            GaugeValue::Svg(_) => panic!("expected text gauge value"),
+        }
     }
 }
 

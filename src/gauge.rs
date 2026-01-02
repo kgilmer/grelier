@@ -3,11 +3,31 @@ use iced::widget::svg;
 use std::thread;
 use std::time::Duration;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum GaugeValueAttention {
+    Nominal,
+    Warning,
+    Danger,
+}
+
+impl Default for GaugeValueAttention {
+    fn default() -> Self {
+        GaugeValueAttention::Nominal
+    }
+}
+
+#[derive(Debug, Clone)]
+pub enum GaugeValue {
+    Text(String),
+    Svg(svg::Handle),
+}
+
 #[derive(Debug, Clone)]
 pub struct GaugeModel {
     pub id: &'static str,
     pub icon: Option<svg::Handle>,
-    pub value: String,
+    pub value: GaugeValue,
+    pub attention: GaugeValueAttention,
 }
 
 /// Create a gauge stream that polls on a (potentially dynamic) interval.
@@ -15,17 +35,18 @@ pub fn fixed_interval(
     id: &'static str,
     icon: Option<svg::Handle>,
     interval: impl Fn() -> Duration + Send + 'static,
-    tick: impl Fn() -> Option<String> + Send + 'static,
+    tick: impl Fn() -> Option<(GaugeValue, GaugeValueAttention)> + Send + 'static,
 ) -> impl iced::futures::Stream<Item = GaugeModel> {
     let (mut sender, receiver) = mpsc::channel(1);
 
     thread::spawn(move || {
         loop {
-            if let Some(value) = tick() {
+            if let Some((value, attention)) = tick() {
                 let _ = sender.try_send(GaugeModel {
                     id,
                     icon: icon.clone(),
                     value,
+                    attention,
                 });
             }
 
@@ -54,7 +75,7 @@ pub enum GaugeKind {
         id: &'static str,
         icon: Option<svg::Handle>,
         interval: Box<dyn Fn() -> Duration + Send + 'static>,
-        tick: Box<dyn Fn() -> Option<String> + Send + 'static>,
+        tick: Box<dyn Fn() -> Option<(GaugeValue, GaugeValueAttention)> + Send + 'static>,
     },
     Event {
         id: &'static str,
