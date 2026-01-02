@@ -10,6 +10,7 @@ const DAY_LENGTH: Duration = Duration::from_secs(SECS_PER_DAY);
 pub fn day_stream() -> impl iced::futures::Stream<Item = crate::gauge::GaugeModel> {
     fixed_interval(
         "date",
+        None,
         || {
             let now = SystemTime::now();
             if let Ok(elapsed) = now.duration_since(UNIX_EPOCH) {
@@ -28,6 +29,9 @@ pub fn day_stream() -> impl iced::futures::Stream<Item = crate::gauge::GaugeMode
                 Duration::from_secs(1)
             }
         },
-        || Some(Local::now().format("%d").to_string()),
+        || {
+            let now = Local::now();
+            Some(format!("{}\n{}", now.format("%m"), now.format("%d")))
+        },
     )
 }

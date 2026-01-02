@@ -8,4 +8,5 @@ swayipc = "3"
 iced = { version = "0.14", features = ["image", "svg"] }
 iced_layershell = "0.14.2"
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
+udev = "0.7"
 argh = "0.1"

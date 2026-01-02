@@ -3,17 +3,22 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use crate::gauge::fixed_interval;
 
-/// Stream of the current wall-clock second published once per second.
+/// Stream of the current wall-clock hour/minute, formatted on two lines.
 pub fn seconds_stream() -> impl iced::futures::Stream<Item = crate::gauge::GaugeModel> {
     fixed_interval(
         "clock",
+        None,
         || {
             let nanos = SystemTime::now()
                 .duration_since(UNIX_EPOCH)
                 .map(|d| d.subsec_nanos())
                 .unwrap_or(0);
-            Duration::new(0, 1_000_000_000u32.saturating_sub(nanos))
+            // sleep until the next minute boundary
+            Duration::from_secs(60).saturating_sub(Duration::new(0, nanos))
         },
-        || Some(Local::now().format("%S").to_string()),
+        || {
+            let now = Local::now();
+            Some(format!("{}\n{}", now.format("%H"), now.format("%M")))
+        },
     )
 }

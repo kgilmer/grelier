@@ -1,8 +1,8 @@
 use std::convert::TryInto;
 
-use iced::widget::{button, container, mouse_area, Column, Text};
-use iced::{mouse, Element, Length, Theme};
 use crate::gauge::GaugeModel;
+use iced::widget::{Column, Space, Text, button, container, mouse_area};
+use iced::{Element, Length, Theme, mouse};
 use iced_layershell::actions::LayershellCustomActionWithId;
 
 #[derive(Debug, Clone)]
@@ -26,17 +26,22 @@ impl TryInto<LayershellCustomActionWithId> for Message {
 #[derive(Clone)]
 pub struct BarState {
     pub workspaces: Vec<WorkspaceInfo>,
+    pub gauges: Vec<GaugeModel>,
 }
 
 impl BarState {
     pub fn new() -> Self {
         Self {
             workspaces: Vec::new(),
+            gauges: Vec::new(),
         }
     }
 
     pub fn with_workspaces(workspaces: Vec<WorkspaceInfo>) -> Self {
-        Self { workspaces }
+        Self {
+            workspaces,
+            gauges: Vec::new(),
+        }
     }
 
     pub fn namespace() -> String {
@@ -44,7 +49,7 @@ impl BarState {
     }
 
     pub fn view(&self) -> Element<'_, Message> {
-        let column =
+        let workspaces =
             self.workspaces
                 .iter()
                 .fold(Column::new().padding([4, 2]).spacing(4), |col, ws| {
@@ -79,10 +84,28 @@ impl BarState {
                     )
                 });
 
-        let filled = container(column).width(Length::Fill).height(Length::Fill);
+        let gauges =
+            self.gauges
+                .iter()
+                .fold(Column::new().padding([4, 2]).spacing(2), |col, gauge| {
+                    let text = match &gauge.title {
+                        Some(title) => format!("{title}: {}", gauge.value),
+                        None => gauge.value.clone(),
+                    };
+                    col.push(Text::new(text))
+                });
+
+        let layout = Column::new()
+            .width(Length::Fill)
+            .height(Length::Fill)
+            .push(workspaces)
+            .push(Space::new().height(Length::Fill))
+            .push(gauges);
+
+        let filled = container(layout).width(Length::Fill).height(Length::Fill);
 
         mouse_area(filled)
-            .interaction(mouse::Interaction::Move)
+            .interaction(mouse::Interaction::Pointer)
             .into()
     }
 
