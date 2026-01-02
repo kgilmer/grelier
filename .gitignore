@@ -3,3 +3,4 @@ target/
 
 # Backup files
 **/*.rs.bk
+Cargo.lock
