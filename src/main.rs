@@ -4,14 +4,15 @@ mod sway_workspace;
 
 use iced::futures::channel::mpsc;
 use iced::Subscription;
+use iced::Task;
 use iced_layershell::application;
 use iced_layershell::reexport::{Anchor, KeyboardInteractivity, Layer};
 use iced_layershell::settings::{LayerShellSettings, Settings, StartMode};
 use swayipc::Event;
 
-use crate::app::{Message, NumberStrip};
+use crate::app::{Message, BarState, WorkspaceInfo};
 
-fn workspace_subscription(_state: &NumberStrip) -> Subscription<Message> {
+fn workspace_subscription(_state: &BarState) -> Subscription<Message> {
     Subscription::run(workspace_stream)
 }
 
@@ -21,8 +22,8 @@ fn workspace_stream() -> impl iced::futures::Stream<Item = Message> {
     std::thread::spawn(move || {
         let send_workspaces = |sender: &mut mpsc::Sender<Message>| {
             if let Ok(ws) = sway_workspace::fetch_workspaces() {
-                let ids = ws.into_iter().map(|w| w.num).collect();
-                let _ = sender.try_send(Message::Workspaces(ids));
+                let info = ws.into_iter().map(to_workspace_info).collect();
+                let _ = sender.try_send(Message::Workspaces(info));
             }
         };
 
@@ -67,9 +68,46 @@ fn main() -> Result<(), iced_layershell::Error> {
         ..Settings::default()
     };
 
-    application(NumberStrip::new, NumberStrip::namespace, NumberStrip::update, NumberStrip::view)
-        .theme(NumberStrip::theme)
+    application(BarState::new, BarState::namespace, update, BarState::view)
+        .theme(BarState::theme)
         .subscription(workspace_subscription)
         .settings(settings)
         .run()
+}
+
+fn update(state: &mut BarState, message: Message) -> Task<Message> {
+    match message {
+        Message::Workspaces(ws) => {
+            state.workspaces = ws;
+        }
+        Message::Clicked(name) => {
+            if let Err(err) = sway_workspace::focus_workspace(&name) {
+                eprintln!("Failed to focus workspace \"{name}\": {err}");
+            }
+        }
+    }
+
+    Task::none()
+}
+
+fn to_workspace_info(ws: swayipc::Workspace) -> WorkspaceInfo {
+    WorkspaceInfo {
+        id: ws.id,
+        num: ws.num,
+        name: ws.name,
+        layout: ws.layout,
+        visible: ws.visible,
+        focused: ws.focused,
+        urgent: ws.urgent,
+        representation: ws.representation,
+        orientation: ws.orientation,
+        rect: crate::app::Rect {
+            x: ws.rect.x,
+            y: ws.rect.y,
+            width: ws.rect.width,
+            height: ws.rect.height,
+        },
+        output: ws.output,
+        focus: ws.focus,
+    }
 }
