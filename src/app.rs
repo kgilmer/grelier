@@ -9,8 +9,7 @@ use iced_layershell::actions::LayershellCustomActionWithId;
 pub enum Message {
     Workspaces(Vec<WorkspaceInfo>),
     Clicked(String),
-    Second(GaugeModel),
-    Day(GaugeModel),
+    Gauge(GaugeModel),
 }
 
 impl TryInto<LayershellCustomActionWithId> for Message {
@@ -19,9 +18,7 @@ impl TryInto<LayershellCustomActionWithId> for Message {
     fn try_into(self) -> Result<LayershellCustomActionWithId, Message> {
         match self {
             // All messages stay within the app; none translate to layer-shell actions.
-            Message::Workspaces(_) | Message::Clicked(_) | Message::Second(_) | Message::Day(_) => {
-                Err(self)
-            }
+            Message::Workspaces(_) | Message::Clicked(_) | Message::Gauge(_) => Err(self),
         }
     }
 }

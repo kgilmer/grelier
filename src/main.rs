@@ -66,11 +66,11 @@ fn workspace_stream() -> impl iced::futures::Stream<Item = Message> {
 }
 
 fn clock_subscription() -> Subscription<Message> {
-    Subscription::run(|| clock::seconds_stream().map(Message::Second))
+    Subscription::run(|| clock::seconds_stream().map(Message::Gauge))
 }
 
 fn date_subscription() -> Subscription<Message> {
-    Subscription::run(|| date::day_stream().map(Message::Day))
+    Subscription::run(|| date::day_stream().map(Message::Gauge))
 }
 
 fn main() -> Result<(), iced_layershell::Error> {
@@ -104,10 +104,7 @@ fn update(state: &mut BarState, message: Message) -> Task<Message> {
                 eprintln!("Failed to focus workspace \"{name}\": {err}");
             }
         }
-        Message::Second(gauge) => {
-            println!("{}: {}", gauge.title, gauge.value);
-        }
-        Message::Day(gauge) => {
+        Message::Gauge(gauge) => {
             println!("{}: {}", gauge.title, gauge.value);
         }
     }
