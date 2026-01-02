@@ -13,6 +13,7 @@ use std::sync::Arc;
 
 use argh::FromArgs;
 use iced::Color;
+use iced::Font;
 use iced::Subscription;
 use iced::Task;
 use iced::Theme;
@@ -223,6 +224,7 @@ fn main() -> Result<(), iced_layershell::Error> {
             events_transparent: false,
         },
         antialiasing: true,
+        default_font: Font::MONOSPACE,
         ..Settings::default()
     };
 
