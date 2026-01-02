@@ -1,0 +1,5 @@
+# Generated artifacts
+target/
+
+# Backup files
+**/*.rs.bk
