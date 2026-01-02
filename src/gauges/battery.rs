@@ -2,7 +2,7 @@ use crate::gauge::{GaugeModel, event_stream};
 
 /// Stream battery information via udev power_supply events.
 pub fn battery_stream() -> impl iced::futures::Stream<Item = GaugeModel> {
-    event_stream("battery", Some("battery"), |mut sender| {
+    event_stream("battery", None, |mut sender| {
         // Send current state so the UI shows something before the first event.
         send_snapshot(&mut sender);
 
@@ -26,8 +26,8 @@ pub fn battery_stream() -> impl iced::futures::Stream<Item = GaugeModel> {
 
             if let Some(value) = battery_value(&device) {
                 let _ = sender.try_send(GaugeModel {
-                    id: "battery".into(),
-                    title: Some("battery".into()),
+                    id: "battery",
+                    icon: None,
                     value,
                 });
             }
@@ -63,8 +63,8 @@ fn send_snapshot(sender: &mut iced::futures::channel::mpsc::Sender<GaugeModel>) 
         }
         if let Some(value) = battery_value(&dev) {
             let _ = sender.try_send(GaugeModel {
-                id: "battery".into(),
-                title: Some("battery".into()),
+                id: "battery",
+                icon: None,
                 value,
             });
         }

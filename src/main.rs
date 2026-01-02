@@ -8,10 +8,18 @@ mod gauges {
 mod gauge;
 mod sway_workspace;
 
+use std::path::Path;
+use std::sync::Arc;
+
 use argh::FromArgs;
+use iced::Color;
 use iced::Subscription;
 use iced::Task;
+use iced::Theme;
 use iced::futures::{StreamExt, channel::mpsc};
+use iced::theme::Custom;
+use iced::theme::Palette;
+use iced::widget::svg;
 use iced_layershell::application;
 use iced_layershell::reexport::{Anchor, KeyboardInteractivity, Layer};
 use iced_layershell::settings::{LayerShellSettings, Settings, StartMode};
@@ -20,6 +28,10 @@ use swayipc::Event;
 use crate::app::{BarState, Message, WorkspaceInfo};
 use crate::gauge::GaugeModel;
 use crate::gauges::{battery, clock, date};
+
+/// Absolute path to the bundled asset directory (e.g. SVG icons).
+pub const ASSETS_DIR: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/assets");
+pub const DEFAULT_THEME: Theme = Theme::Nord;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Orientation {
@@ -61,6 +73,53 @@ struct Args {
     /// orientation of the bar (left or right)
     #[argh(option, default = "Orientation::Left")]
     orientation: Orientation,
+
+    /// theme name: CatppuccinFrappe,CatppuccinLatte,CatppuccinMacchiato,CatppuccinMocha,Dark,Dracula,Ferra,GruvboxDark,GruvboxLight,KanagawaDragon,KanagawaLotus,KanagawaWave,Light,Moonfly,Nightfly,Nord,Oxocarbon,TokyoNight,TokyoNightLight,TokyoNightStorm,AyuMirage
+    #[argh(option)]
+    theme: Option<String>,
+}
+
+fn parse_theme(name: &str) -> Option<Theme> {
+    match name {
+        "CatppuccinFrappe" => Some(Theme::CatppuccinFrappe),
+        "CatppuccinLatte" => Some(Theme::CatppuccinLatte),
+        "CatppuccinMacchiato" => Some(Theme::CatppuccinMacchiato),
+        "CatppuccinMocha" => Some(Theme::CatppuccinMocha),
+        "Dark" => Some(Theme::Dark),
+        "Dracula" => Some(Theme::Dracula),
+        "Ferra" => Some(Theme::Ferra),
+        "GruvboxDark" => Some(Theme::GruvboxDark),
+        "GruvboxLight" => Some(Theme::GruvboxLight),
+        "KanagawaDragon" => Some(Theme::KanagawaDragon),
+        "KanagawaLotus" => Some(Theme::KanagawaLotus),
+        "KanagawaWave" => Some(Theme::KanagawaWave),
+        "Light" => Some(Theme::Light),
+        "Moonfly" => Some(Theme::Moonfly),
+        "Nightfly" => Some(Theme::Nightfly),
+        "Nord" => Some(Theme::Nord),
+        "Oxocarbon" => Some(Theme::Oxocarbon),
+        "TokyoNight" => Some(Theme::TokyoNight),
+        "TokyoNightLight" => Some(Theme::TokyoNightLight),
+        "TokyoNightStorm" => Some(Theme::TokyoNightStorm),
+        "AyuMirage" => Some(Theme::Custom(Arc::new(Custom::new(
+            "AyuMirage".to_string(),
+            Palette {
+                background: Color::from_rgb8(0x1F, 0x24, 0x30),
+                text: Color::from_rgb8(0xCB, 0xCC, 0xC6),
+                primary: Color::from_rgb8(0xFF, 0xCC, 0x66),
+                success: Color::from_rgb8(0xBA, 0xE6, 0x7E),
+                warning: Color::from_rgb8(0xFF, 0xD1, 0x73),
+                danger: Color::from_rgb8(0xF2, 0x87, 0x79),
+            },
+        )))),
+        _ => None,
+    }
+}
+
+/// Build an `iced` SVG handle for a file under `assets/`.
+pub fn svg_asset(name: &str) -> svg::Handle {
+    let path = Path::new(ASSETS_DIR).join(name);
+    svg::Handle::from_path(path)
 }
 
 fn app_subscription(_state: &BarState, gauges: &[&str]) -> Subscription<Message> {
@@ -167,8 +226,14 @@ fn main() -> Result<(), iced_layershell::Error> {
         ..Settings::default()
     };
 
+    let theme = args
+        .theme
+        .as_deref()
+        .and_then(parse_theme)
+        .unwrap_or(DEFAULT_THEME);
+
     application(BarState::new, BarState::namespace, update, BarState::view)
-        .theme(BarState::theme)
+        .theme(theme)
         .subscription({
             let gauges = gauges.clone();
             move |state| {
@@ -212,13 +277,13 @@ mod tests {
     fn update_gauge_replaces_by_id() {
         let mut gauges = Vec::new();
         let g1 = GaugeModel {
-            id: "clock".into(),
-            title: None,
+            id: "clock",
+            icon: None,
             value: "12\n00".to_string(),
         };
         let g2 = GaugeModel {
-            id: "clock".into(),
-            title: None,
+            id: "clock",
+            icon: None,
             value: "12\n01".to_string(),
         };
 
@@ -231,8 +296,8 @@ mod tests {
         assert_eq!(gauges[0].value, g2.value);
 
         let g3 = GaugeModel {
-            id: "date".into(),
-            title: None,
+            id: "date",
+            icon: None,
             value: "01\n01".to_string(),
         };
         update_gauge(&mut gauges, g3.clone());

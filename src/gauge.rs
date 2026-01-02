@@ -1,19 +1,19 @@
 use iced::futures::channel::mpsc;
-use std::borrow::Cow;
+use iced::widget::svg;
 use std::thread;
 use std::time::Duration;
 
 #[derive(Debug, Clone)]
 pub struct GaugeModel {
-    pub id: Cow<'static, str>,
-    pub title: Option<Cow<'static, str>>,
+    pub id: &'static str,
+    pub icon: Option<svg::Handle>,
     pub value: String,
 }
 
 /// Create a gauge stream that polls on a (potentially dynamic) interval.
 pub fn fixed_interval(
     id: &'static str,
-    title: Option<&'static str>,
+    icon: Option<svg::Handle>,
     interval: impl Fn() -> Duration + Send + 'static,
     tick: impl Fn() -> Option<String> + Send + 'static,
 ) -> impl iced::futures::Stream<Item = GaugeModel> {
@@ -23,8 +23,8 @@ pub fn fixed_interval(
         loop {
             if let Some(value) = tick() {
                 let _ = sender.try_send(GaugeModel {
-                    id: id.into(),
-                    title: title.map(|t| t.into()),
+                    id,
+                    icon: icon.clone(),
                     value,
                 });
             }
@@ -38,8 +38,8 @@ pub fn fixed_interval(
 
 /// Create a gauge stream driven by external events.
 pub fn event_stream(
-    id: &'static str,
-    title: Option<&'static str>,
+    _id: &'static str,
+    _icon: Option<svg::Handle>,
     start: impl Fn(mpsc::Sender<GaugeModel>) + Send + 'static,
 ) -> impl iced::futures::Stream<Item = GaugeModel> {
     let (sender, receiver) = mpsc::channel(16);
@@ -52,13 +52,13 @@ pub fn event_stream(
 pub enum GaugeKind {
     Interval {
         id: &'static str,
-        title: Option<&'static str>,
+        icon: Option<svg::Handle>,
         interval: Box<dyn Fn() -> Duration + Send + 'static>,
         tick: Box<dyn Fn() -> Option<String> + Send + 'static>,
     },
     Event {
         id: &'static str,
-        title: Option<&'static str>,
+        icon: Option<svg::Handle>,
         start: Box<dyn Fn(mpsc::Sender<GaugeModel>) + Send + 'static>,
     },
 }
@@ -68,17 +68,17 @@ impl GaugeKind {
         match self {
             GaugeKind::Interval {
                 id,
-                title,
+                icon,
                 interval,
                 tick,
             } => Box::new(fixed_interval(
                 id,
-                title,
+                icon,
                 move || interval(),
                 move || tick(),
             )),
-            GaugeKind::Event { id, title, start } => {
-                Box::new(event_stream(id, title, move |tx| start(tx)))
+            GaugeKind::Event { id, icon, start } => {
+                Box::new(event_stream(id, icon, move |tx| start(tx)))
             }
         }
     }

@@ -2,6 +2,7 @@ use chrono::Local;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use crate::gauge::fixed_interval;
+use crate::svg_asset;
 
 const SECS_PER_DAY: u64 = 86_400;
 const DAY_LENGTH: Duration = Duration::from_secs(SECS_PER_DAY);
@@ -10,7 +11,7 @@ const DAY_LENGTH: Duration = Duration::from_secs(SECS_PER_DAY);
 pub fn day_stream() -> impl iced::futures::Stream<Item = crate::gauge::GaugeModel> {
     fixed_interval(
         "date",
-        None,
+        Some(svg_asset("calendar-alt.svg")),
         || {
             let now = SystemTime::now();
             if let Ok(elapsed) = now.duration_since(UNIX_EPOCH) {

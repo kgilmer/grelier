@@ -1,6 +1,9 @@
 use std::convert::TryInto;
 
 use crate::gauge::GaugeModel;
+use iced::alignment;
+use iced::widget::text;
+use iced::widget::svg::{self, Svg};
 use iced::widget::{Column, Space, Text, button, container, mouse_area};
 use iced::{Element, Length, Theme, mouse};
 use iced_layershell::actions::LayershellCustomActionWithId;
@@ -61,17 +64,17 @@ impl BarState {
                             let urgent = ws.urgent;
                             move |theme: &Theme| {
                                 let palette = theme.extended_palette();
-                                let background_color = if urgent {
-                                    palette.danger.base.color
+                                let (background_color, text_color) = if urgent {
+                                    (palette.danger.base.color, palette.danger.base.text)
                                 } else if focused {
-                                    palette.primary.base.color
+                                    (palette.primary.base.color, palette.primary.base.text)
                                 } else {
-                                    palette.background.base.color
+                                    (palette.background.base.color, palette.background.base.text)
                                 };
 
                                 container::Style {
                                     background: Some(background_color.into()),
-                                    text_color: Some(palette.background.base.text),
+                                    text_color: Some(text_color),
                                     ..container::Style::default()
                                 }
                             }
@@ -84,16 +87,36 @@ impl BarState {
                     )
                 });
 
-        let gauges =
-            self.gauges
-                .iter()
-                .fold(Column::new().padding([4, 2]).spacing(2), |col, gauge| {
-                    let text = match &gauge.title {
-                        Some(title) => format!("{title}: {}", gauge.value),
-                        None => gauge.value.clone(),
-                    };
-                    col.push(Text::new(text))
-                });
+        let gauges = self.gauges.iter().fold(
+            Column::new()
+                .padding([4, 2])
+                .spacing(8) 
+                .width(Length::Fill)
+                .align_x(alignment::Horizontal::Center),
+            |col, gauge| {
+                let mut gauge_column = Column::new()
+                    .align_x(alignment::Horizontal::Center)
+                    .width(Length::Fill);
+
+                if let Some(icon) = &gauge.icon {
+                    let icon_view = Svg::new(icon.clone())
+                        .width(Length::Fixed(14.0))
+                        .height(Length::Fixed(14.0))
+                        .style(|theme: &Theme, _status| svg::Style {
+                            color: Some(theme.palette().text),
+                        });
+                    let centered_icon =
+                        container(icon_view).width(Length::Fill).align_x(alignment::Horizontal::Center);
+                    gauge_column = gauge_column.push(centered_icon);
+                }
+
+                let value_text = Text::new(gauge.value.clone())
+                    .width(Length::Fill)
+                    .align_x(text::Alignment::Center);
+
+                col.push(gauge_column.push(value_text))
+            },
+        );
 
         let layout = Column::new()
             .width(Length::Fill)
@@ -102,15 +125,17 @@ impl BarState {
             .push(Space::new().height(Length::Fill))
             .push(gauges);
 
-        let filled = container(layout).width(Length::Fill).height(Length::Fill);
+        let filled = container(layout)
+            .width(Length::Fill)
+            .height(Length::Fill)
+            .style(|theme: &Theme| container::Style {
+                background: Some(theme.palette().background.into()),
+                ..container::Style::default()
+            });
 
         mouse_area(filled)
             .interaction(mouse::Interaction::Pointer)
             .into()
-    }
-
-    pub fn theme(&self) -> Option<Theme> {
-        Some(Theme::Dark)
     }
 }
 
