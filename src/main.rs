@@ -5,6 +5,7 @@ mod gauge;
 mod date;
 mod sway_workspace;
 
+use argh::FromArgs;
 use iced::Subscription;
 use iced::Task;
 use iced::futures::{channel::mpsc, StreamExt};
@@ -15,15 +16,32 @@ use swayipc::Event;
 
 use crate::app::{BarState, Message, WorkspaceInfo};
 
-fn app_subscription(state: &BarState) -> Subscription<Message> {
-    Subscription::batch(vec![
-        workspace_subscription(state),
-        clock_subscription(),
-        date_subscription(),
-    ])
+#[derive(FromArgs, Debug)]
+/// Workspace + gauges display
+struct Args {
+    /// comma-separated list of gauges to run (clock,date,...)
+    #[argh(option, default = "\"clock,date\".to_string()")]
+    gauges: String,
+
+    /// list all available gauges and exit
+    #[argh(switch)]
+    list_gauges: bool,
 }
 
-fn workspace_subscription(_state: &BarState) -> Subscription<Message> {
+fn app_subscription(_state: &BarState, gauges: &[&str]) -> Subscription<Message> {
+    let mut subs = Vec::new();
+    subs.push(workspace_subscription());
+    for gauge in gauges {
+        match *gauge {
+            "clock" => subs.push(clock_subscription()),
+            "date" => subs.push(date_subscription()),
+            other => eprintln!("Unknown gauge '{other}', skipping"),
+        }
+    }
+    Subscription::batch(subs)
+}
+
+fn workspace_subscription() -> Subscription<Message> {
     Subscription::run(workspace_stream)
 }
 
@@ -74,6 +92,21 @@ fn date_subscription() -> Subscription<Message> {
 }
 
 fn main() -> Result<(), iced_layershell::Error> {
+    let args: Args = argh::from_env();
+
+    if args.list_gauges {
+        println!("Available gauges: clock, date");
+        return Ok(());
+    }
+
+    let gauges: Vec<String> = args
+        .gauges
+        .split(',')
+        .map(str::trim)
+        .filter(|s| !s.is_empty())
+        .map(|s| s.to_string())
+        .collect();
+
     let settings = Settings {
         layer_settings: LayerShellSettings {
             size: Some((24, 0)), // width fixed to 24px, height chosen by compositor (anchored top+bottom)
@@ -91,7 +124,13 @@ fn main() -> Result<(), iced_layershell::Error> {
 
     application(BarState::new, BarState::namespace, update, BarState::view)
         .theme(BarState::theme)
-        .subscription(app_subscription)
+        .subscription({
+            let gauges = gauges.clone();
+            move |state| {
+                let gauge_refs: Vec<&str> = gauges.iter().map(|s| s.as_str()).collect();
+                app_subscription(state, &gauge_refs)
+            }
+        })
         .settings(settings)
         .run()
 }
