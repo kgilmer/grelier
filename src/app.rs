@@ -1,7 +1,7 @@
 use std::convert::TryInto;
 
-use iced::widget::{Column, Text, button, container};
-use iced::{Element, Theme};
+use iced::widget::{Column, Text, button, container, mouse_area};
+use iced::{Element, Length, Theme, mouse};
 use iced_layershell::actions::LayershellCustomActionWithId;
 
 #[derive(Debug, Clone)]
@@ -42,39 +42,45 @@ impl BarState {
     }
 
     pub fn view(&self) -> Element<'_, Message> {
-        self.workspaces
-            .iter()
-            .fold(Column::new().padding([4, 2]).spacing(4), |col, ws| {
-                // Buttons show the workspace num; background indicates focus/urgency.
-                let styled = container(Text::new(ws.num.to_string()))
-                    .padding([2, 4])
-                    .style({
-                        let focused = ws.focused;
-                        let urgent = ws.urgent;
-                        move |theme: &Theme| {
-                            let palette = theme.extended_palette();
-                            let background_color = if urgent {
-                                palette.danger.base.color
-                            } else if focused {
-                                palette.primary.base.color
-                            } else {
-                                palette.background.base.color
-                            };
+        let column =
+            self.workspaces
+                .iter()
+                .fold(Column::new().padding([4, 2]).spacing(4), |col, ws| {
+                    // Buttons show the workspace num; background indicates focus/urgency.
+                    let styled = container(Text::new(ws.num.to_string()))
+                        .padding([2, 4])
+                        .style({
+                            let focused = ws.focused;
+                            let urgent = ws.urgent;
+                            move |theme: &Theme| {
+                                let palette = theme.extended_palette();
+                                let background_color = if urgent {
+                                    palette.danger.base.color
+                                } else if focused {
+                                    palette.primary.base.color
+                                } else {
+                                    palette.background.base.color
+                                };
 
-                            container::Style {
-                                background: Some(background_color.into()),
-                                text_color: Some(palette.background.base.text),
-                                ..container::Style::default()
+                                container::Style {
+                                    background: Some(background_color.into()),
+                                    text_color: Some(palette.background.base.text),
+                                    ..container::Style::default()
+                                }
                             }
-                        }
-                    });
+                        });
 
-                col.push(
-                    button(styled)
-                        .padding(0)
-                        .on_press(Message::Clicked(ws.name.clone())),
-                )
-            })
+                    col.push(
+                        button(styled)
+                            .padding(0)
+                            .on_press(Message::Clicked(ws.name.clone())),
+                    )
+                });
+
+        let filled = container(column).width(Length::Fill).height(Length::Fill);
+
+        mouse_area(filled)
+            .interaction(mouse::Interaction::Move)
             .into()
     }
 
