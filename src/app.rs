@@ -1,6 +1,6 @@
 use std::convert::TryInto;
 
-use iced::widget::{button, container, Column, Text};
+use iced::widget::{Column, Text, button, container};
 use iced::{Element, Theme};
 use iced_layershell::actions::LayershellCustomActionWithId;
 
@@ -15,18 +15,26 @@ impl TryInto<LayershellCustomActionWithId> for Message {
 
     fn try_into(self) -> Result<LayershellCustomActionWithId, Message> {
         match self {
+            // All messages stay within the app; none translate to layer-shell actions.
             Message::Workspaces(_) | Message::Clicked(_) => Err(self),
         }
     }
 }
 
+#[derive(Clone)]
 pub struct BarState {
     pub workspaces: Vec<WorkspaceInfo>,
 }
 
 impl BarState {
     pub fn new() -> Self {
-        Self { workspaces: Vec::new() }
+        Self {
+            workspaces: Vec::new(),
+        }
+    }
+
+    pub fn with_workspaces(workspaces: Vec<WorkspaceInfo>) -> Self {
+        Self { workspaces }
     }
 
     pub fn namespace() -> String {
@@ -37,29 +45,35 @@ impl BarState {
         self.workspaces
             .iter()
             .fold(Column::new().padding([4, 2]).spacing(4), |col, ws| {
-                let num = ws.num;
-                let focused = ws.focused;
-                let urgent = ws.urgent;
-                let name = ws.name.clone();
-                let styled = container(Text::new(num.to_string()))
+                // Buttons show the workspace num; background indicates focus/urgency.
+                let styled = container(Text::new(ws.num.to_string()))
                     .padding([2, 4])
-                    .style(move |theme: &Theme| {
-                        let palette = theme.extended_palette();
-                        let background_color = if urgent {
-                            palette.danger.base.color
-                        } else if focused {
-                            palette.primary.base.color
-                        } else {
-                            palette.background.base.color
-                        };
+                    .style({
+                        let focused = ws.focused;
+                        let urgent = ws.urgent;
+                        move |theme: &Theme| {
+                            let palette = theme.extended_palette();
+                            let background_color = if urgent {
+                                palette.danger.base.color
+                            } else if focused {
+                                palette.primary.base.color
+                            } else {
+                                palette.background.base.color
+                            };
 
-                        container::Style {
-                            background: Some(background_color.into()),
-                            text_color: Some(palette.background.base.text),
-                            ..container::Style::default()
+                            container::Style {
+                                background: Some(background_color.into()),
+                                text_color: Some(palette.background.base.text),
+                                ..container::Style::default()
+                            }
                         }
                     });
-                col.push(button(styled).padding(0).on_press(Message::Clicked(name)))
+
+                col.push(
+                    button(styled)
+                        .padding(0)
+                        .on_press(Message::Clicked(ws.name.clone())),
+                )
             })
             .into()
     }

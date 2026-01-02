@@ -2,15 +2,15 @@
 mod app;
 mod sway_workspace;
 
-use iced::futures::channel::mpsc;
 use iced::Subscription;
 use iced::Task;
+use iced::futures::channel::mpsc;
 use iced_layershell::application;
 use iced_layershell::reexport::{Anchor, KeyboardInteractivity, Layer};
 use iced_layershell::settings::{LayerShellSettings, Settings, StartMode};
 use swayipc::Event;
 
-use crate::app::{Message, BarState, WorkspaceInfo};
+use crate::app::{BarState, Message, WorkspaceInfo};
 
 fn workspace_subscription(_state: &BarState) -> Subscription<Message> {
     Subscription::run(workspace_stream)
@@ -20,12 +20,14 @@ fn workspace_stream() -> impl iced::futures::Stream<Item = Message> {
     let (mut sender, receiver) = mpsc::channel(16);
 
     std::thread::spawn(move || {
-        let send_workspaces = |sender: &mut mpsc::Sender<Message>| {
-            if let Ok(ws) = sway_workspace::fetch_workspaces() {
-                let info = ws.into_iter().map(to_workspace_info).collect();
-                let _ = sender.try_send(Message::Workspaces(info));
-            }
-        };
+        let send_workspaces =
+            |sender: &mut mpsc::Sender<Message>| match sway_workspace::fetch_workspaces() {
+                Ok(ws) => {
+                    let info = ws.into_iter().map(to_workspace_info).collect();
+                    let _ = sender.try_send(Message::Workspaces(info));
+                }
+                Err(err) => eprintln!("Failed to fetch workspaces: {err}"),
+            };
 
         send_workspaces(&mut sender);
 
@@ -77,9 +79,7 @@ fn main() -> Result<(), iced_layershell::Error> {
 
 fn update(state: &mut BarState, message: Message) -> Task<Message> {
     match message {
-        Message::Workspaces(ws) => {
-            state.workspaces = ws;
-        }
+        Message::Workspaces(ws) => state.workspaces = ws,
         Message::Clicked(name) => {
             if let Err(err) = sway_workspace::focus_workspace(&name) {
                 eprintln!("Failed to focus workspace \"{name}\": {err}");
@@ -91,6 +91,13 @@ fn update(state: &mut BarState, message: Message) -> Task<Message> {
 }
 
 fn to_workspace_info(ws: swayipc::Workspace) -> WorkspaceInfo {
+    let rect = crate::app::Rect {
+        x: ws.rect.x,
+        y: ws.rect.y,
+        width: ws.rect.width,
+        height: ws.rect.height,
+    };
+
     WorkspaceInfo {
         id: ws.id,
         num: ws.num,
@@ -101,12 +108,7 @@ fn to_workspace_info(ws: swayipc::Workspace) -> WorkspaceInfo {
         urgent: ws.urgent,
         representation: ws.representation,
         orientation: ws.orientation,
-        rect: crate::app::Rect {
-            x: ws.rect.x,
-            y: ws.rect.y,
-            width: ws.rect.width,
-            height: ws.rect.height,
-        },
+        rect,
         output: ws.output,
         focus: ws.focus,
     }
