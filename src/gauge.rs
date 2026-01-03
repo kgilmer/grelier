@@ -92,12 +92,7 @@ impl GaugeKind {
                 icon,
                 interval,
                 tick,
-            } => Box::new(fixed_interval(
-                id,
-                icon,
-                move || interval(),
-                move || tick(),
-            )),
+            } => Box::new(fixed_interval(id, icon, move || interval(), move || tick())),
             GaugeKind::Event { id, icon, start } => {
                 Box::new(event_stream(id, icon, move |tx| start(tx)))
             }

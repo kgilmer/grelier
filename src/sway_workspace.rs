@@ -1,11 +1,38 @@
 use std::cell::RefCell;
 
+use iced::Subscription;
+use iced::futures::channel::mpsc;
+use swayipc::Event;
 use swayipc::{Connection, Error, EventStream, EventType, Workspace};
 
 #[cfg(test)]
 type SwayConnection = FakeConnection;
 #[cfg(not(test))]
 type SwayConnection = Connection;
+
+#[derive(Debug, Clone)]
+pub struct WorkspaceInfo {
+    pub id: i64,
+    pub num: i32,
+    pub name: String,
+    pub layout: String,
+    pub visible: bool,
+    pub focused: bool,
+    pub urgent: bool,
+    pub representation: Option<String>,
+    pub orientation: String,
+    pub rect: Rect,
+    pub output: String,
+    pub focus: Vec<i64>,
+}
+
+#[derive(Debug, Clone)]
+pub struct Rect {
+    pub x: i32,
+    pub y: i32,
+    pub width: i32,
+    pub height: i32,
+}
 
 thread_local! {
     static COMMAND_CONN: RefCell<Option<SwayConnection>> = const { RefCell::new(None) };
@@ -49,10 +76,79 @@ fn with_command_conn<R>(
     })
 }
 
+fn to_workspace_info(ws: swayipc::Workspace) -> WorkspaceInfo {
+    let rect = Rect {
+        x: ws.rect.x,
+        y: ws.rect.y,
+        width: ws.rect.width,
+        height: ws.rect.height,
+    };
+
+    WorkspaceInfo {
+        id: ws.id,
+        num: ws.num,
+        name: ws.name,
+        layout: ws.layout,
+        visible: ws.visible,
+        focused: ws.focused,
+        urgent: ws.urgent,
+        representation: ws.representation,
+        orientation: ws.orientation,
+        rect,
+        output: ws.output,
+        focus: ws.focus,
+    }
+}
+
+pub fn workspace_subscription() -> Subscription<Message> {
+    Subscription::run(workspace_stream)
+}
+
+fn workspace_stream() -> impl iced::futures::Stream<Item = Message> {
+    let (mut sender, receiver) = mpsc::channel(16);
+
+    std::thread::spawn(move || {
+        let send_workspaces = |sender: &mut mpsc::Sender<Message>| match fetch_workspaces() {
+            Ok(ws) => {
+                let info = ws.into_iter().map(to_workspace_info).collect();
+                sender
+                    .try_send(Message::Workspaces(info))
+                    .expect("failed to send workspace info");
+            }
+            Err(err) => eprintln!("Failed to fetch workspaces: {err}"),
+        };
+
+        send_workspaces(&mut sender);
+
+        let mut stream = match subscribe_workspace_events() {
+            Ok(stream) => stream,
+            Err(err) => {
+                eprintln!("Failed to subscribe to workspace events: {err}");
+                return;
+            }
+        };
+
+        for event in &mut stream {
+            match event {
+                Ok(Event::Workspace(_)) => send_workspaces(&mut sender),
+                Ok(_) => {}
+                Err(err) => {
+                    eprintln!("Workspace event stream error: {err}");
+                    break;
+                }
+            }
+        }
+    });
+
+    receiver
+}
+
 #[cfg(test)]
 use std::sync::atomic::{AtomicUsize, Ordering};
 #[cfg(test)]
 use std::sync::{Mutex, OnceLock};
+
+use crate::app::Message;
 
 #[cfg(test)]
 static LOG: OnceLock<Mutex<Vec<(usize, &'static str)>>> = OnceLock::new();

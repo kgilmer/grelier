@@ -1,11 +1,14 @@
 use chrono::Local;
+use iced::Subscription;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use crate::gauge::{fixed_interval, GaugeValue, GaugeValueAttention};
-use crate::svg_asset;
+use crate::app::Message;
+use crate::gauge::{GaugeValue, GaugeValueAttention, fixed_interval};
+use crate::icon::svg_asset;
+use iced::futures::StreamExt;
 
 /// Stream of the current wall-clock hour/minute, formatted on two lines.
-pub fn seconds_stream() -> impl iced::futures::Stream<Item = crate::gauge::GaugeModel> {
+fn seconds_stream() -> impl iced::futures::Stream<Item = crate::gauge::GaugeModel> {
     fixed_interval(
         "clock",
         Some(svg_asset("clock.svg")),
@@ -25,4 +28,8 @@ pub fn seconds_stream() -> impl iced::futures::Stream<Item = crate::gauge::Gauge
             ))
         },
     )
+}
+
+pub fn clock_subscription() -> Subscription<Message> {
+    Subscription::run(|| seconds_stream().map(Message::Gauge))
 }

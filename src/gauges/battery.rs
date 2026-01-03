@@ -1,8 +1,11 @@
-use crate::gauge::{event_stream, GaugeModel, GaugeValue, GaugeValueAttention};
-use crate::svg_asset;
+use crate::app::Message;
+use crate::gauge::{GaugeModel, GaugeValue, GaugeValueAttention, event_stream};
+use crate::icon::svg_asset;
+use iced::Subscription;
+use iced::futures::StreamExt;
 
 /// Stream battery information via udev power_supply events.
-pub fn battery_stream() -> impl iced::futures::Stream<Item = GaugeModel> {
+fn battery_stream() -> impl iced::futures::Stream<Item = GaugeModel> {
     event_stream("battery", None, |mut sender| {
         // Send current state so the UI shows something before the first event.
         send_snapshot(&mut sender);
@@ -99,7 +102,10 @@ fn battery_value(dev: &udev::Device) -> Option<(GaugeValue, GaugeValueAttention)
             ));
         }
 
-        return Some((GaugeValue::Text(format!("{cap}%")), GaugeValueAttention::Nominal));
+        return Some((
+            GaugeValue::Text(format!("{cap}%")),
+            GaugeValueAttention::Nominal,
+        ));
     }
 
     None
@@ -133,4 +139,8 @@ fn property_str(dev: &udev::Device, key: &str) -> Option<String> {
                 .and_then(|v| v.to_str())
                 .map(|s| s.to_string())
         })
+}
+
+pub fn battery_subscription() -> Subscription<Message> {
+    Subscription::run(|| battery_stream().map(Message::Gauge))
 }

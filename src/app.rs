@@ -1,9 +1,10 @@
 use std::convert::TryInto;
 
 use crate::gauge::{GaugeModel, GaugeValue, GaugeValueAttention};
+use crate::sway_workspace::WorkspaceInfo;
 use iced::alignment;
-use iced::widget::text;
 use iced::widget::svg::{self, Svg};
+use iced::widget::text;
 use iced::widget::{Column, Space, Text, button, container, mouse_area};
 use iced::{Element, Length, Theme, mouse};
 use iced_layershell::actions::LayershellCustomActionWithId;
@@ -90,7 +91,7 @@ impl BarState {
         let gauges = self.gauges.iter().fold(
             Column::new()
                 .padding([4, 2])
-                .spacing(8) 
+                .spacing(8)
                 .width(Length::Fill)
                 .align_x(alignment::Horizontal::Center),
             |col, gauge| {
@@ -116,8 +117,9 @@ impl BarState {
                                 }),
                             }
                         });
-                    let centered_icon =
-                        container(icon_view).width(Length::Fill).align_x(alignment::Horizontal::Center);
+                    let centered_icon = container(icon_view)
+                        .width(Length::Fill)
+                        .align_x(alignment::Horizontal::Center);
                     gauge_column = gauge_column
                         .push(centered_icon)
                         .push(Space::new().height(Length::Fixed(3.0)));
@@ -163,8 +165,9 @@ impl BarState {
                         .into(),
                 };
 
-                let centered_value =
-                    container(value).width(Length::Fill).align_x(alignment::Horizontal::Center);
+                let centered_value = container(value)
+                    .width(Length::Fill)
+                    .align_x(alignment::Horizontal::Center);
 
                 col.push(gauge_column.push(centered_value))
             },
@@ -189,28 +192,4 @@ impl BarState {
             .interaction(mouse::Interaction::Pointer)
             .into()
     }
-}
-
-#[derive(Debug, Clone)]
-pub struct WorkspaceInfo {
-    pub id: i64,
-    pub num: i32,
-    pub name: String,
-    pub layout: String,
-    pub visible: bool,
-    pub focused: bool,
-    pub urgent: bool,
-    pub representation: Option<String>,
-    pub orientation: String,
-    pub rect: Rect,
-    pub output: String,
-    pub focus: Vec<i64>,
-}
-
-#[derive(Debug, Clone)]
-pub struct Rect {
-    pub x: i32,
-    pub y: i32,
-    pub width: i32,
-    pub height: i32,
 }
