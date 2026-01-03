@@ -4,10 +4,10 @@ mod gauges {
     pub mod battery;
     pub mod clock;
     pub mod date;
-    pub mod sway_workspace;
 }
 mod gauge;
 mod icon;
+mod sway_workspace;
 mod theme;
 
 use argh::FromArgs;
@@ -68,7 +68,7 @@ struct Args {
 
 fn app_subscription(_state: &BarState, gauges: &[&str]) -> Subscription<Message> {
     let mut subs = Vec::new();
-    subs.push(gauges::sway_workspace::workspace_subscription());
+    subs.push(sway_workspace::workspace_subscription());
     for gauge in gauges {
         match *gauge {
             "clock" => subs.push(clock::clock_subscription()),
@@ -140,7 +140,7 @@ fn update(state: &mut BarState, message: Message) -> Task<Message> {
     match message {
         Message::Workspaces(ws) => state.workspaces = ws,
         Message::Clicked(name) => {
-            if let Err(err) = gauges::sway_workspace::focus_workspace(&name) {
+            if let Err(err) = sway_workspace::focus_workspace(&name) {
                 eprintln!("Failed to focus workspace \"{name}\": {err}");
             }
         }

@@ -1,7 +1,7 @@
 use std::convert::TryInto;
 
 use crate::gauge::{GaugeModel, GaugeValue, GaugeValueAttention};
-use crate::gauges::sway_workspace::WorkspaceInfo;
+use crate::sway_workspace::WorkspaceInfo;
 use iced::alignment;
 use iced::widget::svg::{self, Svg};
 use iced::widget::text;
