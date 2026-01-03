@@ -141,7 +141,6 @@ impl BarState {
                                         theme.extended_palette().danger.base.color
                                     }
                                 }),
-                                ..text::Style::default()
                             })
                             .into()
                     }

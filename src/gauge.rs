@@ -4,17 +4,14 @@ use std::thread;
 use std::time::Duration;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Default)]
 pub enum GaugeValueAttention {
+    #[default]
     Nominal,
     Warning,
     Danger,
 }
 
-impl Default for GaugeValueAttention {
-    fn default() -> Self {
-        GaugeValueAttention::Nominal
-    }
-}
 
 #[derive(Debug, Clone)]
 pub enum GaugeValue {
@@ -92,9 +89,9 @@ impl GaugeKind {
                 icon,
                 interval,
                 tick,
-            } => Box::new(fixed_interval(id, icon, move || interval(), move || tick())),
+            } => Box::new(fixed_interval(id, icon, interval, tick)),
             GaugeKind::Event { id, icon, start } => {
-                Box::new(event_stream(id, icon, move |tx| start(tx)))
+                Box::new(event_stream(id, icon, start))
             }
         }
     }

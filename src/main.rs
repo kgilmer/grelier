@@ -24,16 +24,13 @@ use crate::gauge::GaugeModel;
 use crate::gauges::{battery, clock, date};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Default)]
 enum Orientation {
+    #[default]
     Left,
     Right,
 }
 
-impl Default for Orientation {
-    fn default() -> Self {
-        Orientation::Left
-    }
-}
 
 impl std::str::FromStr for Orientation {
     type Err = String;
