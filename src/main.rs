@@ -58,7 +58,7 @@ struct Args {
     list_gauges: bool,
 
     /// orientation of the bar (left or right)
-    #[argh(option)]
+    #[argh(option, default = "Orientation::Left")]
     orientation: Orientation,
 
     /// theme name: CatppuccinFrappe,CatppuccinLatte,CatppuccinMacchiato,CatppuccinMocha,Dark,Dracula,Ferra,GruvboxDark,GruvboxLight,KanagawaDragon,KanagawaLotus,KanagawaWave,Light,Moonfly,Nightfly,Nord,Oxocarbon,TokyoNight,TokyoNightLight,TokyoNightStorm,AyuMirage
