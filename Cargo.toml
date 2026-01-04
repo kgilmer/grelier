@@ -4,9 +4,12 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-swayipc = "3"
 iced = { version = "0.14", features = ["image", "svg"] }
 iced_layershell = "0.14.2"
+iced_anim = "0.3.1"
+
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
 udev = "0.7"
 argh = "0.1"
+
+swayipc = "3"

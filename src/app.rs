@@ -3,10 +3,14 @@ use std::convert::TryInto;
 use crate::gauge::{GaugeModel, GaugeValue, GaugeValueAttention};
 use crate::sway_workspace::WorkspaceInfo;
 use iced::alignment;
+use iced::border;
+use iced::font::Weight;
 use iced::widget::svg::{self, Svg};
 use iced::widget::text;
 use iced::widget::{Column, Space, Text, button, container, mouse_area};
-use iced::{Element, Length, Theme, mouse};
+use iced::{Border, Color, Element, Font, Length, Theme, mouse};
+use iced_anim::animation_builder::AnimationBuilder;
+use iced_anim::transition::Easing;
 use iced_layershell::actions::LayershellCustomActionWithId;
 
 #[derive(Debug, Clone)]
@@ -25,6 +29,35 @@ impl TryInto<LayershellCustomActionWithId> for Message {
             Message::Workspaces(_) | Message::Clicked(_) | Message::Gauge(_) => Err(self),
         }
     }
+}
+
+fn lerp_color(from: Color, to: Color, t: f32) -> Color {
+    let t = t.clamp(0.0, 1.0);
+    Color {
+        r: from.r + (to.r - from.r) * t,
+        g: from.g + (to.g - from.g) * t,
+        b: from.b + (to.b - from.b) * t,
+        a: from.a + (to.a - from.a) * t,
+    }
+}
+
+fn workspace_color(
+    focus_level: f32,
+    urgent_level: f32,
+    normal: Color,
+    focused: Color,
+    urgent: Color,
+) -> Color {
+    let focus_blend = lerp_color(normal, focused, focus_level);
+    // Urgent overlays focused; higher priority means this mix wins if present.
+    lerp_color(focus_blend, urgent, urgent_level)
+}
+
+fn workspace_levels(ws: &WorkspaceInfo) -> (f32, f32) {
+    (
+        if ws.focused { 1.0 } else { 0.0 },
+        if ws.urgent { 1.0 } else { 0.0 },
+    )
 }
 
 #[derive(Clone)]
@@ -56,36 +89,65 @@ impl BarState {
         let workspaces =
             self.workspaces
                 .iter()
-                .fold(Column::new().padding([4, 2]).spacing(4), |col, ws| {
-                    // Buttons show the workspace num; background indicates focus/urgency.
-                    let styled = container(Text::new(ws.num.to_string()))
-                        .padding([2, 4])
-                        .style({
-                            let focused = ws.focused;
-                            let urgent = ws.urgent;
-                            move |theme: &Theme| {
-                                let palette = theme.extended_palette();
-                                let (background_color, text_color) = if urgent {
-                                    (palette.danger.base.color, palette.danger.base.text)
-                                } else if focused {
-                                    (palette.primary.base.color, palette.primary.base.text)
-                                } else {
-                                    (palette.background.base.color, palette.background.base.text)
-                                };
+                .fold(Column::new().padding([4, 2]).spacing(2), |col, ws| {
+                    let ws_name = ws.name.clone();
+                    let ws_num = ws.num;
+                    let (focus_level, urgent_level) = workspace_levels(ws);
 
-                                container::Style {
-                                    background: Some(background_color.into()),
-                                    text_color: Some(text_color),
-                                    ..container::Style::default()
-                                }
+                    let animated_workspace = AnimationBuilder::new(
+                        (focus_level, urgent_level),
+                        move |(focus, urgent)| {
+                            let name = ws_name.clone();
+                            let mut label = Text::new(ws_num.to_string())
+                                .width(Length::Fill)
+                                .align_x(text::Alignment::Center);
+                            if focus > 0.0 {
+                                label = label.font(Font {
+                                    weight: Weight::Bold,
+                                    ..Font::DEFAULT
+                                });
                             }
-                        });
 
-                    col.push(
-                        button(styled)
-                            .padding(0)
-                            .on_press(Message::Clicked(ws.name.clone())),
+                            let content = container(label)
+                                .padding([4, 4])
+                                .width(Length::Fill)
+                                .style(move |theme: &Theme| {
+                                    let palette = theme.extended_palette();
+
+                                    let background_color = workspace_color(
+                                        focus,
+                                        urgent,
+                                        palette.background.base.color,
+                                        palette.primary.base.color,
+                                        palette.danger.base.color,
+                                    );
+                                    let text_color = if urgent > 0.0 || focus > 0.0 {
+                                        palette.background.base.color
+                                    } else {
+                                        theme.palette().text
+                                    };
+
+                                    container::Style {
+                                        background: Some(background_color.into()),
+                                        border: Border::default()
+                                            .color(palette.warning.base.color)
+                                            .width(3.0)
+                                            .rounded(border::Radius::new(5.0)),
+                                        text_color: Some(text_color),
+                                        ..container::Style::default()
+                                    }
+                                });
+
+                            button(content)
+                                .padding(0)
+                                .width(Length::Fill)
+                                .on_press(Message::Clicked(name))
+                                .into()
+                        },
                     )
+                    .animation(Easing::EASE_IN_OUT.quick());
+
+                    col.push(animated_workspace)
                 });
 
         let gauges = self.gauges.iter().fold(
