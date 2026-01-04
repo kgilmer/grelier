@@ -3,15 +3,13 @@ use iced::widget::svg;
 use std::thread;
 use std::time::Duration;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[derive(Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum GaugeValueAttention {
     #[default]
     Nominal,
     Warning,
     Danger,
 }
-
 
 #[derive(Debug, Clone)]
 pub enum GaugeValue {
@@ -90,9 +88,7 @@ impl GaugeKind {
                 interval,
                 tick,
             } => Box::new(fixed_interval(id, icon, interval, tick)),
-            GaugeKind::Event { id, icon, start } => {
-                Box::new(event_stream(id, icon, start))
-            }
+            GaugeKind::Event { id, icon, start } => Box::new(event_stream(id, icon, start)),
         }
     }
 }
