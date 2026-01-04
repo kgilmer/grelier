@@ -49,13 +49,9 @@ impl std::str::FromStr for Orientation {
 #[derive(FromArgs, Debug)]
 /// Workspace + gauges display
 struct Args {
-    /// comma-separated list of gauges to run (clock,date,...)
+    /// gauges: clock, date, battery
     #[argh(option, default = "\"clock,date\".to_string()")]
     gauges: String,
-
-    /// list all available gauges and exit
-    #[argh(switch)]
-    list_gauges: bool,
 
     /// orientation of the bar (left or right)
     #[argh(option, default = "Orientation::Left")]
@@ -83,11 +79,6 @@ fn app_subscription(_state: &BarState, gauges: &[&str]) -> Subscription<Message>
 fn main() -> Result<(), iced_layershell::Error> {
     let args: Args = argh::from_env();
 
-    if args.list_gauges {
-        println!("Available gauges: clock, date, battery");
-        return Ok(());
-    }
-
     let gauges: Vec<String> = args
         .gauges
         .split(',')
@@ -103,8 +94,8 @@ fn main() -> Result<(), iced_layershell::Error> {
 
     let settings = Settings {
         layer_settings: LayerShellSettings {
-            size: Some((24, 0)), // width fixed to 24px, height chosen by compositor (anchored top+bottom)
-            exclusive_zone: 24,
+            size: Some((28, 0)),
+            exclusive_zone: 28,
             anchor,
             layer: Layer::Overlay,
             margin: (0, 0, 0, 0),
