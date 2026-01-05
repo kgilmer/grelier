@@ -4,6 +4,9 @@ mod gauges {
     pub mod battery;
     pub mod clock;
     pub mod date;
+    pub mod disk;
+    pub mod cpu;
+    pub mod ram;
     pub mod quantity;
 }
 mod gauge;
@@ -23,12 +26,12 @@ use iced_layershell::settings::{LayerShellSettings, Settings, StartMode};
 use crate::app::Orientation;
 use crate::app::{BarState, Message};
 use crate::gauge::{GaugeClick, GaugeModel};
-use crate::gauges::{battery, clock, date, quantity};
+use crate::gauges::{battery, clock, cpu, date, disk, quantity, ram};
 
 #[derive(FromArgs, Debug)]
 /// Workspace + gauges display
 struct Args {
-    /// gauges: clock, date, battery, quantity
+    /// gauges: clock, date, battery, cpu, disk, ram, quantity
     #[argh(option, default = "\"clock,date\".to_string()")]
     gauges: String,
 
@@ -49,6 +52,9 @@ fn app_subscription(_state: &BarState, gauges: &[&str]) -> Subscription<Message>
             "clock" => subs.push(clock::clock_subscription()),
             "date" => subs.push(date::date_subscription()),
             "battery" => subs.push(battery::battery_subscription()),
+            "cpu" => subs.push(cpu::cpu_subscription()),
+            "disk" => subs.push(disk::disk_subscription()),
+            "ram" => subs.push(ram::ram_subscription()),
             "quantity" => subs.push(quantity::quantity_subscription()),
             other => eprintln!("Unknown gauge '{other}', skipping"),
         }
@@ -94,17 +100,24 @@ fn main() -> Result<(), iced_layershell::Error> {
         .and_then(theme::parse_them)
         .unwrap_or(theme::DEFAULT_THEME);
 
-    application(BarState::new, BarState::namespace, update, BarState::view)
-        .theme(theme)
-        .subscription({
-            let gauges = gauges.clone();
-            move |state| {
-                let gauge_refs: Vec<&str> = gauges.iter().map(|s| s.as_str()).collect();
-                app_subscription(state, &gauge_refs)
-            }
-        })
-        .settings(settings)
-        .run()
+    let gauge_order = gauges.clone();
+
+    application(
+        move || BarState::with_gauge_order(gauge_order.clone()),
+        BarState::namespace,
+        update,
+        BarState::view,
+    )
+    .theme(theme)
+    .subscription({
+        let gauges = gauges.clone();
+        move |state| {
+            let gauge_refs: Vec<&str> = gauges.iter().map(|s| s.as_str()).collect();
+            app_subscription(state, &gauge_refs)
+        }
+    })
+    .settings(settings)
+    .run()
 }
 
 fn update(state: &mut BarState, message: Message) -> Task<Message> {

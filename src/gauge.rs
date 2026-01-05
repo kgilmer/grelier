@@ -2,7 +2,7 @@ use iced::futures::channel::mpsc;
 use iced::mouse;
 use iced::widget::svg;
 use std::fmt;
-use std::sync::Arc;
+use std::sync::{Arc, mpsc as sync_mpsc};
 use std::thread;
 use std::time::Duration;
 
@@ -63,8 +63,21 @@ pub fn fixed_interval(
     on_click: Option<GaugeClickAction>,
 ) -> impl iced::futures::Stream<Item = GaugeModel> {
     let (mut sender, receiver) = mpsc::channel(1);
+    let (trigger_tx, trigger_rx) = sync_mpsc::channel::<()>();
+
+    let on_click = on_click.map(|callback| {
+        let trigger_tx = trigger_tx.clone();
+        Arc::new(move |click: GaugeClick| {
+            callback(click);
+            let _ = trigger_tx.send(());
+        }) as GaugeClickAction
+    });
 
     thread::spawn(move || {
+        // Keep a sender alive even if there is no click handler to prevent the channel
+        // from disconnecting and stopping the loop after the first tick.
+        let _trigger_tx = trigger_tx;
+
         loop {
             if let Some((value, attention)) = tick() {
                 let _ = sender.try_send(GaugeModel {
@@ -76,7 +89,11 @@ pub fn fixed_interval(
                 });
             }
 
-            thread::sleep(interval());
+            let sleep_duration = interval();
+            match trigger_rx.recv_timeout(sleep_duration) {
+                Ok(_) | Err(sync_mpsc::RecvTimeoutError::Timeout) => continue,
+                Err(sync_mpsc::RecvTimeoutError::Disconnected) => break,
+            }
         }
     });
 
@@ -123,5 +140,43 @@ impl GaugeKind {
             } => Box::new(fixed_interval(id, icon, interval, tick, on_click)),
             GaugeKind::Event { id, icon, start } => Box::new(event_stream(id, icon, start)),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use iced::futures::{executor::block_on, StreamExt};
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    #[test]
+    fn fixed_interval_keeps_running_without_click_handler() {
+        let tick_count = Arc::new(AtomicUsize::new(0));
+        let ticks = Arc::clone(&tick_count);
+
+        let mut stream = fixed_interval(
+            "test",
+            None,
+            || Duration::from_millis(5),
+            move || {
+                ticks.fetch_add(1, Ordering::SeqCst);
+                Some((
+                    GaugeValue::Text(String::from("ok")),
+                    GaugeValueAttention::Nominal,
+                ))
+            },
+            None,
+        );
+
+        let first = block_on(stream.next());
+        let second = block_on(stream.next());
+
+        assert!(first.is_some());
+        assert!(second.is_some());
+        assert!(
+            tick_count.load(Ordering::SeqCst) >= 2,
+            "expected multiple ticks, got {}",
+            tick_count.load(Ordering::SeqCst)
+        );
     }
 }

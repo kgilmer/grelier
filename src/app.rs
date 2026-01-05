@@ -93,6 +93,7 @@ fn workspace_levels(ws: &WorkspaceInfo) -> (f32, f32) {
 pub struct BarState {
     pub workspaces: Vec<WorkspaceInfo>,
     pub gauges: Vec<GaugeModel>,
+    pub gauge_order: Vec<String>,
 }
 
 impl BarState {
@@ -100,6 +101,7 @@ impl BarState {
         Self {
             workspaces: Vec::new(),
             gauges: Vec::new(),
+            gauge_order: Vec::new(),
         }
     }
 
@@ -107,6 +109,15 @@ impl BarState {
         Self {
             workspaces,
             gauges: Vec::new(),
+            gauge_order: Vec::new(),
+        }
+    }
+
+    pub fn with_gauge_order(gauge_order: Vec<String>) -> Self {
+        Self {
+            workspaces: Vec::new(),
+            gauges: Vec::new(),
+            gauge_order,
         }
     }
 
@@ -179,7 +190,22 @@ impl BarState {
                     col.push(animated_workspace)
                 });
 
-        let gauges = self.gauges.iter().fold(
+        let ordered_gauges: Vec<&GaugeModel> = {
+            let mut ordered = Vec::new();
+            for id in &self.gauge_order {
+                if let Some(g) = self.gauges.iter().find(|g| g.id == id) {
+                    ordered.push(g);
+                }
+            }
+            for g in &self.gauges {
+                if !self.gauge_order.iter().any(|id| id == g.id) {
+                    ordered.push(g);
+                }
+            }
+            ordered
+        };
+
+        let gauges = ordered_gauges.into_iter().fold(
             Column::new()
                 .padding([4, 2])
                 .spacing(8)
