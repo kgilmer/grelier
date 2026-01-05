@@ -6,6 +6,9 @@ mod gauges {
     pub mod date;
     pub mod disk;
     pub mod cpu;
+    pub mod net_common;
+    pub mod net_download;
+    pub mod net_upload;
     pub mod ram;
     pub mod quantity;
 }
@@ -26,12 +29,14 @@ use iced_layershell::settings::{LayerShellSettings, Settings, StartMode};
 use crate::app::Orientation;
 use crate::app::{BarState, Message};
 use crate::gauge::{GaugeClick, GaugeModel};
-use crate::gauges::{battery, clock, cpu, date, disk, quantity, ram};
+use crate::gauges::{
+    battery, clock, cpu, date, disk, net_download, net_upload, quantity, ram,
+};
 
 #[derive(FromArgs, Debug)]
 /// Workspace + gauges display
 struct Args {
-    /// gauges: clock, date, battery, cpu, disk, ram, quantity
+    /// gauges: clock, date, battery, cpu, disk, ram, quantity, net_upload, net_download
     #[argh(option, default = "\"clock,date\".to_string()")]
     gauges: String,
 
@@ -54,6 +59,8 @@ fn app_subscription(_state: &BarState, gauges: &[&str]) -> Subscription<Message>
             "battery" => subs.push(battery::battery_subscription()),
             "cpu" => subs.push(cpu::cpu_subscription()),
             "disk" => subs.push(disk::disk_subscription()),
+            "net_download" => subs.push(net_download::net_download_subscription()),
+            "net_upload" => subs.push(net_upload::net_upload_subscription()),
             "ram" => subs.push(ram::ram_subscription()),
             "quantity" => subs.push(quantity::quantity_subscription()),
             other => eprintln!("Unknown gauge '{other}', skipping"),
