@@ -74,8 +74,8 @@ fn main() -> Result<(), iced_layershell::Error> {
         .collect();
 
     let anchor = match args.orientation {
-        Orientation::Left => Anchor::Top | Anchor::Bottom | Anchor::Left,
-        Orientation::Right => Anchor::Top | Anchor::Bottom | Anchor::Right,
+        Orientation::Left => Anchor::Left,
+        Orientation::Right => Anchor::Right,
     };
 
     let settings = Settings {
@@ -83,7 +83,7 @@ fn main() -> Result<(), iced_layershell::Error> {
             size: Some((28, 0)),
             exclusive_zone: 28,
             anchor,
-            layer: Layer::Overlay,
+            layer: Layer::Top,
             margin: (0, 0, 0, 0),
             keyboard_interactivity: KeyboardInteractivity::OnDemand,
             start_mode: StartMode::Active,

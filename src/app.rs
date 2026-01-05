@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::convert::TryInto;
 
 use crate::gauge::{GaugeClickTarget, GaugeModel, GaugeValue, GaugeValueAttention};
@@ -125,6 +126,27 @@ impl BarState {
         env!("CARGO_PKG_NAME").to_string()
     }
 
+    fn ordered_gauges(&self) -> Vec<&GaugeModel> {
+        let order_index: HashMap<_, _> = self
+            .gauge_order
+            .iter()
+            .enumerate()
+            .map(|(i, id)| (id.clone(), i))
+            .collect();
+
+        let mut ordered: Vec<(usize, &GaugeModel)> = self.gauges.iter().enumerate().collect();
+        ordered.sort_by_key(|(idx, g)| {
+            (
+                order_index
+                    .get(g.id)
+                    .copied()
+                    .unwrap_or(usize::MAX),
+                *idx,
+            )
+        });
+        ordered.into_iter().map(|(_, gauge)| gauge).collect()
+    }
+
     pub fn view(&self) -> Element<'_, Message> {
         let workspaces =
             self.workspaces
@@ -190,25 +212,12 @@ impl BarState {
                     col.push(animated_workspace)
                 });
 
-        let ordered_gauges: Vec<&GaugeModel> = {
-            let mut ordered = Vec::new();
-            for id in &self.gauge_order {
-                if let Some(g) = self.gauges.iter().find(|g| g.id == id) {
-                    ordered.push(g);
-                }
-            }
-            for g in &self.gauges {
-                if !self.gauge_order.iter().any(|id| id == g.id) {
-                    ordered.push(g);
-                }
-            }
-            ordered
-        };
+        let ordered_gauges = self.ordered_gauges();
 
         let gauges = ordered_gauges.into_iter().fold(
             Column::new()
-                .padding([4, 2])
-                .spacing(8)
+                .padding([2, 2])
+                .spacing(22)
                 .width(Length::Fill)
                 .align_x(alignment::Horizontal::Center),
             |col, gauge| {
@@ -321,7 +330,7 @@ impl BarState {
                         button: mouse::Button::Middle,
                     })
                     .interaction(mouse::Interaction::Pointer)
-                    .into();
+                        .into();
 
                 col.push(gauge_column.push(centered_value))
             },
@@ -345,5 +354,34 @@ impl BarState {
         mouse_area(filled)
             .interaction(mouse::Interaction::Pointer)
             .into()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::gauge::GaugeValue;
+
+    fn gauge(id: &'static str) -> GaugeModel {
+        GaugeModel {
+            id,
+            icon: None,
+            value: GaugeValue::Text(id.to_string()),
+            attention: GaugeValueAttention::Nominal,
+            on_click: None,
+        }
+    }
+
+    #[test]
+    fn orders_gauges_by_config_then_appends_rest() {
+        let state = BarState {
+            workspaces: Vec::new(),
+            gauges: vec![gauge("cpu"), gauge("ram"), gauge("disk")],
+            gauge_order: vec!["ram".into(), "clock".into(), "cpu".into()],
+        };
+
+        let ordered_ids: Vec<_> = state.ordered_gauges().into_iter().map(|g| g.id).collect();
+
+        assert_eq!(ordered_ids, vec!["ram", "cpu", "disk"]);
     }
 }
