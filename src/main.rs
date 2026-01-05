@@ -4,6 +4,7 @@ mod gauges {
     pub mod battery;
     pub mod clock;
     pub mod date;
+    pub mod quantity;
 }
 mod gauge;
 mod icon;
@@ -19,35 +20,15 @@ use iced_layershell::application;
 use iced_layershell::reexport::{Anchor, KeyboardInteractivity, Layer};
 use iced_layershell::settings::{LayerShellSettings, Settings, StartMode};
 
+use crate::app::Orientation;
 use crate::app::{BarState, Message};
-use crate::gauge::GaugeModel;
-use crate::gauges::{battery, clock, date};
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-enum Orientation {
-    #[default]
-    Left,
-    Right,
-}
-
-impl std::str::FromStr for Orientation {
-    type Err = String;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s.to_ascii_lowercase().as_str() {
-            "left" => Ok(Orientation::Left),
-            "right" => Ok(Orientation::Right),
-            other => Err(format!(
-                "Invalid orientation '{other}', expected 'left' or 'right'"
-            )),
-        }
-    }
-}
+use crate::gauge::{GaugeClick, GaugeModel};
+use crate::gauges::{battery, clock, date, quantity};
 
 #[derive(FromArgs, Debug)]
 /// Workspace + gauges display
 struct Args {
-    /// gauges: clock, date, battery
+    /// gauges: clock, date, battery, quantity
     #[argh(option, default = "\"clock,date\".to_string()")]
     gauges: String,
 
@@ -68,6 +49,7 @@ fn app_subscription(_state: &BarState, gauges: &[&str]) -> Subscription<Message>
             "clock" => subs.push(clock::clock_subscription()),
             "date" => subs.push(date::date_subscription()),
             "battery" => subs.push(battery::battery_subscription()),
+            "quantity" => subs.push(quantity::quantity_subscription()),
             other => eprintln!("Unknown gauge '{other}', skipping"),
         }
     }
@@ -128,13 +110,25 @@ fn main() -> Result<(), iced_layershell::Error> {
 fn update(state: &mut BarState, message: Message) -> Task<Message> {
     match message {
         Message::Workspaces(ws) => state.workspaces = ws,
-        Message::Clicked(name) => {
+        Message::WorkspaceClicked(name) => {
             if let Err(err) = sway_workspace::focus_workspace(&name) {
                 eprintln!("Failed to focus workspace \"{name}\": {err}");
             }
         }
         Message::Gauge(gauge) => {
             update_gauge(&mut state.gauges, gauge);
+        }
+        Message::GaugeClicked { id, target, button } => {
+            if let Some(callback) = state
+                .gauges
+                .iter()
+                .find(|g| g.id == id)
+                .and_then(|g| g.on_click.clone())
+            {
+                callback(GaugeClick { button, target });
+            } else {
+                println!("Gauge '{id}' clicked: {:?} {:?}", target, button);
+            }
         }
     }
 
@@ -163,12 +157,14 @@ mod tests {
             icon: None,
             value: GaugeValue::Text("12\n00".to_string()),
             attention: GaugeValueAttention::Nominal,
+            on_click: None,
         };
         let g2 = GaugeModel {
             id: "clock",
             icon: None,
             value: GaugeValue::Text("12\n01".to_string()),
             attention: GaugeValueAttention::Nominal,
+            on_click: None,
         };
 
         update_gauge(&mut gauges, g1.clone());
@@ -184,6 +180,7 @@ mod tests {
             icon: None,
             value: GaugeValue::Text("01\n01".to_string()),
             attention: GaugeValueAttention::Nominal,
+            on_click: None,
         };
         update_gauge(&mut gauges, g3.clone());
         assert_eq!(gauges.len(), 2, "different id should append");

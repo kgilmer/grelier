@@ -41,6 +41,7 @@ fn day_stream() -> impl iced::futures::Stream<Item = crate::gauge::GaugeModel> {
                 GaugeValueAttention::Nominal,
             ))
         },
+        None,
     )
 }
 

@@ -27,6 +27,7 @@ fn seconds_stream() -> impl iced::futures::Stream<Item = crate::gauge::GaugeMode
                 GaugeValueAttention::Nominal,
             ))
         },
+        None,
     )
 }
 

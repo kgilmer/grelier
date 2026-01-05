@@ -1,6 +1,6 @@
 use std::convert::TryInto;
 
-use crate::gauge::{GaugeModel, GaugeValue, GaugeValueAttention};
+use crate::gauge::{GaugeClickTarget, GaugeModel, GaugeValue, GaugeValueAttention};
 use crate::sway_workspace::WorkspaceInfo;
 use iced::alignment;
 use iced::border;
@@ -16,8 +16,13 @@ use iced_layershell::actions::LayershellCustomActionWithId;
 #[derive(Debug, Clone)]
 pub enum Message {
     Workspaces(Vec<WorkspaceInfo>),
-    Clicked(String),
+    WorkspaceClicked(String),
     Gauge(GaugeModel),
+    GaugeClicked {
+        id: String,
+        target: GaugeClickTarget,
+        button: mouse::Button,
+    },
 }
 
 impl TryInto<LayershellCustomActionWithId> for Message {
@@ -26,7 +31,10 @@ impl TryInto<LayershellCustomActionWithId> for Message {
     fn try_into(self) -> Result<LayershellCustomActionWithId, Message> {
         match self {
             // All messages stay within the app; none translate to layer-shell actions.
-            Message::Workspaces(_) | Message::Clicked(_) | Message::Gauge(_) => Err(self),
+            Message::Workspaces(_)
+            | Message::WorkspaceClicked(_)
+            | Message::Gauge(_)
+            | Message::GaugeClicked { .. } => Err(self),
         }
     }
 }
@@ -38,6 +46,27 @@ fn lerp_color(from: Color, to: Color, t: f32) -> Color {
         g: from.g + (to.g - from.g) * t,
         b: from.b + (to.b - from.b) * t,
         a: from.a + (to.a - from.a) * t,
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Orientation {
+    #[default]
+    Left,
+    Right,
+}
+
+impl std::str::FromStr for Orientation {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.to_ascii_lowercase().as_str() {
+            "left" => Ok(Orientation::Left),
+            "right" => Ok(Orientation::Right),
+            other => Err(format!(
+                "Invalid orientation '{other}', expected 'left' or 'right'"
+            )),
+        }
     }
 }
 
@@ -141,7 +170,7 @@ impl BarState {
                             button(content)
                                 .padding(0)
                                 .width(Length::Fill)
-                                .on_press(Message::Clicked(name))
+                                .on_press(Message::WorkspaceClicked(name))
                                 .into()
                         },
                     )
@@ -179,9 +208,28 @@ impl BarState {
                                 }),
                             }
                         });
-                    let centered_icon = container(icon_view)
+                    let centered_icon: Element<'_, Message> = container(icon_view)
                         .width(Length::Fill)
-                        .align_x(alignment::Horizontal::Center);
+                        .align_x(alignment::Horizontal::Center)
+                        .into();
+                    let centered_icon: Element<'_, Message> = mouse_area(centered_icon)
+                        .on_press(Message::GaugeClicked {
+                            id: gauge.id.to_string(),
+                            target: GaugeClickTarget::Icon,
+                            button: mouse::Button::Left,
+                        })
+                        .on_right_press(Message::GaugeClicked {
+                            id: gauge.id.to_string(),
+                            target: GaugeClickTarget::Icon,
+                            button: mouse::Button::Right,
+                        })
+                        .on_middle_press(Message::GaugeClicked {
+                            id: gauge.id.to_string(),
+                            target: GaugeClickTarget::Icon,
+                            button: mouse::Button::Middle,
+                        })
+                        .interaction(mouse::Interaction::Pointer)
+                        .into();
                     gauge_column = gauge_column
                         .push(centered_icon)
                         .push(Space::new().height(Length::Fixed(3.0)));
@@ -226,9 +274,28 @@ impl BarState {
                         .into(),
                 };
 
-                let centered_value = container(value)
+                let centered_value: Element<'_, Message> = container(value)
                     .width(Length::Fill)
-                    .align_x(alignment::Horizontal::Center);
+                    .align_x(alignment::Horizontal::Center)
+                    .into();
+                let centered_value: Element<'_, Message> = mouse_area(centered_value)
+                    .on_press(Message::GaugeClicked {
+                        id: gauge.id.to_string(),
+                        target: GaugeClickTarget::Value,
+                        button: mouse::Button::Left,
+                    })
+                    .on_right_press(Message::GaugeClicked {
+                        id: gauge.id.to_string(),
+                        target: GaugeClickTarget::Value,
+                        button: mouse::Button::Right,
+                    })
+                    .on_middle_press(Message::GaugeClicked {
+                        id: gauge.id.to_string(),
+                        target: GaugeClickTarget::Value,
+                        button: mouse::Button::Middle,
+                    })
+                    .interaction(mouse::Interaction::Pointer)
+                    .into();
 
                 col.push(gauge_column.push(centered_value))
             },

@@ -34,6 +34,7 @@ fn battery_stream() -> impl iced::futures::Stream<Item = GaugeModel> {
                     icon: None,
                     value,
                     attention,
+                    on_click: None,
                 });
             }
         }
@@ -72,6 +73,7 @@ fn send_snapshot(sender: &mut iced::futures::channel::mpsc::Sender<GaugeModel>) 
                 icon: None,
                 value,
                 attention,
+                on_click: None,
             });
         }
     }
