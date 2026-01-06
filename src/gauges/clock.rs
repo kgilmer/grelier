@@ -5,9 +5,7 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use crate::app::Message;
-use crate::gauge::{
-    fixed_interval, GaugeClick, GaugeClickAction, GaugeValue, GaugeValueAttention,
-};
+use crate::gauge::{GaugeClick, GaugeClickAction, GaugeValue, GaugeValueAttention, fixed_interval};
 use crate::icon::svg_asset;
 use iced::futures::StreamExt;
 
@@ -40,10 +38,10 @@ fn seconds_stream() -> impl iced::futures::Stream<Item = crate::gauge::GaugeMode
     let on_click: GaugeClickAction = {
         let format_state = Arc::clone(&format_state);
         Arc::new(move |click: GaugeClick| {
-            if let mouse::Button::Right = click.button {
-                if let Ok(mut format) = format_state.lock() {
-                    *format = format.toggle();
-                }
+            if let mouse::Button::Right = click.button
+                && let Ok(mut format) = format_state.lock()
+            {
+                *format = format.toggle();
             }
         })
     };

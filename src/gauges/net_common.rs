@@ -1,6 +1,7 @@
 use std::fs;
 use std::path::Path;
-use std::time::Instant;
+use std::sync::{Arc, Mutex, OnceLock};
+use std::time::{Duration, Instant};
 
 /// Direction to compute a transfer rate for.
 #[derive(Clone, Copy)]
@@ -21,52 +22,198 @@ struct NetSample {
     timestamp: Instant,
 }
 
-/// Tracks the last network sample to compute deltas between ticks.
-#[derive(Default)]
-pub struct NetRateTracker {
-    last: Option<NetSample>,
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct NetRates {
+    pub upload_bytes_per_sec: f64,
+    pub download_bytes_per_sec: f64,
 }
 
-impl NetRateTracker {
-    pub fn new() -> Self {
-        Self { last: None }
+/// Simple state machine to stretch sampling intervals when traffic is idle.
+#[derive(Default)]
+pub struct NetIntervalState {
+    fast: bool,
+    idle_streak: u8,
+}
+
+impl NetIntervalState {
+    const IDLE_THRESHOLD_BPS: f64 = 10_240.0; // 10 KB/s
+
+    pub fn update(&mut self, rate: f64) {
+        if rate > Self::IDLE_THRESHOLD_BPS {
+            self.fast = true;
+            self.idle_streak = 0;
+        } else if self.fast {
+            self.idle_streak = self.idle_streak.saturating_add(1);
+            if self.idle_streak > 3 {
+                self.fast = false;
+                self.idle_streak = 0;
+            }
+        }
     }
 
-    /// Returns the current bytes/sec for the requested direction on the active interface.
-    pub fn rate(&mut self, direction: RateDirection) -> Option<f64> {
-        let iface = active_interface()?;
-        let counters = read_counters(&iface)?;
-        let now = Instant::now();
+    pub fn interval(&self) -> Duration {
+        if self.fast {
+            Duration::from_secs(1)
+        } else {
+            Duration::from_secs(3)
+        }
+    }
+}
 
-        let rate = match &self.last {
+/// Provides interface name, counters, and time for rate computation.
+pub(crate) trait NetDataProvider: Send {
+    fn now(&mut self) -> Instant;
+    fn active_interface(&mut self) -> Option<String>;
+    fn read_counters(&mut self, iface: &str) -> Option<NetCounters>;
+}
+
+pub(crate) struct SystemNetProvider {
+    cached_iface: Option<String>,
+    last_iface_check: Option<Instant>,
+}
+
+impl NetDataProvider for SystemNetProvider {
+    fn now(&mut self) -> Instant {
+        Instant::now()
+    }
+
+    fn active_interface(&mut self) -> Option<String> {
+        let now = Instant::now();
+        if let (Some(iface), Some(last_check)) = (self.cached_iface.clone(), self.last_iface_check)
+            && now.duration_since(last_check) < Duration::from_secs(10)
+            && interface_is_up(&iface)
+        {
+            return Some(iface);
+        }
+
+        let detected = active_interface_scan()?;
+        self.cached_iface = Some(detected.clone());
+        self.last_iface_check = Some(now);
+        Some(detected)
+    }
+
+    fn read_counters(&mut self, iface: &str) -> Option<NetCounters> {
+        read_counters(iface)
+    }
+}
+
+/// Tracks a shared set of counters and reuses fresh samples to avoid duplicate `/proc` reads.
+pub struct NetSampler<P: NetDataProvider = SystemNetProvider> {
+    provider: P,
+    last_sample: Option<NetSample>,
+    last_rates: Option<NetRates>,
+    last_at: Option<Instant>,
+    min_interval: Duration,
+    last_iface: Option<String>,
+    last_iface_check: Option<Instant>,
+    iface_ttl: Duration,
+}
+
+impl NetSampler<SystemNetProvider> {
+    pub fn new() -> Self {
+        Self::with_provider(SystemNetProvider {
+            cached_iface: None,
+            last_iface_check: None,
+        })
+    }
+}
+
+impl<P: NetDataProvider> NetSampler<P> {
+    pub fn with_provider(provider: P) -> Self {
+        Self {
+            provider,
+            last_sample: None,
+            last_rates: None,
+            last_at: None,
+            min_interval: Duration::from_millis(900),
+            last_iface: None,
+            last_iface_check: None,
+            iface_ttl: Duration::from_secs(5),
+        }
+    }
+
+    #[cfg(test)]
+    fn with_timings(provider: P, min_interval: Duration, iface_ttl: Duration) -> Self {
+        Self {
+            provider,
+            last_sample: None,
+            last_rates: None,
+            last_at: None,
+            min_interval,
+            last_iface: None,
+            last_iface_check: None,
+            iface_ttl,
+        }
+    }
+
+    /// Returns upload/download bytes per second, refreshing counters only if the cached sample
+    /// is older than `min_interval`. This keeps upload/download gauges from triggering separate
+    /// `/proc/net` reads on the same second.
+    pub fn rates(&mut self) -> Option<NetRates> {
+        let now = self.provider.now();
+        if let Some(last_at) = self.last_at
+            && now.duration_since(last_at) < self.min_interval
+        {
+            return self.last_rates;
+        }
+
+        let iface = match (
+            self.last_iface.clone(),
+            self.last_iface_check,
+            self.iface_ttl,
+        ) {
+            (Some(iface), Some(last_check), ttl) if now.duration_since(last_check) < ttl => iface,
+            _ => {
+                let iface = self.provider.active_interface()?;
+                self.last_iface = Some(iface.clone());
+                self.last_iface_check = Some(now);
+                iface
+            }
+        };
+
+        let counters = self.provider.read_counters(&iface)?;
+
+        let rates = match &self.last_sample {
             Some(previous) if previous.iface == iface => {
                 let elapsed = now.duration_since(previous.timestamp).as_secs_f64();
                 if elapsed <= 0.0 {
-                    0.0
+                    NetRates {
+                        upload_bytes_per_sec: 0.0,
+                        download_bytes_per_sec: 0.0,
+                    }
                 } else {
-                    let delta = match direction {
-                        RateDirection::Upload => {
-                            counters.tx_bytes.saturating_sub(previous.counters.tx_bytes)
-                        }
-                        RateDirection::Download => {
-                            counters.rx_bytes.saturating_sub(previous.counters.rx_bytes)
-                        }
-                    };
-                    delta as f64 / elapsed
+                    let tx_delta = counters.tx_bytes.saturating_sub(previous.counters.tx_bytes);
+                    let rx_delta = counters.rx_bytes.saturating_sub(previous.counters.rx_bytes);
+                    NetRates {
+                        upload_bytes_per_sec: tx_delta as f64 / elapsed,
+                        download_bytes_per_sec: rx_delta as f64 / elapsed,
+                    }
                 }
             }
-            // Interface changed or no previous sample; seed the tracker.
-            _ => 0.0,
+            _ => NetRates {
+                upload_bytes_per_sec: 0.0,
+                download_bytes_per_sec: 0.0,
+            },
         };
 
-        self.last = Some(NetSample {
+        self.last_sample = Some(NetSample {
             iface,
             counters,
             timestamp: now,
         });
+        self.last_rates = Some(rates);
+        self.last_at = Some(now);
 
-        Some(rate)
+        Some(rates)
     }
+}
+
+static SHARED_NET_SAMPLER: OnceLock<Arc<Mutex<NetSampler>>> = OnceLock::new();
+
+pub fn shared_net_sampler() -> Arc<Mutex<NetSampler>> {
+    SHARED_NET_SAMPLER
+        .get_or_init(|| Arc::new(Mutex::new(NetSampler::new())))
+        .clone()
 }
 
 /// Format bytes/sec into KB/MB/GB per second, scaling to keep the number under three digits.
@@ -136,10 +283,10 @@ fn first_up_interface() -> Option<String> {
         }
 
         // If carrier is reported, require it to be present.
-        if let Ok(carrier) = fs::read_to_string(entry.path().join("carrier")) {
-            if carrier.trim() == "0" {
-                continue;
-            }
+        if let Ok(carrier) = fs::read_to_string(entry.path().join("carrier"))
+            && carrier.trim() == "0"
+        {
+            continue;
         }
 
         return Some(name);
@@ -148,6 +295,10 @@ fn first_up_interface() -> Option<String> {
 }
 
 pub fn active_interface() -> Option<String> {
+    active_interface_scan()
+}
+
+fn active_interface_scan() -> Option<String> {
     default_route_interface().or_else(first_up_interface)
 }
 
@@ -180,8 +331,31 @@ pub fn read_counters(iface: &str) -> Option<NetCounters> {
     None
 }
 
+fn interface_is_up(iface: &str) -> bool {
+    let base = Path::new("/sys/class/net").join(iface);
+    let operstate = fs::read_to_string(base.join("operstate"))
+        .unwrap_or_default()
+        .trim()
+        .to_string();
+    if operstate != "up" {
+        return false;
+    }
+
+    if let Ok(carrier) = fs::read_to_string(base.join("carrier"))
+        && carrier.trim() == "0"
+    {
+        return false;
+    }
+
+    true
+}
+
 #[cfg(test)]
 mod tests {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::{Arc, Mutex};
+    use std::time::Duration;
+
     use super::*;
 
     #[test]
@@ -191,5 +365,193 @@ mod tests {
         assert_eq!(format_rate(150_000.0), "01\nMB");
         assert_eq!(format_rate(5_000_000.0), "05\nMB");
         assert_eq!(format_rate(5_000_000_000.0), "05\nGB");
+    }
+
+    struct FakeProvider {
+        clock: Arc<Mutex<Instant>>,
+        iface: String,
+        samples: Vec<NetCounters>,
+        reads: Arc<AtomicUsize>,
+        iface_calls: Arc<AtomicUsize>,
+    }
+
+    impl FakeProvider {
+        fn new(
+            iface: &str,
+            samples: Vec<NetCounters>,
+            clock: Arc<Mutex<Instant>>,
+            reads: Arc<AtomicUsize>,
+            iface_calls: Arc<AtomicUsize>,
+        ) -> Self {
+            Self {
+                clock,
+                iface: iface.to_string(),
+                samples,
+                reads,
+                iface_calls,
+            }
+        }
+    }
+
+    impl NetDataProvider for FakeProvider {
+        fn now(&mut self) -> Instant {
+            *self.clock.lock().unwrap()
+        }
+
+        fn active_interface(&mut self) -> Option<String> {
+            self.iface_calls.fetch_add(1, Ordering::SeqCst);
+            Some(self.iface.clone())
+        }
+
+        fn read_counters(&mut self, _iface: &str) -> Option<NetCounters> {
+            let idx = self.reads.fetch_add(1, Ordering::SeqCst);
+            self.samples.get(idx).copied()
+        }
+    }
+
+    #[test]
+    fn sampler_reuses_recent_sample_and_computes_both_rates() {
+        let start = Instant::now();
+        let clock = Arc::new(Mutex::new(start));
+        let reads = Arc::new(AtomicUsize::new(0));
+        let iface_calls = Arc::new(AtomicUsize::new(0));
+        let samples = vec![
+            NetCounters {
+                rx_bytes: 0,
+                tx_bytes: 0,
+            },
+            NetCounters {
+                rx_bytes: 800,
+                tx_bytes: 400,
+            },
+        ];
+
+        let provider = FakeProvider::new(
+            "eth0",
+            samples,
+            clock.clone(),
+            reads.clone(),
+            iface_calls.clone(),
+        );
+        let mut sampler =
+            NetSampler::with_timings(provider, Duration::from_millis(400), Duration::from_secs(2));
+
+        let first = sampler.rates().expect("initial sample");
+        assert_eq!(reads.load(Ordering::SeqCst), 1, "reads first counters");
+        assert_eq!(first.upload_bytes_per_sec, 0.0);
+        assert_eq!(first.download_bytes_per_sec, 0.0);
+
+        {
+            let mut now = clock.lock().unwrap();
+            *now += Duration::from_millis(200);
+        }
+        let cached = sampler.rates().expect("cached sample");
+        assert_eq!(
+            reads.load(Ordering::SeqCst),
+            1,
+            "should reuse recent counters"
+        );
+        assert_eq!(cached, first);
+
+        {
+            let mut now = clock.lock().unwrap();
+            *now += Duration::from_millis(600); // total 800ms since first sample
+        }
+        let updated = sampler.rates().expect("second sample");
+        assert_eq!(
+            reads.load(Ordering::SeqCst),
+            2,
+            "should refresh after min interval"
+        );
+        assert!(
+            (updated.download_bytes_per_sec - 1000.0).abs() < 0.1,
+            "download rate should be close to 1000 B/s, got {}",
+            updated.download_bytes_per_sec
+        );
+        assert!(
+            (updated.upload_bytes_per_sec - 500.0).abs() < 0.1,
+            "upload rate should be close to 500 B/s, got {}",
+            updated.upload_bytes_per_sec
+        );
+    }
+
+    #[test]
+    fn sampler_reuses_interface_detection_within_ttl() {
+        let start = Instant::now();
+        let clock = Arc::new(Mutex::new(start));
+        let reads = Arc::new(AtomicUsize::new(0));
+        let iface_calls = Arc::new(AtomicUsize::new(0));
+        let samples = vec![
+            NetCounters {
+                rx_bytes: 0,
+                tx_bytes: 0,
+            },
+            NetCounters {
+                rx_bytes: 1_000,
+                tx_bytes: 500,
+            },
+            NetCounters {
+                rx_bytes: 2_000,
+                tx_bytes: 1_000,
+            },
+        ];
+
+        let provider = FakeProvider::new(
+            "eth0",
+            samples,
+            clock.clone(),
+            reads.clone(),
+            iface_calls.clone(),
+        );
+        let mut sampler =
+            NetSampler::with_timings(provider, Duration::from_millis(0), Duration::from_secs(1));
+
+        let _ = sampler.rates().expect("first sample");
+        assert_eq!(iface_calls.load(Ordering::SeqCst), 1);
+
+        {
+            let mut now = clock.lock().unwrap();
+            *now += Duration::from_millis(500);
+        }
+        let _ = sampler.rates().expect("second sample");
+        assert_eq!(
+            iface_calls.load(Ordering::SeqCst),
+            1,
+            "should reuse cached interface within ttl"
+        );
+
+        {
+            let mut now = clock.lock().unwrap();
+            *now += Duration::from_millis(600);
+        }
+        let _ = sampler.rates().expect("third sample after ttl");
+        assert_eq!(
+            iface_calls.load(Ordering::SeqCst),
+            2,
+            "should refresh interface after ttl"
+        );
+    }
+
+    #[test]
+    fn net_interval_slows_after_idle_and_resumes_on_activity() {
+        let mut state = NetIntervalState::default();
+
+        // Activity above threshold -> fast interval.
+        state.update(20_000.0);
+        assert_eq!(state.interval(), Duration::from_secs(1));
+
+        // A few idle ticks keep it fast.
+        for _ in 0..3 {
+            state.update(100.0);
+            assert_eq!(state.interval(), Duration::from_secs(1));
+        }
+
+        // Next idle tick drops to slow interval.
+        state.update(100.0);
+        assert_eq!(state.interval(), Duration::from_secs(3));
+
+        // Activity flips back to fast.
+        state.update(50_000.0);
+        assert_eq!(state.interval(), Duration::from_secs(1));
     }
 }

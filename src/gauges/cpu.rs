@@ -1,8 +1,8 @@
 use crate::app::Message;
-use crate::gauge::{fixed_interval, GaugeValue, GaugeValueAttention};
+use crate::gauge::{GaugeValue, GaugeValueAttention, fixed_interval};
 use crate::icon::{QuantityStyle, icon_quantity, svg_asset};
-use iced::futures::StreamExt;
 use iced::Subscription;
+use iced::futures::StreamExt;
 use std::fs::File;
 use std::io::{BufRead, BufReader};
 use std::sync::{Arc, Mutex};
@@ -81,7 +81,8 @@ impl CpuState {
             self.below_threshold_streak = 0;
         } else if self.fast_interval {
             self.below_threshold_streak = self.below_threshold_streak.saturating_add(1);
-            if self.below_threshold_streak > 10 {
+            // Relax back to a slower interval after a handful of calm ticks.
+            if self.below_threshold_streak > 3 {
                 self.fast_interval = false;
                 self.below_threshold_streak = 0;
             }
@@ -92,7 +93,7 @@ impl CpuState {
         if self.fast_interval {
             Duration::from_secs(1)
         } else {
-            Duration::from_secs(2)
+            Duration::from_secs(4)
         }
     }
 }
@@ -104,7 +105,12 @@ fn cpu_stream() -> impl iced::futures::Stream<Item = crate::gauge::GaugeModel> {
     fixed_interval(
         "cpu",
         Some(svg_asset("microchip.svg")),
-        move || interval_state.lock().map(|s| s.interval()).unwrap_or(Duration::from_secs(2)),
+        move || {
+            interval_state
+                .lock()
+                .map(|s| s.interval())
+                .unwrap_or(Duration::from_secs(2))
+        },
         move || {
             let now = read_cpu_time()?;
 
@@ -150,14 +156,14 @@ mod tests {
         state.update_interval_state(0.6);
         assert_eq!(state.interval(), Duration::from_secs(1));
 
-        // Stay fast for 10 below-threshold ticks.
-        for _ in 0..10 {
+        // Stay fast for several below-threshold ticks.
+        for _ in 0..3 {
             state.update_interval_state(0.4);
             assert_eq!(state.interval(), Duration::from_secs(1));
         }
 
-        // Recover to slow interval after the 11th below-threshold tick.
+        // Recover to slow interval after the 4th below-threshold tick.
         state.update_interval_state(0.4);
-        assert_eq!(state.interval(), Duration::from_secs(2));
+        assert_eq!(state.interval(), Duration::from_secs(4));
     }
 }

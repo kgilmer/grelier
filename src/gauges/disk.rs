@@ -1,8 +1,8 @@
 use crate::app::Message;
-use crate::gauge::{fixed_interval, GaugeValue, GaugeValueAttention};
-use crate::icon::{icon_quantity, svg_asset, QuantityStyle};
-use iced::futures::StreamExt;
+use crate::gauge::{GaugeValue, GaugeValueAttention, fixed_interval};
+use crate::icon::{QuantityStyle, icon_quantity, svg_asset};
 use iced::Subscription;
+use iced::futures::StreamExt;
 use std::ffi::CString;
 use std::mem::MaybeUninit;
 use std::os::raw::{c_char, c_int, c_ulong};
@@ -47,17 +47,17 @@ fn disk_usage(path: &str) -> Option<DiskUsage> {
     }
 
     let stats = unsafe { stats.assume_init() };
-    let fragment_size = stats.f_frsize as u64;
+    let fragment_size = stats.f_frsize;
     if fragment_size == 0 {
         return None;
     }
 
-    let total_blocks = stats.f_blocks as u64;
+    let total_blocks = stats.f_blocks;
     if total_blocks == 0 {
         return None;
     }
 
-    let used_blocks = total_blocks.saturating_sub(stats.f_bfree as u64);
+    let used_blocks = total_blocks.saturating_sub(stats.f_bfree);
 
     let total = total_blocks.saturating_mul(fragment_size);
     let used = used_blocks.saturating_mul(fragment_size);

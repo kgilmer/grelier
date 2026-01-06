@@ -3,14 +3,14 @@ mod app;
 mod gauges {
     pub mod battery;
     pub mod clock;
+    pub mod cpu;
     pub mod date;
     pub mod disk;
-    pub mod cpu;
     pub mod net_common;
     pub mod net_download;
     pub mod net_upload;
-    pub mod ram;
     pub mod quantity;
+    pub mod ram;
 }
 mod gauge;
 mod icon;
@@ -29,9 +29,7 @@ use iced_layershell::settings::{LayerShellSettings, Settings, StartMode};
 use crate::app::Orientation;
 use crate::app::{BarState, Message};
 use crate::gauge::{GaugeClick, GaugeModel};
-use crate::gauges::{
-    battery, clock, cpu, date, disk, net_download, net_upload, quantity, ram,
-};
+use crate::gauges::{battery, clock, cpu, date, disk, net_download, net_upload, quantity, ram};
 
 #[derive(FromArgs, Debug)]
 /// Workspace + gauges display

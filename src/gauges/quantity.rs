@@ -1,12 +1,10 @@
-use iced::{mouse, Subscription};
+use iced::{Subscription, mouse};
 use std::sync::Mutex;
 use std::time::Duration;
 
 use crate::app::Message;
-use crate::gauge::{
-    fixed_interval, GaugeClick, GaugeClickAction, GaugeValue, GaugeValueAttention,
-};
-use crate::icon::{icon_quantity, QuantityStyle};
+use crate::gauge::{GaugeClick, GaugeClickAction, GaugeValue, GaugeValueAttention, fixed_interval};
+use crate::icon::{QuantityStyle, icon_quantity};
 use iced::futures::StreamExt;
 use std::sync::Arc;
 

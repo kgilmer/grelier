@@ -146,7 +146,7 @@ impl GaugeKind {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use iced::futures::{executor::block_on, StreamExt};
+    use iced::futures::{StreamExt, executor::block_on};
     use std::sync::atomic::{AtomicUsize, Ordering};
 
     #[test]

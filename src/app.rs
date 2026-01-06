@@ -135,15 +135,8 @@ impl BarState {
             .collect();
 
         let mut ordered: Vec<(usize, &GaugeModel)> = self.gauges.iter().enumerate().collect();
-        ordered.sort_by_key(|(idx, g)| {
-            (
-                order_index
-                    .get(g.id)
-                    .copied()
-                    .unwrap_or(usize::MAX),
-                *idx,
-            )
-        });
+        ordered
+            .sort_by_key(|(idx, g)| (order_index.get(g.id).copied().unwrap_or(usize::MAX), *idx));
         ordered.into_iter().map(|(_, gauge)| gauge).collect()
     }
 
@@ -330,7 +323,7 @@ impl BarState {
                         button: mouse::Button::Middle,
                     })
                     .interaction(mouse::Interaction::Pointer)
-                        .into();
+                    .into();
 
                 col.push(gauge_column.push(centered_value))
             },
