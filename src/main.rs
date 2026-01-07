@@ -1,6 +1,7 @@
 #![allow(dead_code)] // workspace handling will be re-enabled later
 mod app;
 mod gauges {
+    pub mod brightness;
     pub mod battery;
     pub mod clock;
     pub mod cpu;
@@ -31,13 +32,13 @@ use crate::app::Orientation;
 use crate::app::{BarState, Message};
 use crate::gauge::{GaugeClick, GaugeModel};
 use crate::gauges::{
-    battery, clock, cpu, date, disk, net_download, net_upload, quantity, ram, sound,
+    battery, brightness, clock, cpu, date, disk, net_download, net_upload, quantity, ram, sound,
 };
 
 #[derive(FromArgs, Debug)]
 /// Workspace + gauges display
 struct Args {
-    /// gauges: clock, date, battery, cpu, disk, ram, quantity, net_upload, net_download, sound
+    /// gauges: clock, date, battery, cpu, disk, ram, quantity, net_upload, net_download, sound, brightness
     #[argh(option, default = "\"clock,date\".to_string()")]
     gauges: String,
 
@@ -65,6 +66,7 @@ fn app_subscription(_state: &BarState, gauges: &[&str]) -> Subscription<Message>
             "ram" => subs.push(ram::ram_subscription()),
             "quantity" => subs.push(quantity::quantity_subscription()),
             "sound" => subs.push(sound::sound_subscription()),
+            "brightness" => subs.push(brightness::brightness_subscription()),
             other => eprintln!("Unknown gauge '{other}', skipping"),
         }
     }
