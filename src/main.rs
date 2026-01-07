@@ -11,6 +11,7 @@ mod gauges {
     pub mod net_upload;
     pub mod quantity;
     pub mod ram;
+    pub mod sound;
 }
 mod gauge;
 mod icon;
@@ -29,12 +30,14 @@ use iced_layershell::settings::{LayerShellSettings, Settings, StartMode};
 use crate::app::Orientation;
 use crate::app::{BarState, Message};
 use crate::gauge::{GaugeClick, GaugeModel};
-use crate::gauges::{battery, clock, cpu, date, disk, net_download, net_upload, quantity, ram};
+use crate::gauges::{
+    battery, clock, cpu, date, disk, net_download, net_upload, quantity, ram, sound,
+};
 
 #[derive(FromArgs, Debug)]
 /// Workspace + gauges display
 struct Args {
-    /// gauges: clock, date, battery, cpu, disk, ram, quantity, net_upload, net_download
+    /// gauges: clock, date, battery, cpu, disk, ram, quantity, net_upload, net_download, sound
     #[argh(option, default = "\"clock,date\".to_string()")]
     gauges: String,
 
@@ -61,6 +64,7 @@ fn app_subscription(_state: &BarState, gauges: &[&str]) -> Subscription<Message>
             "net_upload" => subs.push(net_upload::net_upload_subscription()),
             "ram" => subs.push(ram::ram_subscription()),
             "quantity" => subs.push(quantity::quantity_subscription()),
+            "sound" => subs.push(sound::sound_subscription()),
             other => eprintln!("Unknown gauge '{other}', skipping"),
         }
     }
@@ -136,16 +140,16 @@ fn update(state: &mut BarState, message: Message) -> Task<Message> {
         Message::Gauge(gauge) => {
             update_gauge(&mut state.gauges, gauge);
         }
-        Message::GaugeClicked { id, target, button } => {
+        Message::GaugeClicked { id, target, input } => {
             if let Some(callback) = state
                 .gauges
                 .iter()
                 .find(|g| g.id == id)
                 .and_then(|g| g.on_click.clone())
             {
-                callback(GaugeClick { button, target });
+                callback(GaugeClick { input, target });
             } else {
-                println!("Gauge '{id}' clicked: {:?} {:?}", target, button);
+                println!("Gauge '{id}' clicked: {:?} {:?}", target, input);
             }
         }
     }

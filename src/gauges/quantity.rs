@@ -89,9 +89,12 @@ fn quantity_stream() -> impl iced::futures::Stream<Item = crate::gauge::GaugeMod
         let state = Arc::clone(&state);
         Arc::new(move |click: GaugeClick| {
             let (_style, _attention) = if let Ok(mut state) = state.lock() {
-                match click.button {
-                    mouse::Button::Right => state.cycle_attention(),
-                    _ => state.toggle_style(),
+                match click.input {
+                    crate::gauge::GaugeInput::Button(mouse::Button::Right) => {
+                        state.cycle_attention()
+                    }
+                    crate::gauge::GaugeInput::Button(_) => state.toggle_style(),
+                    _ => {}
                 }
                 (state.style, state.attention)
             } else {

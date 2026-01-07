@@ -47,8 +47,15 @@ pub enum GaugeClickTarget {
 }
 
 #[derive(Debug, Clone, Copy)]
+pub enum GaugeInput {
+    Button(mouse::Button),
+    ScrollUp,
+    ScrollDown,
+}
+
+#[derive(Debug, Clone, Copy)]
 pub struct GaugeClick {
-    pub button: mouse::Button,
+    pub input: GaugeInput,
     pub target: GaugeClickTarget,
 }
 

@@ -13,3 +13,4 @@ udev = "0.7"
 argh = "0.1"
 
 swayipc = "3"
+libpulse-binding = "2.28"

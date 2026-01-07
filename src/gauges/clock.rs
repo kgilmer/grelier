@@ -38,7 +38,8 @@ fn seconds_stream() -> impl iced::futures::Stream<Item = crate::gauge::GaugeMode
     let on_click: GaugeClickAction = {
         let format_state = Arc::clone(&format_state);
         Arc::new(move |click: GaugeClick| {
-            if let mouse::Button::Right = click.button
+            if let crate::gauge::GaugeInput::Button(button) = click.input
+                && let mouse::Button::Right = button
                 && let Ok(mut format) = format_state.lock()
             {
                 *format = format.toggle();

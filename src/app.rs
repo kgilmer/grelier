@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::convert::TryInto;
 
-use crate::gauge::{GaugeClickTarget, GaugeModel, GaugeValue, GaugeValueAttention};
+use crate::gauge::{GaugeClickTarget, GaugeInput, GaugeModel, GaugeValue, GaugeValueAttention};
 use crate::sway_workspace::WorkspaceInfo;
 use iced::alignment;
 use iced::border;
@@ -22,7 +22,7 @@ pub enum Message {
     GaugeClicked {
         id: String,
         target: GaugeClickTarget,
-        button: mouse::Button,
+        input: GaugeInput,
     },
 }
 
@@ -88,6 +88,20 @@ fn workspace_levels(ws: &WorkspaceInfo) -> (f32, f32) {
         if ws.focused { 1.0 } else { 0.0 },
         if ws.urgent { 1.0 } else { 0.0 },
     )
+}
+
+fn scroll_input(delta: mouse::ScrollDelta) -> Option<GaugeInput> {
+    match delta {
+        mouse::ScrollDelta::Lines { x: _, y } | mouse::ScrollDelta::Pixels { x: _, y } => {
+            if y > 0.0 {
+                Some(GaugeInput::ScrollUp)
+            } else if y < 0.0 {
+                Some(GaugeInput::ScrollDown)
+            } else {
+                None
+            }
+        }
+    }
 }
 
 #[derive(Clone)]
@@ -240,21 +254,27 @@ impl BarState {
                         .width(Length::Fill)
                         .align_x(alignment::Horizontal::Center)
                         .into();
+                    let icon_id = gauge.id.to_string();
                     let centered_icon: Element<'_, Message> = mouse_area(centered_icon)
                         .on_press(Message::GaugeClicked {
-                            id: gauge.id.to_string(),
+                            id: icon_id.clone(),
                             target: GaugeClickTarget::Icon,
-                            button: mouse::Button::Left,
+                            input: GaugeInput::Button(mouse::Button::Left),
                         })
                         .on_right_press(Message::GaugeClicked {
-                            id: gauge.id.to_string(),
+                            id: icon_id.clone(),
                             target: GaugeClickTarget::Icon,
-                            button: mouse::Button::Right,
+                            input: GaugeInput::Button(mouse::Button::Right),
                         })
                         .on_middle_press(Message::GaugeClicked {
-                            id: gauge.id.to_string(),
+                            id: icon_id.clone(),
                             target: GaugeClickTarget::Icon,
-                            button: mouse::Button::Middle,
+                            input: GaugeInput::Button(mouse::Button::Middle),
+                        })
+                        .on_scroll(move |delta| Message::GaugeClicked {
+                            id: icon_id.clone(),
+                            target: GaugeClickTarget::Icon,
+                            input: scroll_input(delta).unwrap_or(GaugeInput::ScrollUp),
                         })
                         .interaction(mouse::Interaction::Pointer)
                         .into();
@@ -306,21 +326,27 @@ impl BarState {
                     .width(Length::Fill)
                     .align_x(alignment::Horizontal::Center)
                     .into();
+                let value_id = gauge.id.to_string();
                 let centered_value: Element<'_, Message> = mouse_area(centered_value)
                     .on_press(Message::GaugeClicked {
-                        id: gauge.id.to_string(),
+                        id: value_id.clone(),
                         target: GaugeClickTarget::Value,
-                        button: mouse::Button::Left,
+                        input: GaugeInput::Button(mouse::Button::Left),
                     })
                     .on_right_press(Message::GaugeClicked {
-                        id: gauge.id.to_string(),
+                        id: value_id.clone(),
                         target: GaugeClickTarget::Value,
-                        button: mouse::Button::Right,
+                        input: GaugeInput::Button(mouse::Button::Right),
                     })
                     .on_middle_press(Message::GaugeClicked {
-                        id: gauge.id.to_string(),
+                        id: value_id.clone(),
                         target: GaugeClickTarget::Value,
-                        button: mouse::Button::Middle,
+                        input: GaugeInput::Button(mouse::Button::Middle),
+                    })
+                    .on_scroll(move |delta| Message::GaugeClicked {
+                        id: value_id.clone(),
+                        target: GaugeClickTarget::Value,
+                        input: scroll_input(delta).unwrap_or(GaugeInput::ScrollUp),
                     })
                     .interaction(mouse::Interaction::Pointer)
                     .into();
