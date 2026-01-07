@@ -21,6 +21,16 @@ fn format_percent(value: u8) -> String {
     format!("{:02}", value.min(99))
 }
 
+fn format_level(percent: Option<u8>) -> (Option<GaugeValue>, GaugeValueAttention) {
+    match percent {
+        Some(value) => (
+            Some(GaugeValue::Text(format_percent(value))),
+            GaugeValueAttention::Nominal,
+        ),
+        None => (None, GaugeValueAttention::Danger),
+    }
+}
+
 #[derive(Clone, Copy)]
 struct SourceStatus {
     percent: u8,
@@ -190,15 +200,7 @@ fn audio_in_stream() -> impl iced::futures::Stream<Item = crate::gauge::GaugeMod
             let icon_muted = svg_asset("microphone-disabled.svg");
 
             let mut send_value = |status: Option<SourceStatus>| {
-                let attention = match status {
-                    Some(_) => GaugeValueAttention::Nominal,
-                    None => GaugeValueAttention::Danger,
-                };
-                let value = status
-                    .map(|s| s.percent)
-                    .map(format_percent)
-                    .map(GaugeValue::Text)
-                    .unwrap_or_else(|| GaugeValue::Text("--".to_string()));
+                let (value, attention) = format_level(status.map(|s| s.percent));
 
                 let icon = status
                     .map(|s| if s.muted { icon_muted.clone() } else { icon_unmuted.clone() })
@@ -317,6 +319,13 @@ mod tests {
         assert_eq!(format_percent(0), "00");
         assert_eq!(format_percent(7), "07");
         assert_eq!(format_percent(99), "99");
+    }
+
+    #[test]
+    fn level_is_none_on_missing_status() {
+        let (value, attention) = format_level(None);
+        assert!(value.is_none());
+        assert_eq!(attention, GaugeValueAttention::Danger);
     }
 
     #[test]

@@ -86,7 +86,7 @@ fn is_battery(dev: &udev::Device) -> bool {
         .unwrap_or(false)
 }
 
-fn battery_value(dev: &udev::Device) -> Option<(GaugeValue, GaugeValueAttention)> {
+fn battery_value(dev: &udev::Device) -> Option<(Option<GaugeValue>, GaugeValueAttention)> {
     let capacity =
         property_str(dev, "POWER_SUPPLY_CAPACITY").or_else(|| property_str(dev, "CAPACITY"));
     let status = property_str(dev, "POWER_SUPPLY_STATUS");
@@ -94,23 +94,23 @@ fn battery_value(dev: &udev::Device) -> Option<(GaugeValue, GaugeValueAttention)
     if let Some(cap) = capacity {
         if let Ok(percent) = cap.parse::<u8>() {
             let attention = attention_for_capacity(percent);
-            return Some((GaugeValue::Svg(svg_asset(battery_icon(percent))), attention));
+            return Some((Some(GaugeValue::Svg(svg_asset(battery_icon(percent)))), attention));
         }
 
         if let Some(status) = status {
             return Some((
-                GaugeValue::Text(format!("{cap}% ({status})")),
+                Some(GaugeValue::Text(format!("{cap}% ({status})"))),
                 GaugeValueAttention::Nominal,
             ));
         }
 
         return Some((
-            GaugeValue::Text(format!("{cap}%")),
+            Some(GaugeValue::Text(format!("{cap}%"))),
             GaugeValueAttention::Nominal,
         ));
     }
 
-    None
+    Some((None, GaugeValueAttention::Danger))
 }
 
 fn battery_icon(percent: u8) -> &'static str {

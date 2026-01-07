@@ -37,7 +37,11 @@ fn day_stream() -> impl iced::futures::Stream<Item = crate::gauge::GaugeModel> {
         || {
             let now = Local::now();
             Some((
-                GaugeValue::Text(format!("{}\n{}", now.format("%m"), now.format("%d"))),
+                Some(GaugeValue::Text(format!(
+                    "{}\n{}",
+                    now.format("%m"),
+                    now.format("%d")
+                ))),
                 GaugeValueAttention::Nominal,
             ))
         },

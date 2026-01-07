@@ -11,6 +11,13 @@ use std::sync::Arc;
 // Step sized to traverse all grid icons (0-9) without skipping.
 const STEP: f32 = 1.0 / 9.0;
 
+#[derive(Debug, Clone, Copy)]
+enum QuantityMode {
+    Grid,
+    Pie,
+    Error,
+}
+
 /// Tracks a ping-pong sequence over the pie icon indices.
 #[derive(Debug)]
 struct BounceSequence {
@@ -49,7 +56,7 @@ impl BounceSequence {
 #[derive(Debug)]
 struct QuantityState {
     sequence: BounceSequence,
-    style: QuantityStyle,
+    mode: QuantityMode,
     attention: GaugeValueAttention,
 }
 
@@ -57,15 +64,19 @@ impl QuantityState {
     fn new(style: QuantityStyle) -> Self {
         Self {
             sequence: BounceSequence::new(),
-            style,
+            mode: match style {
+                QuantityStyle::Grid => QuantityMode::Grid,
+                QuantityStyle::Pie => QuantityMode::Pie,
+            },
             attention: GaugeValueAttention::Nominal,
         }
     }
 
-    fn toggle_style(&mut self) {
-        self.style = match self.style {
-            QuantityStyle::Grid => QuantityStyle::Pie,
-            QuantityStyle::Pie => QuantityStyle::Grid,
+    fn cycle_mode(&mut self) {
+        self.mode = match self.mode {
+            QuantityMode::Grid => QuantityMode::Pie,
+            QuantityMode::Pie => QuantityMode::Error,
+            QuantityMode::Error => QuantityMode::Grid,
         };
     }
 
@@ -77,8 +88,24 @@ impl QuantityState {
         };
     }
 
-    fn next(&mut self) -> (QuantityStyle, f32, GaugeValueAttention) {
-        (self.style, self.sequence.next(), self.attention)
+    fn next(&mut self) -> (Option<GaugeValue>, GaugeValueAttention) {
+        match self.mode {
+            QuantityMode::Grid => (
+                Some(GaugeValue::Svg(icon_quantity(
+                    QuantityStyle::Grid,
+                    self.sequence.next(),
+                ))),
+                self.attention,
+            ),
+            QuantityMode::Pie => (
+                Some(GaugeValue::Svg(icon_quantity(
+                    QuantityStyle::Pie,
+                    self.sequence.next(),
+                ))),
+                self.attention,
+            ),
+            QuantityMode::Error => (None, GaugeValueAttention::Danger),
+        }
     }
 }
 
@@ -88,17 +115,17 @@ fn test_gauge_stream() -> impl iced::futures::Stream<Item = crate::gauge::GaugeM
     let on_click: GaugeClickAction = {
         let state = Arc::clone(&state);
         Arc::new(move |click: GaugeClick| {
-            let (_style, _attention) = if let Ok(mut state) = state.lock() {
+            let (_mode, _attention) = if let Ok(mut state) = state.lock() {
                 match click.input {
                     crate::gauge::GaugeInput::Button(mouse::Button::Right) => {
                         state.cycle_attention()
                     }
-                    crate::gauge::GaugeInput::Button(_) => state.toggle_style(),
+                    crate::gauge::GaugeInput::Button(_) => state.cycle_mode(),
                     _ => {}
                 }
-                (state.style, state.attention)
+                (state.mode, state.attention)
             } else {
-                (QuantityStyle::Grid, GaugeValueAttention::Nominal)
+                (QuantityMode::Grid, GaugeValueAttention::Nominal)
             };
         })
     };
@@ -111,9 +138,8 @@ fn test_gauge_stream() -> impl iced::futures::Stream<Item = crate::gauge::GaugeM
             let state = Arc::clone(&state);
             move || {
                 let mut state = state.lock().ok()?;
-                let (style, value, attention) = state.next();
-                println!("rendering style {:?} for {}", style, value);
-                Some((GaugeValue::Svg(icon_quantity(style, value)), attention))
+                let (value, attention) = state.next();
+                Some((value, attention))
             }
         },
         Some(on_click),
@@ -160,5 +186,18 @@ mod tests {
         assert_eq!(state.attention, GaugeValueAttention::Danger);
         state.cycle_attention();
         assert_eq!(state.attention, GaugeValueAttention::Nominal);
+    }
+
+    #[test]
+    fn mode_cycles_through_styles_and_error() {
+        let mut state = QuantityState::new(QuantityStyle::Grid);
+
+        assert!(matches!(state.mode, QuantityMode::Grid));
+        state.cycle_mode();
+        assert!(matches!(state.mode, QuantityMode::Pie));
+        state.cycle_mode();
+        assert!(matches!(state.mode, QuantityMode::Error));
+        state.cycle_mode();
+        assert!(matches!(state.mode, QuantityMode::Grid));
     }
 }

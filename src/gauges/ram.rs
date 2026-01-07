@@ -111,6 +111,19 @@ fn attention_for(utilization: f32) -> GaugeValueAttention {
     }
 }
 
+fn ram_value(utilization: Option<f32>) -> (Option<GaugeValue>, GaugeValueAttention) {
+    match utilization {
+        Some(util) => (
+            Some(GaugeValue::Svg(icon_quantity(
+                QuantityStyle::Grid,
+                util,
+            ))),
+            attention_for(util),
+        ),
+        None => (None, GaugeValueAttention::Danger),
+    }
+}
+
 #[derive(Default)]
 struct RamState {
     fast_interval: bool,
@@ -158,16 +171,15 @@ fn ram_stream() -> impl iced::futures::Stream<Item = crate::gauge::GaugeModel> {
         {
             let state = std::sync::Arc::clone(&state);
             move || {
-                let utilization = memory_utilization()?;
-                let attention = attention_for(utilization);
+                let utilization = memory_utilization();
+                let (value, attention) = ram_value(utilization);
                 if let Ok(mut state) = state.lock() {
-                    state.update_interval_state(utilization);
+                    if let Some(util) = utilization {
+                        state.update_interval_state(util);
+                    }
                 }
 
-                Some((
-                    GaugeValue::Svg(icon_quantity(QuantityStyle::Grid, utilization)),
-                    attention,
-                ))
+                Some((value, attention))
             }
         },
         None,
@@ -207,5 +219,12 @@ mod tests {
         // Recover to slow interval after the 4th below-threshold tick.
         state.update_interval_state(0.5);
         assert_eq!(state.interval(), Duration::from_secs(4));
+    }
+
+    #[test]
+    fn returns_none_on_missing_utilization() {
+        let (value, attention) = ram_value(None);
+        assert!(value.is_none());
+        assert_eq!(attention, GaugeValueAttention::Danger);
     }
 }

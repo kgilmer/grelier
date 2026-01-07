@@ -21,6 +21,16 @@ fn format_percent(value: u8) -> String {
     format!("{:02}", value.min(DISPLAY_MAX))
 }
 
+fn brightness_value(percent: Option<u8>) -> (Option<GaugeValue>, GaugeValueAttention) {
+    match percent {
+        Some(p) => (
+            Some(GaugeValue::Text(format_percent(p))),
+            GaugeValueAttention::Nominal,
+        ),
+        None => (None, GaugeValueAttention::Danger),
+    }
+}
+
 fn read_u32(path: &Path) -> io::Result<u32> {
     let contents = fs::read_to_string(path)?;
     contents
@@ -128,10 +138,12 @@ fn brightness_stream() -> impl iced::futures::Stream<Item = crate::gauge::GaugeM
             let mut backlight = Backlight::discover();
 
             let mut send_state = |percent: Option<u8>, attention: GaugeValueAttention| {
-                let value = percent
-                    .map(format_percent)
-                    .map(GaugeValue::Text)
-                    .unwrap_or_else(|| GaugeValue::Text("--".to_string()));
+                let (value, default_attention) = brightness_value(percent);
+                let attention = if value.is_some() {
+                    attention
+                } else {
+                    default_attention
+                };
 
                 let _ = sender.try_send(crate::gauge::GaugeModel {
                     id: "brightness",
@@ -226,6 +238,13 @@ mod tests {
         assert_eq!(format_percent(7), "07");
         assert_eq!(format_percent(99), "99");
         assert_eq!(format_percent(120), "99");
+    }
+
+    #[test]
+    fn brightness_value_is_none_on_error() {
+        let (value, attention) = brightness_value(None);
+        assert!(value.is_none());
+        assert_eq!(attention, GaugeValueAttention::Danger);
     }
 
     #[test]

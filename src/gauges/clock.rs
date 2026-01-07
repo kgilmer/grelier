@@ -67,7 +67,11 @@ fn seconds_stream() -> impl iced::futures::Stream<Item = crate::gauge::GaugeMode
                     .map(|format| format.format_str())
                     .unwrap_or("%H");
                 Some((
-                    GaugeValue::Text(format!("{}\n{}", now.format(hour_format), now.format("%M"))),
+                    Some(GaugeValue::Text(format!(
+                        "{}\n{}",
+                        now.format(hour_format),
+                        now.format("%M")
+                    ))),
                     GaugeValueAttention::Nominal,
                 ))
             }

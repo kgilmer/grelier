@@ -2,6 +2,7 @@ use std::collections::HashMap;
 use std::convert::TryInto;
 
 use crate::gauge::{GaugeClickTarget, GaugeInput, GaugeModel, GaugeValue, GaugeValueAttention};
+use crate::icon::svg_asset;
 use crate::sway_workspace::WorkspaceInfo;
 use iced::alignment;
 use iced::border;
@@ -220,6 +221,7 @@ impl BarState {
                 });
 
         let ordered_gauges = self.ordered_gauges();
+        let error_icon = svg_asset("error.svg");
 
         let gauges = ordered_gauges.into_iter().fold(
             Column::new()
@@ -228,6 +230,12 @@ impl BarState {
                 .width(Length::Fill)
                 .align_x(alignment::Horizontal::Center),
             |col, gauge| {
+                let gauge_attention = if gauge.value.is_some() {
+                    gauge.attention
+                } else {
+                    GaugeValueAttention::Danger
+                };
+
                 let mut gauge_column = Column::new()
                     .align_x(alignment::Horizontal::Center)
                     .width(Length::Fill);
@@ -237,7 +245,7 @@ impl BarState {
                         .width(Length::Fixed(14.0))
                         .height(Length::Fixed(14.0))
                         .style({
-                            let attention = gauge.attention;
+                            let attention = gauge_attention;
                             move |theme: &Theme, _status| svg::Style {
                                 color: Some(match attention {
                                     GaugeValueAttention::Nominal => theme.palette().text,
@@ -284,8 +292,8 @@ impl BarState {
                 }
 
                 let value: Element<'_, Message> = match &gauge.value {
-                    GaugeValue::Text(value) => {
-                        let attention = gauge.attention;
+                    Some(GaugeValue::Text(value)) => {
+                        let attention = gauge_attention;
                         Text::new(value.clone())
                             .width(Length::Fill)
                             .align_x(text::Alignment::Center)
@@ -302,11 +310,29 @@ impl BarState {
                             })
                             .into()
                     }
-                    GaugeValue::Svg(handle) => Svg::new(handle.clone())
+                    Some(GaugeValue::Svg(handle)) => Svg::new(handle.clone())
                         .width(Length::Fixed(20.0))
                         .height(Length::Fixed(20.0))
                         .style({
-                            let attention = gauge.attention;
+                            let attention = gauge_attention;
+                            move |theme: &Theme, _status| svg::Style {
+                                color: Some(match attention {
+                                    GaugeValueAttention::Nominal => theme.palette().text,
+                                    GaugeValueAttention::Warning => {
+                                        theme.extended_palette().warning.base.color
+                                    }
+                                    GaugeValueAttention::Danger => {
+                                        theme.extended_palette().danger.base.color
+                                    }
+                                }),
+                            }
+                        })
+                        .into(),
+                    None => Svg::new(error_icon.clone())
+                        .width(Length::Fixed(20.0))
+                        .height(Length::Fixed(20.0))
+                        .style({
+                            let attention = GaugeValueAttention::Danger;
                             move |theme: &Theme, _status| svg::Style {
                                 color: Some(match attention {
                                     GaugeValueAttention::Nominal => theme.palette().text,
@@ -385,7 +411,7 @@ mod tests {
         GaugeModel {
             id,
             icon: None,
-            value: GaugeValue::Text(id.to_string()),
+            value: Some(GaugeValue::Text(id.to_string())),
             attention: GaugeValueAttention::Nominal,
             on_click: None,
         }

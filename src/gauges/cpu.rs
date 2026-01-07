@@ -98,6 +98,19 @@ impl CpuState {
     }
 }
 
+fn cpu_value(utilization: Option<f32>) -> (Option<GaugeValue>, GaugeValueAttention) {
+    match utilization {
+        Some(util) => (
+            Some(GaugeValue::Svg(icon_quantity(
+                QuantityStyle::Grid,
+                util,
+            ))),
+            attention_for(util),
+        ),
+        None => (None, GaugeValueAttention::Danger),
+    }
+}
+
 fn cpu_stream() -> impl iced::futures::Stream<Item = crate::gauge::GaugeModel> {
     let state = Arc::new(Mutex::new(CpuState::default()));
     let interval_state = Arc::clone(&state);
@@ -112,15 +125,21 @@ fn cpu_stream() -> impl iced::futures::Stream<Item = crate::gauge::GaugeModel> {
                 .unwrap_or(Duration::from_secs(2))
         },
         move || {
-            let now = read_cpu_time()?;
+            let now = match read_cpu_time() {
+                Some(now) => now,
+                None => return Some(cpu_value(None)),
+            };
 
-            let mut state = state.lock().ok()?;
+            let mut state = match state.lock() {
+                Ok(state) => state,
+                Err(_) => return Some(cpu_value(None)),
+            };
             let previous = match state.previous {
                 Some(prev) => prev,
                 None => {
                     state.previous = Some(now);
                     return Some((
-                        GaugeValue::Svg(icon_quantity(QuantityStyle::Grid, 0.0)),
+                        Some(GaugeValue::Svg(icon_quantity(QuantityStyle::Grid, 0.0))),
                         GaugeValueAttention::Nominal,
                     ));
                 }
@@ -130,11 +149,7 @@ fn cpu_stream() -> impl iced::futures::Stream<Item = crate::gauge::GaugeModel> {
             state.previous = Some(now);
             state.update_interval_state(utilization);
 
-            let attention = attention_for(utilization);
-            Some((
-                GaugeValue::Svg(icon_quantity(QuantityStyle::Grid, utilization)),
-                attention,
-            ))
+            Some(cpu_value(Some(utilization)))
         },
         None,
     )
@@ -165,5 +180,12 @@ mod tests {
         // Recover to slow interval after the 4th below-threshold tick.
         state.update_interval_state(0.4);
         assert_eq!(state.interval(), Duration::from_secs(4));
+    }
+
+    #[test]
+    fn returns_none_on_missing_utilization() {
+        let (value, attention) = super::cpu_value(None);
+        assert!(value.is_none());
+        assert_eq!(attention, GaugeValueAttention::Danger);
     }
 }

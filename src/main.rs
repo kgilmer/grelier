@@ -204,14 +204,14 @@ mod tests {
         let g1 = GaugeModel {
             id: "clock",
             icon: None,
-            value: GaugeValue::Text("12\n00".to_string()),
+            value: Some(GaugeValue::Text("12\n00".to_string())),
             attention: GaugeValueAttention::Nominal,
             on_click: None,
         };
         let g2 = GaugeModel {
             id: "clock",
             icon: None,
-            value: GaugeValue::Text("12\n01".to_string()),
+            value: Some(GaugeValue::Text("12\n01".to_string())),
             attention: GaugeValueAttention::Nominal,
             on_click: None,
         };
@@ -227,7 +227,7 @@ mod tests {
         let g3 = GaugeModel {
             id: "date",
             icon: None,
-            value: GaugeValue::Text("01\n01".to_string()),
+            value: Some(GaugeValue::Text("01\n01".to_string())),
             attention: GaugeValueAttention::Nominal,
             on_click: None,
         };
@@ -237,8 +237,9 @@ mod tests {
 
     fn assert_text_value(model: &GaugeModel, expected: &str) {
         match &model.value {
-            GaugeValue::Text(text) => assert_eq!(text, expected),
-            GaugeValue::Svg(_) => panic!("expected text gauge value"),
+            Some(GaugeValue::Text(text)) => assert_eq!(text, expected),
+            Some(GaugeValue::Svg(_)) => panic!("expected text gauge value"),
+            None => panic!("expected value"),
         }
     }
 }

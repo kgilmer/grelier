@@ -7,6 +7,17 @@ use iced::futures::StreamExt;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
+fn map_rate(rate: Option<f64>) -> (Option<GaugeValue>, GaugeValueAttention, f64) {
+    match rate {
+        Some(bytes_per_sec) => (
+            Some(GaugeValue::Text(format_rate(bytes_per_sec))),
+            GaugeValueAttention::Nominal,
+            bytes_per_sec,
+        ),
+        None => (None, GaugeValueAttention::Danger, 0.0),
+    }
+}
+
 fn net_up_stream() -> impl iced::futures::Stream<Item = crate::gauge::GaugeModel> {
     let sampler = shared_net_sampler();
     let interval_state = Arc::new(Mutex::new(NetIntervalState::default()));
@@ -32,18 +43,7 @@ fn net_up_stream() -> impl iced::futures::Stream<Item = crate::gauge::GaugeModel
                     .ok()
                     .and_then(|mut s| s.rates().map(|r| r.upload_bytes_per_sec));
 
-                let (value, attention, bytes_per_sec) = match rate {
-                    Some(bytes_per_sec) => (
-                        GaugeValue::Text(format_rate(bytes_per_sec)),
-                        GaugeValueAttention::Nominal,
-                        bytes_per_sec,
-                    ),
-                    None => (
-                        GaugeValue::Text("--".to_string()),
-                        GaugeValueAttention::Danger,
-                        0.0,
-                    ),
-                };
+                let (value, attention, bytes_per_sec) = map_rate(rate);
 
                 if let Ok(mut state) = state.lock() {
                     state.update(bytes_per_sec);
@@ -58,4 +58,17 @@ fn net_up_stream() -> impl iced::futures::Stream<Item = crate::gauge::GaugeModel
 
 pub fn net_up_subscription() -> Subscription<Message> {
     Subscription::run(|| net_up_stream().map(Message::Gauge))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn returns_none_on_missing_rate() {
+        let (value, attention, bytes) = map_rate(None);
+        assert!(value.is_none());
+        assert_eq!(attention, GaugeValueAttention::Danger);
+        assert_eq!(bytes, 0.0);
+    }
 }

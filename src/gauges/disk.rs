@@ -84,19 +84,26 @@ fn attention_for(utilization: f32) -> GaugeValueAttention {
     }
 }
 
+fn disk_value(utilization: Option<f32>) -> (Option<GaugeValue>, GaugeValueAttention) {
+    match utilization {
+        Some(util) => (
+            Some(GaugeValue::Svg(icon_quantity(QuantityStyle::Grid, util))),
+            attention_for(util),
+        ),
+        None => (None, GaugeValueAttention::Danger),
+    }
+}
+
 fn disk_stream() -> impl iced::futures::Stream<Item = crate::gauge::GaugeModel> {
     fixed_interval(
         "disk",
         Some(svg_asset("disk.svg")),
         || Duration::from_secs(60),
         || {
-            let utilization = root_utilization()?;
-            let attention = attention_for(utilization);
+            let utilization = root_utilization();
 
-            Some((
-                GaugeValue::Svg(icon_quantity(QuantityStyle::Grid, utilization)),
-                attention,
-            ))
+            let (value, attention) = disk_value(utilization);
+            Some((value, attention))
         },
         None,
     )
@@ -116,5 +123,12 @@ mod tests {
         assert_eq!(attention_for(0.86), GaugeValueAttention::Warning);
         assert_eq!(attention_for(0.95), GaugeValueAttention::Warning);
         assert_eq!(attention_for(0.96), GaugeValueAttention::Danger);
+    }
+
+    #[test]
+    fn returns_none_on_missing_utilization() {
+        let (value, attention) = disk_value(None);
+        assert!(value.is_none());
+        assert_eq!(attention, GaugeValueAttention::Danger);
     }
 }

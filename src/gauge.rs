@@ -24,7 +24,7 @@ pub enum GaugeValue {
 pub struct GaugeModel {
     pub id: &'static str,
     pub icon: Option<svg::Handle>,
-    pub value: GaugeValue,
+    pub value: Option<GaugeValue>,
     pub attention: GaugeValueAttention,
     pub on_click: Option<GaugeClickAction>,
 }
@@ -66,7 +66,7 @@ pub fn fixed_interval(
     id: &'static str,
     icon: Option<svg::Handle>,
     interval: impl Fn() -> Duration + Send + 'static,
-    tick: impl Fn() -> Option<(GaugeValue, GaugeValueAttention)> + Send + 'static,
+    tick: impl Fn() -> Option<(Option<GaugeValue>, GaugeValueAttention)> + Send + 'static,
     on_click: Option<GaugeClickAction>,
 ) -> impl iced::futures::Stream<Item = GaugeModel> {
     let (mut sender, receiver) = mpsc::channel(1);
@@ -87,6 +87,11 @@ pub fn fixed_interval(
 
         loop {
             if let Some((value, attention)) = tick() {
+                let attention = if value.is_some() {
+                    attention
+                } else {
+                    GaugeValueAttention::Danger
+                };
                 let _ = sender.try_send(GaugeModel {
                     id,
                     icon: icon.clone(),
@@ -125,7 +130,7 @@ pub enum GaugeKind {
         id: &'static str,
         icon: Option<svg::Handle>,
         interval: Box<dyn Fn() -> Duration + Send + 'static>,
-        tick: Box<dyn Fn() -> Option<(GaugeValue, GaugeValueAttention)> + Send + 'static>,
+        tick: Box<dyn Fn() -> Option<(Option<GaugeValue>, GaugeValueAttention)> + Send + 'static>,
         on_click: Option<GaugeClickAction>,
     },
     Event {
@@ -167,10 +172,7 @@ mod tests {
             || Duration::from_millis(5),
             move || {
                 ticks.fetch_add(1, Ordering::SeqCst);
-                Some((
-                    GaugeValue::Text(String::from("ok")),
-                    GaugeValueAttention::Nominal,
-                ))
+                Some((Some(GaugeValue::Text(String::from("ok"))), GaugeValueAttention::Nominal))
             },
             None,
         );
