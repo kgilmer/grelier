@@ -7,12 +7,12 @@ use iced::futures::StreamExt;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-fn net_upload_stream() -> impl iced::futures::Stream<Item = crate::gauge::GaugeModel> {
+fn net_up_stream() -> impl iced::futures::Stream<Item = crate::gauge::GaugeModel> {
     let sampler = shared_net_sampler();
     let interval_state = Arc::new(Mutex::new(NetIntervalState::default()));
 
     fixed_interval(
-        "net_upload",
+        "net_up",
         Some(svg_asset("upload.svg")),
         {
             let state = Arc::clone(&interval_state);
@@ -56,6 +56,6 @@ fn net_upload_stream() -> impl iced::futures::Stream<Item = crate::gauge::GaugeM
     )
 }
 
-pub fn net_upload_subscription() -> Subscription<Message> {
-    Subscription::run(|| net_upload_stream().map(Message::Gauge))
+pub fn net_up_subscription() -> Subscription<Message> {
+    Subscription::run(|| net_up_stream().map(Message::Gauge))
 }

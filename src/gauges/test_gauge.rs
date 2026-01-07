@@ -83,7 +83,7 @@ impl QuantityState {
 }
 
 /// Cycles over pie-[0-8].svg, bouncing when hitting the ends.
-fn quantity_stream() -> impl iced::futures::Stream<Item = crate::gauge::GaugeModel> {
+fn test_gauge_stream() -> impl iced::futures::Stream<Item = crate::gauge::GaugeModel> {
     let state = Arc::new(Mutex::new(QuantityState::new(QuantityStyle::Pie)));
     let on_click: GaugeClickAction = {
         let state = Arc::clone(&state);
@@ -104,7 +104,7 @@ fn quantity_stream() -> impl iced::futures::Stream<Item = crate::gauge::GaugeMod
     };
 
     fixed_interval(
-        "quantity",
+        "test_gauge",
         None,
         || Duration::from_secs(1),
         {
@@ -120,8 +120,8 @@ fn quantity_stream() -> impl iced::futures::Stream<Item = crate::gauge::GaugeMod
     )
 }
 
-pub fn quantity_subscription() -> Subscription<Message> {
-    Subscription::run(|| quantity_stream().map(Message::Gauge))
+pub fn test_gauge_subscription() -> Subscription<Message> {
+    Subscription::run(|| test_gauge_stream().map(Message::Gauge))
 }
 
 #[cfg(test)]

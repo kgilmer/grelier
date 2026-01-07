@@ -7,12 +7,13 @@ mod gauges {
     pub mod cpu;
     pub mod date;
     pub mod disk;
+    pub mod audio_in;
+    pub mod audio_out;
     pub mod net_common;
-    pub mod net_download;
-    pub mod net_upload;
-    pub mod quantity;
+    pub mod net_down;
+    pub mod net_up;
+    pub mod test_gauge;
     pub mod ram;
-    pub mod sound;
 }
 mod gauge;
 mod icon;
@@ -32,19 +33,16 @@ use crate::app::Orientation;
 use crate::app::{BarState, Message};
 use crate::gauge::{GaugeClick, GaugeModel};
 use crate::gauges::{
-    battery, brightness, clock, cpu, date, disk, net_download, net_upload, quantity, ram, sound,
+    audio_in, audio_out, battery, brightness, clock, cpu, date, disk, net_down, net_up, ram,
+    test_gauge,
 };
 
 #[derive(FromArgs, Debug)]
 /// Workspace + gauges display
 struct Args {
-    /// gauges: clock, date, battery, cpu, disk, ram, quantity, net_upload, net_download, sound, brightness
+    /// clock, date, battery, cpu, disk, ram, net_up, net_down, audio_out, audio_in, brightness
     #[argh(option, default = "\"clock,date\".to_string()")]
     gauges: String,
-
-    /// display a sparkle icon at the top of the window
-    #[argh(switch)]
-    sparkle: bool,
 
     /// orientation of the bar (left or right)
     #[argh(option, default = "Orientation::Left")]
@@ -65,13 +63,14 @@ fn app_subscription(_state: &BarState, gauges: &[&str]) -> Subscription<Message>
             "battery" => subs.push(battery::battery_subscription()),
             "cpu" => subs.push(cpu::cpu_subscription()),
             "disk" => subs.push(disk::disk_subscription()),
-            "net_download" => subs.push(net_download::net_download_subscription()),
-            "net_upload" => subs.push(net_upload::net_upload_subscription()),
+            "net_down" => subs.push(net_down::net_down_subscription()),
+            "net_up" => subs.push(net_up::net_up_subscription()),
             "ram" => subs.push(ram::ram_subscription()),
-            "quantity" => subs.push(quantity::quantity_subscription()),
-            "sound" => subs.push(sound::sound_subscription()),
+            "test_gauge" => subs.push(test_gauge::test_gauge_subscription()), // Special test gauge, intentionally omitted from help text
+            "audio_out" => subs.push(audio_out::audio_out_subscription()),
             "brightness" => subs.push(brightness::brightness_subscription()),
-            other => eprintln!("Unknown gauge '{other}', skipping"),
+            "audio_in" => subs.push(audio_in::audio_in_subscription()),
+            other => unreachable!("gauges validated before subscription: {other}"),
         }
     }
     Subscription::batch(subs)
@@ -80,6 +79,21 @@ fn app_subscription(_state: &BarState, gauges: &[&str]) -> Subscription<Message>
 fn main() -> Result<(), iced_layershell::Error> {
     let args: Args = argh::from_env();
 
+    const KNOWN_GAUGES: &[&str] = &[
+        "clock",
+        "date",
+        "battery",
+        "cpu",
+        "disk",
+        "ram",
+        "net_up",
+        "net_down",
+        "audio_out",
+        "audio_in",
+        "brightness",
+        "test_gauge",
+    ];
+
     let gauges: Vec<String> = args
         .gauges
         .split(',')
@@ -87,6 +101,13 @@ fn main() -> Result<(), iced_layershell::Error> {
         .filter(|s| !s.is_empty())
         .map(|s| s.to_string())
         .collect();
+
+    for gauge in &gauges {
+        if !KNOWN_GAUGES.contains(&gauge.as_str()) {
+            eprintln!("Unknown gauge '{gauge}'. Known gauges: {}", KNOWN_GAUGES.join(", "));
+            std::process::exit(1);
+        }
+    }
 
     let anchor = match args.orientation {
         Orientation::Left => Anchor::Left,
@@ -116,10 +137,9 @@ fn main() -> Result<(), iced_layershell::Error> {
         .unwrap_or(theme::DEFAULT_THEME);
 
     let gauge_order = gauges.clone();
-    let show_sparkle = args.sparkle;
 
     application(
-        move || BarState::with_gauge_order(gauge_order.clone(), show_sparkle),
+        move || BarState::with_gauge_order(gauge_order.clone()),
         BarState::namespace,
         update,
         BarState::view,

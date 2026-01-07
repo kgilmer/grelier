@@ -1,8 +1,8 @@
 use crate::app::Message;
-use crate::gauge::{GaugeClick, GaugeClickAction, GaugeValue, GaugeValueAttention, event_stream};
+use crate::gauge::{event_stream, GaugeClick, GaugeClickAction, GaugeValue, GaugeValueAttention};
 use crate::icon::svg_asset;
-use iced::Subscription;
 use iced::futures::StreamExt;
+use iced::Subscription;
 use libpulse_binding as pulse;
 use pulse::callbacks::ListResult;
 use pulse::context::subscribe::{Facility, InterestMaskSet};
@@ -22,7 +22,7 @@ fn format_percent(value: u8) -> String {
 }
 
 #[derive(Clone, Copy)]
-struct SinkStatus {
+struct SourceStatus {
     percent: u8,
     muted: bool,
     channels: u8,
@@ -52,15 +52,15 @@ fn wait_for_context_ready(mainloop: &mut Mainloop, context: &Context) -> Option<
     }
 }
 
-fn default_sink_name(mainloop: &mut Mainloop, context: &Context) -> Option<String> {
-    let sink_name = Rc::new(RefCell::new(None));
+fn default_source_name(mainloop: &mut Mainloop, context: &Context) -> Option<String> {
+    let source_name = Rc::new(RefCell::new(None));
     let done = Rc::new(Cell::new(false));
 
     {
-        let sink_name = Rc::clone(&sink_name);
+        let source_name = Rc::clone(&source_name);
         let done = Rc::clone(&done);
         context.introspect().get_server_info(move |info| {
-            *sink_name.borrow_mut() = info.default_sink_name.as_ref().map(|n| n.to_string());
+            *source_name.borrow_mut() = info.default_source_name.as_ref().map(|n| n.to_string());
             done.set(true);
         });
     }
@@ -73,15 +73,15 @@ fn default_sink_name(mainloop: &mut Mainloop, context: &Context) -> Option<Strin
         }
     }
 
-    sink_name.borrow().clone()
+    source_name.borrow().clone()
 }
 
-fn read_sink_status(
+fn read_source_status(
     mainloop: &mut Mainloop,
     context: &Context,
-    sink_name: &str,
-) -> Option<SinkStatus> {
-    let status = Rc::new(RefCell::new(None::<SinkStatus>));
+    source_name: &str,
+) -> Option<SourceStatus> {
+    let status = Rc::new(RefCell::new(None::<SourceStatus>));
     let done = Rc::new(Cell::new(false));
 
     {
@@ -89,13 +89,13 @@ fn read_sink_status(
         let done = Rc::clone(&done);
         context
             .introspect()
-            .get_sink_info_by_name(sink_name, move |result| match result {
+            .get_source_info_by_name(source_name, move |result| match result {
                 ListResult::Item(info) => {
                     let avg = info.volume.avg();
                     let percent = percent_from_volume(avg);
                     let muted = info.mute;
                     let channels = info.volume.len();
-                    *status.borrow_mut() = Some(SinkStatus {
+                    *status.borrow_mut() = Some(SourceStatus {
                         percent,
                         muted,
                         channels,
@@ -117,7 +117,7 @@ fn read_sink_status(
 }
 
 #[derive(Debug, PartialEq)]
-enum SoundCommand {
+enum InputCommand {
     ToggleMute,
     AdjustVolume(i8),
 }
@@ -128,41 +128,35 @@ fn volume_from_percent(percent: u8) -> Volume {
     Volume(raw)
 }
 
-fn recv_with_idle_wait(
-    receiver: &mpsc::Receiver<SoundCommand>,
-) -> Result<SoundCommand, RecvTimeoutError> {
+fn recv_with_idle_wait(receiver: &mpsc::Receiver<InputCommand>) -> Result<InputCommand, RecvTimeoutError> {
     receiver.recv_timeout(IDLE_WAIT)
 }
 
 fn handle_command(
-    command: SoundCommand,
-    last_status: &Option<SinkStatus>,
+    command: InputCommand,
+    last_status: &Option<SourceStatus>,
     mainloop: &mut Mainloop,
     context: &Context,
     refresh_needed: &Cell<bool>,
 ) {
     if let Some(status) = last_status
-        && let Some(sink) = default_sink_name(mainloop, context)
+        && let Some(source) = default_source_name(mainloop, context)
     {
         match command {
-            SoundCommand::ToggleMute => {
+            InputCommand::ToggleMute => {
                 let target = !status.muted;
-                context.introspect().set_sink_mute_by_name(
-                    &sink,
-                    target,
-                    None::<Box<dyn FnMut(bool)>>,
-                );
+                context
+                    .introspect()
+                    .set_source_mute_by_name(&source, target, None::<Box<dyn FnMut(bool)>>);
             }
-            SoundCommand::AdjustVolume(delta) => {
+            InputCommand::AdjustVolume(delta) => {
                 if status.channels > 0 {
                     let new_percent = status.percent.saturating_add_signed(delta).clamp(0, 99);
                     let mut volumes = ChannelVolumes::default();
                     volumes.set(status.channels, volume_from_percent(new_percent));
-                    context.introspect().set_sink_volume_by_name(
-                        &sink,
-                        &volumes,
-                        None::<Box<dyn FnMut(bool)>>,
-                    );
+                    context
+                        .introspect()
+                        .set_source_volume_by_name(&source, &volumes, None::<Box<dyn FnMut(bool)>>);
                 }
             }
         }
@@ -170,32 +164,32 @@ fn handle_command(
     }
 }
 
-fn sound_stream() -> impl iced::futures::Stream<Item = crate::gauge::GaugeModel> {
-    let (command_tx, command_rx) = mpsc::channel::<SoundCommand>();
+fn audio_in_stream() -> impl iced::futures::Stream<Item = crate::gauge::GaugeModel> {
+    let (command_tx, command_rx) = mpsc::channel::<InputCommand>();
     let on_click: GaugeClickAction = {
         let command_tx = command_tx.clone();
         Arc::new(move |click: GaugeClick| match click.input {
             crate::gauge::GaugeInput::Button(iced::mouse::Button::Right) => {
-                let _ = command_tx.send(SoundCommand::ToggleMute);
+                let _ = command_tx.send(InputCommand::ToggleMute);
             }
             crate::gauge::GaugeInput::ScrollUp => {
-                let _ = command_tx.send(SoundCommand::AdjustVolume(5));
+                let _ = command_tx.send(InputCommand::AdjustVolume(5));
             }
             crate::gauge::GaugeInput::ScrollDown => {
-                let _ = command_tx.send(SoundCommand::AdjustVolume(-5));
+                let _ = command_tx.send(InputCommand::AdjustVolume(-5));
             }
             _ => {}
         })
     };
 
     event_stream(
-        "sound",
-        Some(svg_asset("speaker.svg")),
+        "audio_in",
+        Some(svg_asset("microphone.svg")),
         move |mut sender| {
-            let icon_unmuted = svg_asset("speaker.svg");
-            let icon_muted = svg_asset("speaker-mute.svg");
+            let icon_unmuted = svg_asset("microphone.svg");
+            let icon_muted = svg_asset("microphone-disabled.svg");
 
-            let mut send_value = |status: Option<SinkStatus>| {
+            let mut send_value = |status: Option<SourceStatus>| {
                 let attention = match status {
                     Some(_) => GaugeValueAttention::Nominal,
                     None => GaugeValueAttention::Danger,
@@ -205,18 +199,13 @@ fn sound_stream() -> impl iced::futures::Stream<Item = crate::gauge::GaugeModel>
                     .map(format_percent)
                     .map(GaugeValue::Text)
                     .unwrap_or_else(|| GaugeValue::Text("--".to_string()));
+
                 let icon = status
-                    .map(|s| {
-                        if s.muted {
-                            icon_muted.clone()
-                        } else {
-                            icon_unmuted.clone()
-                        }
-                    })
+                    .map(|s| if s.muted { icon_muted.clone() } else { icon_unmuted.clone() })
                     .unwrap_or_else(|| icon_unmuted.clone());
 
                 let _ = sender.try_send(crate::gauge::GaugeModel {
-                    id: "sound",
+                    id: "audio_in",
                     icon: Some(icon),
                     value,
                     attention,
@@ -231,7 +220,7 @@ fn sound_stream() -> impl iced::futures::Stream<Item = crate::gauge::GaugeModel>
                     return;
                 }
             };
-            let mut context = match Context::new(&mainloop, "grelier-sound") {
+            let mut context = match Context::new(&mainloop, "grelier-audio-in") {
                 Some(c) => c,
                 None => {
                     send_value(None);
@@ -253,13 +242,13 @@ fn sound_stream() -> impl iced::futures::Stream<Item = crate::gauge::GaugeModel>
             context.set_subscribe_callback(Some(Box::new({
                 let refresh_needed = Rc::clone(&refresh_needed);
                 move |facility, _operation, _index| {
-                    if matches!(facility, Some(Facility::Sink) | Some(Facility::Server)) {
+                    if matches!(facility, Some(Facility::Source) | Some(Facility::Server)) {
                         refresh_needed.set(true);
                     }
                 }
             })));
-            context.subscribe(InterestMaskSet::SINK | InterestMaskSet::SERVER, |_| {});
-            let mut last_status: Option<SinkStatus> = None;
+            context.subscribe(InterestMaskSet::SOURCE | InterestMaskSet::SERVER, |_| {});
+            let mut last_status: Option<SourceStatus> = None;
 
             loop {
                 while let Ok(command) = command_rx.try_recv() {
@@ -273,10 +262,10 @@ fn sound_stream() -> impl iced::futures::Stream<Item = crate::gauge::GaugeModel>
                 }
 
                 if refresh_needed.replace(false) {
-                    let sink = default_sink_name(&mut mainloop, &context);
-                    let status = sink
+                    let source = default_source_name(&mut mainloop, &context);
+                    let status = source
                         .as_deref()
-                        .and_then(|name| read_sink_status(&mut mainloop, &context, name));
+                        .and_then(|name| read_source_status(&mut mainloop, &context, name));
                     if status.is_some() {
                         last_status = status;
                     }
@@ -315,8 +304,8 @@ fn sound_stream() -> impl iced::futures::Stream<Item = crate::gauge::GaugeModel>
     )
 }
 
-pub fn sound_subscription() -> Subscription<Message> {
-    Subscription::run(|| sound_stream().map(Message::Gauge))
+pub fn audio_in_subscription() -> Subscription<Message> {
+    Subscription::run(|| audio_in_stream().map(Message::Gauge))
 }
 
 #[cfg(test)]
@@ -342,7 +331,7 @@ mod tests {
 
     #[test]
     fn idle_wait_blocks_when_no_command_is_available() {
-        let (_tx, rx) = mpsc::channel::<SoundCommand>();
+        let (_tx, rx) = mpsc::channel::<InputCommand>();
         let start = std::time::Instant::now();
 
         assert_eq!(recv_with_idle_wait(&rx), Err(RecvTimeoutError::Timeout));
