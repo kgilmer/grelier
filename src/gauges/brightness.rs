@@ -39,9 +39,7 @@ fn percent_from_raw(raw: u32, max: u32) -> u8 {
     }
 
     let ratio = raw as f64 / max as f64;
-    (ratio * 100.0)
-        .round()
-        .clamp(0.0, ABS_MAX_PERCENT as f64) as u8
+    (ratio * 100.0).round().clamp(0.0, ABS_MAX_PERCENT as f64) as u8
 }
 
 fn raw_from_percent(percent: u8, max: u32) -> u32 {
@@ -67,17 +65,18 @@ impl Backlight {
             let path = entry.path();
             let brightness = path.join("brightness");
             let max_brightness_path = path.join("max_brightness");
-            if brightness.exists() && max_brightness_path.exists() {
-                if let Ok(max) = read_u32(&max_brightness_path) {
-                    if max == 0 {
-                        continue;
-                    }
-
-                    return Some(Self {
-                        brightness,
-                        max_brightness: max,
-                    });
+            if brightness.exists()
+                && max_brightness_path.exists()
+                && let Ok(max) = read_u32(&max_brightness_path)
+            {
+                if max == 0 {
+                    continue;
                 }
+
+                return Some(Self {
+                    brightness,
+                    max_brightness: max,
+                });
             }
         }
 
@@ -169,11 +168,11 @@ fn brightness_stream() -> impl iced::futures::Stream<Item = crate::gauge::GaugeM
                             backlight = Backlight::discover();
                         }
 
-                        if let Some(ref ctl) = backlight {
-                            if let Err(err) = ctl.adjust_percent(delta) {
-                                eprintln!("brightness gauge: failed to adjust brightness: {err}");
-                                backlight = None;
-                            }
+                        if let Some(ref ctl) = backlight
+                            && let Err(err) = ctl.adjust_percent(delta)
+                        {
+                            eprintln!("brightness gauge: failed to adjust brightness: {err}");
+                            backlight = None;
                         }
                         true
                     }

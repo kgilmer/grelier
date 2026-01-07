@@ -2,6 +2,7 @@ use std::collections::HashMap;
 use std::convert::TryInto;
 
 use crate::gauge::{GaugeClickTarget, GaugeInput, GaugeModel, GaugeValue, GaugeValueAttention};
+use crate::icon;
 use crate::sway_workspace::WorkspaceInfo;
 use iced::alignment;
 use iced::border;
@@ -109,6 +110,7 @@ pub struct BarState {
     pub workspaces: Vec<WorkspaceInfo>,
     pub gauges: Vec<GaugeModel>,
     pub gauge_order: Vec<String>,
+    pub show_sparkle: bool,
 }
 
 impl BarState {
@@ -117,6 +119,7 @@ impl BarState {
             workspaces: Vec::new(),
             gauges: Vec::new(),
             gauge_order: Vec::new(),
+            show_sparkle: false,
         }
     }
 
@@ -125,14 +128,16 @@ impl BarState {
             workspaces,
             gauges: Vec::new(),
             gauge_order: Vec::new(),
+            show_sparkle: false,
         }
     }
 
-    pub fn with_gauge_order(gauge_order: Vec<String>) -> Self {
+    pub fn with_gauge_order(gauge_order: Vec<String>, show_sparkle: bool) -> Self {
         Self {
             workspaces: Vec::new(),
             gauges: Vec::new(),
             gauge_order,
+            show_sparkle,
         }
     }
 
@@ -355,9 +360,22 @@ impl BarState {
             },
         );
 
-        let layout = Column::new()
-            .width(Length::Fill)
-            .height(Length::Fill)
+        let mut layout = Column::new().width(Length::Fill).height(Length::Fill);
+
+        if self.show_sparkle {
+            let sparkle = Svg::new(icon::svg_asset("sparkle.svg"))
+                .width(Length::Fixed(18.0))
+                .height(Length::Fixed(18.0))
+                .style(|theme: &Theme, _status| svg::Style {
+                    color: Some(theme.extended_palette().primary.base.color),
+                });
+            let sparkle = container(sparkle)
+                .width(Length::Fill)
+                .align_x(alignment::Horizontal::Center);
+            layout = layout.push(sparkle);
+        }
+
+        layout = layout
             .push(workspaces)
             .push(Space::new().height(Length::Fill))
             .push(gauges);
@@ -397,6 +415,7 @@ mod tests {
             workspaces: Vec::new(),
             gauges: vec![gauge("cpu"), gauge("ram"), gauge("disk")],
             gauge_order: vec!["ram".into(), "clock".into(), "cpu".into()],
+            show_sparkle: false,
         };
 
         let ordered_ids: Vec<_> = state.ordered_gauges().into_iter().map(|g| g.id).collect();

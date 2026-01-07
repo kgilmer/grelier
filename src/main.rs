@@ -1,8 +1,8 @@
 #![allow(dead_code)] // workspace handling will be re-enabled later
 mod app;
 mod gauges {
-    pub mod brightness;
     pub mod battery;
+    pub mod brightness;
     pub mod clock;
     pub mod cpu;
     pub mod date;
@@ -41,6 +41,10 @@ struct Args {
     /// gauges: clock, date, battery, cpu, disk, ram, quantity, net_upload, net_download, sound, brightness
     #[argh(option, default = "\"clock,date\".to_string()")]
     gauges: String,
+
+    /// display a sparkle icon at the top of the window
+    #[argh(switch)]
+    sparkle: bool,
 
     /// orientation of the bar (left or right)
     #[argh(option, default = "Orientation::Left")]
@@ -112,9 +116,10 @@ fn main() -> Result<(), iced_layershell::Error> {
         .unwrap_or(theme::DEFAULT_THEME);
 
     let gauge_order = gauges.clone();
+    let show_sparkle = args.sparkle;
 
     application(
-        move || BarState::with_gauge_order(gauge_order.clone()),
+        move || BarState::with_gauge_order(gauge_order.clone(), show_sparkle),
         BarState::namespace,
         update,
         BarState::view,

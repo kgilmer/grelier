@@ -12,7 +12,10 @@ use pulse::volume::{ChannelVolumes, Volume};
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 use std::sync::Arc;
-use std::sync::mpsc;
+use std::sync::mpsc::{self, RecvTimeoutError};
+use std::time::Duration;
+
+const IDLE_WAIT: Duration = Duration::from_millis(25);
 
 fn format_percent(value: u8) -> String {
     format!("{:02}", value.min(99))
@@ -113,6 +116,7 @@ fn read_sink_status(
     *status.borrow()
 }
 
+#[derive(Debug, PartialEq)]
 enum SoundCommand {
     ToggleMute,
     AdjustVolume(i8),
@@ -122,6 +126,48 @@ fn volume_from_percent(percent: u8) -> Volume {
     let ratio = percent as f64 / 100.0;
     let raw = (Volume::NORMAL.0 as f64 * ratio).round() as u32;
     Volume(raw)
+}
+
+fn recv_with_idle_wait(
+    receiver: &mpsc::Receiver<SoundCommand>,
+) -> Result<SoundCommand, RecvTimeoutError> {
+    receiver.recv_timeout(IDLE_WAIT)
+}
+
+fn handle_command(
+    command: SoundCommand,
+    last_status: &Option<SinkStatus>,
+    mainloop: &mut Mainloop,
+    context: &Context,
+    refresh_needed: &Cell<bool>,
+) {
+    if let Some(status) = last_status
+        && let Some(sink) = default_sink_name(mainloop, context)
+    {
+        match command {
+            SoundCommand::ToggleMute => {
+                let target = !status.muted;
+                context.introspect().set_sink_mute_by_name(
+                    &sink,
+                    target,
+                    None::<Box<dyn FnMut(bool)>>,
+                );
+            }
+            SoundCommand::AdjustVolume(delta) => {
+                if status.channels > 0 {
+                    let new_percent = status.percent.saturating_add_signed(delta).clamp(0, 99);
+                    let mut volumes = ChannelVolumes::default();
+                    volumes.set(status.channels, volume_from_percent(new_percent));
+                    context.introspect().set_sink_volume_by_name(
+                        &sink,
+                        &volumes,
+                        None::<Box<dyn FnMut(bool)>>,
+                    );
+                }
+            }
+        }
+        refresh_needed.set(true);
+    }
 }
 
 fn sound_stream() -> impl iced::futures::Stream<Item = crate::gauge::GaugeModel> {
@@ -216,38 +262,15 @@ fn sound_stream() -> impl iced::futures::Stream<Item = crate::gauge::GaugeModel>
             let mut last_status: Option<SinkStatus> = None;
 
             loop {
-                // Handle toggle requests (right-click).
-            if let Ok(command) = command_rx.try_recv()
-                && let Some(ref status) = last_status
-                && let Some(sink) = default_sink_name(&mut mainloop, &context)
-            {
-                match command {
-                    SoundCommand::ToggleMute => {
-                        let target = !status.muted;
-                        context.introspect().set_sink_mute_by_name(
-                            &sink,
-                            target,
-                            None::<Box<dyn FnMut(bool)>>,
-                        );
-                    }
-                    SoundCommand::AdjustVolume(delta) => {
-                        if status.channels > 0 {
-                            let new_percent = status
-                                .percent
-                                .saturating_add_signed(delta)
-                                .clamp(0, 99);
-                            let mut volumes = ChannelVolumes::default();
-                            volumes.set(status.channels, volume_from_percent(new_percent));
-                            context.introspect().set_sink_volume_by_name(
-                                &sink,
-                                &volumes,
-                                None::<Box<dyn FnMut(bool)>>,
-                            );
-                        }
-                    }
+                while let Ok(command) = command_rx.try_recv() {
+                    handle_command(
+                        command,
+                        &last_status,
+                        &mut mainloop,
+                        &context,
+                        &refresh_needed,
+                    );
                 }
-                refresh_needed.set(true);
-            }
 
                 if refresh_needed.replace(false) {
                     let sink = default_sink_name(&mut mainloop, &context);
@@ -271,6 +294,21 @@ fn sound_stream() -> impl iced::futures::Stream<Item = crate::gauge::GaugeModel>
                 if iterate(&mut mainloop).is_none() {
                     send_value(None);
                     break;
+                }
+
+                match recv_with_idle_wait(&command_rx) {
+                    Ok(command) => handle_command(
+                        command,
+                        &last_status,
+                        &mut mainloop,
+                        &context,
+                        &refresh_needed,
+                    ),
+                    Err(RecvTimeoutError::Timeout) => {}
+                    Err(RecvTimeoutError::Disconnected) => {
+                        send_value(None);
+                        break;
+                    }
                 }
             }
         },
@@ -299,6 +337,20 @@ mod tests {
         assert_eq!(
             percent_from_volume(Volume(Volume::NORMAL.0.saturating_mul(2))),
             99
+        );
+    }
+
+    #[test]
+    fn idle_wait_blocks_when_no_command_is_available() {
+        let (_tx, rx) = mpsc::channel::<SoundCommand>();
+        let start = std::time::Instant::now();
+
+        assert_eq!(recv_with_idle_wait(&rx), Err(RecvTimeoutError::Timeout));
+        assert!(
+            start.elapsed() >= IDLE_WAIT,
+            "idle wait returned after {:?}, expected at least {:?}",
+            start.elapsed(),
+            IDLE_WAIT
         );
     }
 }
