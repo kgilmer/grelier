@@ -10,10 +10,9 @@ use crate::sway_workspace::WorkspaceInfo;
 use iced::alignment;
 use iced::border;
 use iced::font::Weight;
-use iced::Shadow;
 use iced::widget::svg::{self, Svg};
 use iced::widget::text;
-use iced::widget::{Column, Space, Text, button, container, mouse_area};
+use iced::widget::{Column, Row, Space, Stack, Text, button, container, mouse_area, rule};
 use iced::{Border, Color, Element, Font, Length, Task, Theme, mouse, window};
 use iced_anim::animation_builder::AnimationBuilder;
 use iced_anim::transition::Easing;
@@ -467,7 +466,49 @@ impl BarState {
                 ..container::Style::default()
             });
 
-        mouse_area(filled)
+        let border = container({
+            let line = |mix: f32, alpha: f32| {
+                rule::vertical(1).style(move |theme: &Theme| {
+                    let background = theme.palette().background;
+                    let blended = if mix == 0.0 {
+                        background
+                    } else {
+                        lerp_color(background, Color::BLACK, mix)
+                    };
+                    rule::Style {
+                        color: Color {
+                            a: alpha,
+                            ..blended
+                        },
+                        radius: 0.0.into(),
+                        fill_mode: rule::FillMode::Full,
+                        snap: true,
+                    }
+                })
+            };
+            let line1 = line(0.2, 0.9);
+            let line2 = line(0.6, 0.7);
+            let line3 = line(1.0, 0.9);
+
+            Row::new()
+                .spacing(0)
+                .push(line1)
+                .push(line2)
+                .push(line3)
+                .width(Length::Fixed(3.0))
+                .height(Length::Fill)
+        })
+        .width(Length::Fill)
+        .height(Length::Fill)
+        .align_x(alignment::Horizontal::Right);
+
+        let layered = Stack::new()
+            .width(Length::Fill)
+            .height(Length::Fill)
+            .push(filled)
+            .push(border);
+
+        mouse_area(layered)
             .on_press(Message::BackgroundClicked)
             .on_right_press(Message::BackgroundClicked)
             .interaction(mouse::Interaction::Pointer)

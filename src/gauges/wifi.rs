@@ -34,10 +34,10 @@ fn wifi_interfaces() -> Vec<String> {
 
     for entry in entries.flatten() {
         let path = entry.path();
-        if is_wifi_iface(&path) {
-            if let Some(name) = path.file_name().and_then(|s| s.to_str()) {
-                ifaces.push(name.to_string());
-            }
+        if is_wifi_iface(&path)
+            && let Some(name) = path.file_name().and_then(|s| s.to_str())
+        {
+            ifaces.push(name.to_string());
         }
     }
 
@@ -83,10 +83,10 @@ fn interface_connected(path: &Path, quality: Option<f32>) -> bool {
         return carrier;
     }
 
-    if let Some(operstate) = read_operstate(path) {
-        if operstate != "up" {
-            return false;
-        }
+    if let Some(operstate) = read_operstate(path)
+        && operstate != "up"
+    {
+        return false;
     }
 
     quality.unwrap_or(0.0) > 0.0
@@ -123,11 +123,7 @@ fn wifi_snapshot() -> WifiSnapshot {
     let path = PathBuf::from(SYS_NET).join(&iface);
     let quality = read_link_quality(&iface);
     let connected = interface_connected(&path, quality);
-    let strength = quality
-        .unwrap_or(0.0)
-        .max(0.0)
-        .min(QUALITY_MAX)
-        / QUALITY_MAX;
+    let strength = quality.unwrap_or(0.0).clamp(0.0, QUALITY_MAX) / QUALITY_MAX;
 
     WifiSnapshot {
         state: if connected {
@@ -163,10 +159,12 @@ fn wifi_gauge(snapshot: WifiSnapshot) -> GaugeModel {
 }
 
 fn wifi_stream() -> impl iced::futures::Stream<Item = GaugeModel> {
-    event_stream("wifi", None, move |mut sender| loop {
-        let snapshot = wifi_snapshot();
-        let _ = sender.try_send(wifi_gauge(snapshot));
-        thread::sleep(POLL_INTERVAL);
+    event_stream("wifi", None, move |mut sender| {
+        loop {
+            let snapshot = wifi_snapshot();
+            let _ = sender.try_send(wifi_gauge(snapshot));
+            thread::sleep(POLL_INTERVAL);
+        }
     })
 }
 
