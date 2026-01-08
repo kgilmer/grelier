@@ -8,9 +8,9 @@ use iced::Subscription;
 use iced::futures::StreamExt;
 use libpulse_binding as pulse;
 use pulse::callbacks::ListResult;
-use pulse::def;
 use pulse::context::subscribe::{Facility, InterestMaskSet};
 use pulse::context::{Context, FlagSet, State as ContextState};
+use pulse::def;
 use pulse::mainloop::standard::{IterateResult, Mainloop};
 use pulse::volume::{ChannelVolumes, Volume};
 use std::cell::{Cell, RefCell};
@@ -180,7 +180,9 @@ fn collect_sources(mainloop: &mut Mainloop, context: &Context) -> Option<Vec<Sou
                     let description = info.description.as_ref().map(|d| d.to_string());
 
                     if let Some(name) = name {
-                        sources.borrow_mut().push(SourceMenuEntry { name, description });
+                        sources
+                            .borrow_mut()
+                            .push(SourceMenuEntry { name, description });
                     }
                 }
                 ListResult::End | ListResult::Error => done.set(true),
@@ -209,10 +211,14 @@ fn sources_to_menu_items(
     entries
         .iter()
         .map(|entry| {
-            let raw_label = entry
-                .description
-                .clone()
-                .unwrap_or_else(|| entry.name.split(" - ").last().unwrap_or(&entry.name).to_string());
+            let raw_label = entry.description.clone().unwrap_or_else(|| {
+                entry
+                    .name
+                    .split(" - ")
+                    .last()
+                    .unwrap_or(&entry.name)
+                    .to_string()
+            });
             let label = truncate_label(raw_label);
             GaugeMenuItem {
                 id: entry.name.clone(),
@@ -312,33 +318,33 @@ fn audio_in_stream() -> impl iced::futures::Stream<Item = crate::gauge::GaugeMod
 
             let mut send_value =
                 |status: Option<SourceStatus>, menu_items: Option<Vec<GaugeMenuItem>>| {
-                let (value, attention) = format_level(status.map(|s| s.percent));
+                    let (value, attention) = format_level(status.map(|s| s.percent));
 
-                let icon = status
-                    .map(|s| {
-                        if s.muted {
-                            icon_muted.clone()
-                        } else {
-                            icon_unmuted.clone()
-                        }
-                    })
-                    .unwrap_or_else(|| icon_unmuted.clone());
+                    let icon = status
+                        .map(|s| {
+                            if s.muted {
+                                icon_muted.clone()
+                            } else {
+                                icon_unmuted.clone()
+                            }
+                        })
+                        .unwrap_or_else(|| icon_unmuted.clone());
 
-                let menu = menu_items.map(|items| GaugeMenu {
-                    title: "Input Devices".to_string(),
-                    items,
-                    on_select: Some(menu_select.clone()),
-                });
+                    let menu = menu_items.map(|items| GaugeMenu {
+                        title: "Input Devices".to_string(),
+                        items,
+                        on_select: Some(menu_select.clone()),
+                    });
 
-                let _ = sender.try_send(crate::gauge::GaugeModel {
-                    id: "audio_in",
-                    icon: Some(icon),
-                    value,
-                    attention,
-                    on_click: Some(on_click.clone()),
-                    menu,
-                });
-            };
+                    let _ = sender.try_send(crate::gauge::GaugeModel {
+                        id: "audio_in",
+                        icon: Some(icon),
+                        value,
+                        attention,
+                        on_click: Some(on_click.clone()),
+                        menu,
+                    });
+                };
 
             let mut mainloop = match Mainloop::new() {
                 Some(m) => m,

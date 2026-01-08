@@ -193,7 +193,7 @@ impl BarState {
         // Align to top of icon for the gauge regardless of click location.
         // Icon is 14px tall with no padding; value sits below with a 3px spacer.
         let offset = match target {
-            GaugeClickTarget::Icon => 7.0, // half of 14px to reach top
+            GaugeClickTarget::Icon => 7.0,   // half of 14px to reach top
             GaugeClickTarget::Value => 28.0, // approx icon+spacer+half text line
         };
         Some((p.y - offset).round() as i32)

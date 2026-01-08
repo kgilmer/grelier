@@ -1,8 +1,8 @@
 use crate::gauge::{GaugeMenu, GaugeMenuItem};
 use crate::icon::svg_asset;
 use iced::alignment;
-use iced::widget::{Column, Container, Row, Space, Text, button, container};
 use iced::widget::svg::Svg;
+use iced::widget::{Column, Container, Row, Space, Text, button, container};
 use iced::{Element, Length, Theme};
 
 const HEADER_FONT_SIZE: u32 = 14;
@@ -74,7 +74,11 @@ pub fn menu_view<'a, Message: Clone + 'a>(
             .align_y(alignment::Vertical::Center)
             .spacing(10)
             .push(indicator)
-            .push(Text::new(label.clone()).width(Length::Fill).size(ITEM_FONT_SIZE));
+            .push(
+                Text::new(label.clone())
+                    .width(Length::Fill)
+                    .size(ITEM_FONT_SIZE),
+            );
 
         let item_id = id.clone();
         list = list.push(

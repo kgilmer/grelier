@@ -10,6 +10,7 @@ use libpulse_binding as pulse;
 use pulse::callbacks::ListResult;
 use pulse::context::subscribe::{Facility, InterestMaskSet};
 use pulse::context::{Context, FlagSet, State as ContextState};
+use pulse::def;
 use pulse::mainloop::standard::{IterateResult, Mainloop};
 use pulse::volume::{ChannelVolumes, Volume};
 use std::cell::{Cell, RefCell};
@@ -165,6 +166,12 @@ fn collect_sinks(mainloop: &mut Mainloop, context: &Context) -> Option<Vec<SinkM
             .introspect()
             .get_sink_info_list(move |result| match result {
                 ListResult::Item(info) => {
+                    if let Some(port) = info.active_port.as_ref()
+                        && matches!(port.available, def::PortAvailable::No)
+                    {
+                        return;
+                    }
+
                     let name = info.name.as_ref().map(|n| n.to_string());
                     let description = info.description.as_ref().map(|d| d.to_string());
 
@@ -198,10 +205,14 @@ fn sinks_to_menu_items(
     entries
         .iter()
         .map(|entry| {
-            let raw_label = entry
-                .description
-                .clone()
-                .unwrap_or_else(|| entry.name.split(" - ").last().unwrap_or(&entry.name).to_string());
+            let raw_label = entry.description.clone().unwrap_or_else(|| {
+                entry
+                    .name
+                    .split(" - ")
+                    .last()
+                    .unwrap_or(&entry.name)
+                    .to_string()
+            });
             let label = truncate_label(raw_label);
             GaugeMenuItem {
                 id: entry.name.clone(),

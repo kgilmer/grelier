@@ -203,10 +203,7 @@ fn update(state: &mut BarState, message: Message) -> Task<Message> {
                     .get(&id)
                     .copied()
                     .or_else(|| state.gauge_anchor_y(target));
-                return Task::batch(vec![
-                    close_menus_task,
-                    state.open_menu(&id, menu, anchor_y),
-                ]);
+                return Task::batch(vec![close_menus_task, state.open_menu(&id, menu, anchor_y)]);
             }
 
             if let Some(callback) = gauge_callback {
@@ -287,8 +284,8 @@ fn update_gauge(gauges: &mut Vec<GaugeModel>, new: GaugeModel) {
 mod tests {
     use crate::app::GaugeMenuWindow;
     use crate::gauge::{GaugeClickTarget, GaugeMenu, GaugeValue, GaugeValueAttention};
-    use std::sync::atomic::{AtomicBool, Ordering};
     use std::sync::Arc;
+    use std::sync::atomic::{AtomicBool, Ordering};
 
     use super::*;
 
@@ -370,11 +367,11 @@ mod tests {
             },
         );
 
+        assert!(clicked.load(Ordering::SeqCst), "callback should be invoked");
         assert!(
-            clicked.load(Ordering::SeqCst),
-            "callback should be invoked"
+            state.menu_windows.is_empty(),
+            "menu windows should be cleared"
         );
-        assert!(state.menu_windows.is_empty(), "menu windows should be cleared");
         assert!(
             state.closing_menus.contains(&window),
             "window should be marked for closing"
