@@ -269,19 +269,16 @@ impl BarState {
                                             palette.danger.base.color,
                                         )
                                     };
-                                    let text_color = if urgent > 0.0 || focus > 0.0 {
-                                        palette.background.base.color
-                                    } else {
-                                        theme.palette().text
+                                    let text_color = {
+                                        // Fade text toward the contrasting background color as focus/urgency ramps up.
+                                        let emphasis = focus.max(urgent);
+                                        lerp_color(
+                                            theme.palette().text,
+                                            palette.background.base.color,
+                                            emphasis,
+                                        )
                                     };
-                                    let border = if is_inactive {
-                                        Border::default().rounded(border::Radius::new(5.0))
-                                    } else {
-                                        Border::default()
-                                            .color(palette.warning.base.color)
-                                            .width(3.0)
-                                            .rounded(border::Radius::new(5.0))
-                                    };
+                                    let border = Border::default().rounded(border::Radius::new(5.0));
 
                                     container::Style {
                                         background: Some(background_color.into()),
