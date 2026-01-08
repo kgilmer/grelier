@@ -14,6 +14,7 @@ mod gauges {
     pub mod net_up;
     pub mod ram;
     pub mod test_gauge;
+    pub mod wifi;
 }
 mod gauge;
 mod icon;
@@ -35,13 +36,13 @@ use crate::app::{BarState, Message};
 use crate::gauge::{GaugeClick, GaugeInput, GaugeModel};
 use crate::gauges::{
     audio_in, audio_out, battery, brightness, clock, cpu, date, disk, net_down, net_up, ram,
-    test_gauge,
+    test_gauge, wifi,
 };
 
 #[derive(FromArgs, Debug)]
 /// Workspace + gauges display
 struct Args {
-    /// clock, date, battery, cpu, disk, ram, net_up, net_down, audio_out, audio_in, brightness
+    /// clock, date, battery, cpu, disk, ram, net_up, net_down, audio_out, audio_in, brightness, wifi
     #[argh(option, default = "\"clock,date\".to_string()")]
     gauges: String,
 
@@ -73,6 +74,7 @@ fn app_subscription(_state: &BarState, gauges: &[&str]) -> Subscription<Message>
             "audio_out" => subs.push(audio_out::audio_out_subscription()),
             "brightness" => subs.push(brightness::brightness_subscription()),
             "audio_in" => subs.push(audio_in::audio_in_subscription()),
+            "wifi" => subs.push(wifi::wifi_subscription()),
             other => unreachable!("gauges validated before subscription: {other}"),
         }
     }
@@ -94,6 +96,7 @@ fn main() -> Result<(), iced_layershell::Error> {
         "audio_out",
         "audio_in",
         "brightness",
+        "wifi",
         "test_gauge",
     ];
 
