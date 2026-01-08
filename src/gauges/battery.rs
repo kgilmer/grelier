@@ -29,9 +29,14 @@ fn battery_stream() -> impl iced::futures::Stream<Item = GaugeModel> {
             }
 
             if let Some((value, attention)) = battery_value(&device) {
+                let icon = if value.is_some() {
+                    None
+                } else {
+                    Some(svg_asset("battery-alert-variant.svg"))
+                };
                 let _ = sender.try_send(GaugeModel {
                     id: "battery",
-                    icon: None,
+                    icon,
                     value,
                     attention,
                     on_click: None,
@@ -64,20 +69,39 @@ fn send_snapshot(sender: &mut iced::futures::channel::mpsc::Sender<GaugeModel>) 
         }
     };
 
+    let mut found_battery = false;
+
     for dev in devices {
         if !is_battery(&dev) {
             continue;
         }
+        found_battery = true;
         if let Some((value, attention)) = battery_value(&dev) {
+            let icon = if value.is_some() {
+                None
+            } else {
+                Some(svg_asset("battery-alert-variant.svg"))
+            };
             let _ = sender.try_send(GaugeModel {
                 id: "battery",
-                icon: None,
+                icon,
                 value,
                 attention,
                 on_click: None,
                 menu: None,
             });
         }
+    }
+
+    if !found_battery {
+        let _ = sender.try_send(GaugeModel {
+            id: "battery",
+            icon: Some(svg_asset("battery-alert-variant.svg")),
+            value: None,
+            attention: GaugeValueAttention::Danger,
+            on_click: None,
+            menu: None,
+        });
     }
 }
 
@@ -92,12 +116,19 @@ fn battery_value(dev: &udev::Device) -> Option<(Option<GaugeValue>, GaugeValueAt
     let capacity =
         property_str(dev, "POWER_SUPPLY_CAPACITY").or_else(|| property_str(dev, "CAPACITY"));
     let status = property_str(dev, "POWER_SUPPLY_STATUS");
+    let is_charging = status
+        .as_deref()
+        .map(|value| value.eq_ignore_ascii_case("Charging"))
+        .unwrap_or(false);
 
     if let Some(cap) = capacity {
         if let Ok(percent) = cap.parse::<u8>() {
             let attention = attention_for_capacity(percent);
             return Some((
-                Some(GaugeValue::Svg(svg_asset(battery_icon(percent)))),
+                Some(GaugeValue::Svg(svg_asset(battery_icon(
+                    percent,
+                    is_charging,
+                )))),
                 attention,
             ));
         }
@@ -118,15 +149,42 @@ fn battery_value(dev: &udev::Device) -> Option<(Option<GaugeValue>, GaugeValueAt
     Some((None, GaugeValueAttention::Danger))
 }
 
-fn battery_icon(percent: u8) -> &'static str {
-    match percent {
-        0..=19 => "battery-0.svg",
-        20..=39 => "battery-2.svg",
-        40..=59 => "battery-3.svg",
-        60..=79 => "battery-4.svg",
-        80..=99 => "battery-5.svg",
-        _ => "battery-5.svg",
+fn battery_icon(percent: u8, is_charging: bool) -> &'static str {
+    let step = battery_icon_step(percent, is_charging);
+    match (is_charging, step) {
+        (true, 10) => "battery-charging-10.svg",
+        (true, 20) => "battery-charging-20.svg",
+        (true, 30) => "battery-charging-30.svg",
+        (true, 40) => "battery-charging-40.svg",
+        (true, 50) => "battery-charging-50.svg",
+        (true, 60) => "battery-charging-60.svg",
+        (true, 70) => "battery-charging-70.svg",
+        (true, 80) => "battery-charging-80.svg",
+        (true, 90) => "battery-charging-90.svg",
+        (true, _) => "battery-charging-100.svg",
+        (false, 10) => "battery-10.svg",
+        (false, 20) => "battery-20.svg",
+        (false, 30) => "battery-30.svg",
+        (false, 40) => "battery-40.svg",
+        (false, 50) => "battery-50.svg",
+        (false, 60) => "battery-60.svg",
+        (false, 70) => "battery-70.svg",
+        (false, 80) => "battery-80.svg",
+        (false, 90) => "battery-90.svg",
+        (false, _) => "battery.svg",
     }
+}
+
+fn battery_icon_step(percent: u8, allow_full: bool) -> u8 {
+    let mut step = ((u16::from(percent) + 9) / 10) * 10;
+    if step < 10 {
+        step = 10;
+    }
+    let max_step = if allow_full { 100 } else { 90 };
+    if step > max_step {
+        step = max_step;
+    }
+    step as u8
 }
 
 fn attention_for_capacity(percent: u8) -> GaugeValueAttention {
