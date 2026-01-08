@@ -10,6 +10,7 @@ use crate::sway_workspace::WorkspaceInfo;
 use iced::alignment;
 use iced::border;
 use iced::font::Weight;
+use iced::Shadow;
 use iced::widget::svg::{self, Svg};
 use iced::widget::text;
 use iced::widget::{Column, Space, Text, button, container, mouse_area};
@@ -256,39 +257,54 @@ impl BarState {
                                 .width(Length::Fill)
                                 .style(move |theme: &Theme| {
                                     let palette = theme.extended_palette();
+                                    let is_inactive = focus <= 0.0 && urgent <= 0.0;
 
-                                    let background_color = workspace_color(
-                                        focus,
-                                        urgent,
-                                        palette.background.base.color,
-                                        palette.primary.base.color,
-                                        palette.danger.base.color,
-                                    );
+                                    let background_color = if is_inactive {
+                                        palette.background.stronger.color
+                                    } else {
+                                        workspace_color(
+                                            focus,
+                                            urgent,
+                                            palette.background.base.color,
+                                            palette.primary.base.color,
+                                            palette.danger.base.color,
+                                        )
+                                    };
                                     let text_color = if urgent > 0.0 || focus > 0.0 {
                                         palette.background.base.color
                                     } else {
                                         theme.palette().text
                                     };
+                                    let border = if is_inactive {
+                                        Border::default().rounded(border::Radius::new(5.0))
+                                    } else {
+                                        Border::default()
+                                            .color(palette.warning.base.color)
+                                            .width(3.0)
+                                            .rounded(border::Radius::new(5.0))
+                                    };
 
                                     container::Style {
                                         background: Some(background_color.into()),
-                                        border: Border::default()
-                                            .color(palette.warning.base.color)
-                                            .width(3.0)
-                                            .rounded(border::Radius::new(5.0)),
+                                        border,
                                         text_color: Some(text_color),
                                         ..container::Style::default()
                                     }
                                 });
 
                             button(content)
+                                .style(|theme: &Theme, _status| button::Style {
+                                    background: None,
+                                    text_color: theme.palette().text,
+                                    ..button::Style::default()
+                                })
                                 .padding(0)
                                 .width(Length::Fill)
                                 .on_press(Message::WorkspaceClicked(name))
                                 .into()
                         },
                     )
-                    .animation(Easing::EASE_IN_OUT.quick());
+                    .animation(Easing::EASE_IN_OUT.very_quick());
 
                     col.push(animated_workspace)
                 });
@@ -299,7 +315,7 @@ impl BarState {
         let gauges = ordered_gauges.into_iter().fold(
             Column::new()
                 .padding([2, 2])
-                .spacing(22)
+                .spacing(18)
                 .width(Length::Fill)
                 .align_x(alignment::Horizontal::Center),
             |col, gauge| {
@@ -315,8 +331,8 @@ impl BarState {
 
                 if let Some(icon) = &gauge.icon {
                     let icon_view = Svg::new(icon.clone())
-                        .width(Length::Fixed(14.0))
-                        .height(Length::Fixed(14.0))
+                        .width(Length::Fixed(17.0))
+                        .height(Length::Fixed(17.0))
                         .style({
                             let attention = gauge_attention;
                             move |theme: &Theme, _status| svg::Style {
@@ -360,8 +376,8 @@ impl BarState {
                             .into()
                     }
                     Some(GaugeValue::Svg(handle)) => Svg::new(handle.clone())
-                        .width(Length::Fixed(20.0))
-                        .height(Length::Fixed(20.0))
+                        .width(Length::Fixed(22.0))
+                        .height(Length::Fixed(22.0))
                         .style({
                             let attention = gauge_attention;
                             move |theme: &Theme, _status| svg::Style {
@@ -378,8 +394,8 @@ impl BarState {
                         })
                         .into(),
                     None => Svg::new(error_icon.clone())
-                        .width(Length::Fixed(20.0))
-                        .height(Length::Fixed(20.0))
+                        .width(Length::Fixed(22.0))
+                        .height(Length::Fixed(22.0))
                         .style({
                             let attention = GaugeValueAttention::Danger;
                             move |theme: &Theme, _status| svg::Style {
