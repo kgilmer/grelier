@@ -1,10 +1,14 @@
 use crate::app::Message;
-use crate::gauge::{event_stream, GaugeClick, GaugeClickAction, GaugeValue, GaugeValueAttention};
+use crate::gauge::{
+    GaugeClick, GaugeClickAction, GaugeMenu, GaugeMenuItem, GaugeValue, GaugeValueAttention,
+    MenuSelectAction, event_stream,
+};
 use crate::icon::svg_asset;
-use iced::futures::StreamExt;
 use iced::Subscription;
+use iced::futures::StreamExt;
 use libpulse_binding as pulse;
 use pulse::callbacks::ListResult;
+use pulse::def;
 use pulse::context::subscribe::{Facility, InterestMaskSet};
 use pulse::context::{Context, FlagSet, State as ContextState};
 use pulse::mainloop::standard::{IterateResult, Mainloop};
@@ -36,6 +40,12 @@ struct SourceStatus {
     percent: u8,
     muted: bool,
     channels: u8,
+}
+
+#[derive(Clone)]
+struct SourceMenuEntry {
+    name: String,
+    description: Option<String>,
 }
 
 fn percent_from_volume(volume: Volume) -> u8 {
@@ -130,6 +140,7 @@ fn read_source_status(
 enum InputCommand {
     ToggleMute,
     AdjustVolume(i8),
+    SetDefaultSource(String),
 }
 
 fn volume_from_percent(percent: u8) -> Volume {
@@ -138,37 +149,131 @@ fn volume_from_percent(percent: u8) -> Volume {
     Volume(raw)
 }
 
-fn recv_with_idle_wait(receiver: &mpsc::Receiver<InputCommand>) -> Result<InputCommand, RecvTimeoutError> {
+fn recv_with_idle_wait(
+    receiver: &mpsc::Receiver<InputCommand>,
+) -> Result<InputCommand, RecvTimeoutError> {
     receiver.recv_timeout(IDLE_WAIT)
+}
+
+fn collect_sources(mainloop: &mut Mainloop, context: &Context) -> Option<Vec<SourceMenuEntry>> {
+    let sources = Rc::new(RefCell::new(Vec::new()));
+    let done = Rc::new(Cell::new(false));
+
+    {
+        let sources = Rc::clone(&sources);
+        let done = Rc::clone(&done);
+        context
+            .introspect()
+            .get_source_info_list(move |result| match result {
+                ListResult::Item(info) => {
+                    if info.monitor_of_sink.is_some() {
+                        return;
+                    }
+
+                    if let Some(port) = info.active_port.as_ref()
+                        && matches!(port.available, def::PortAvailable::No)
+                    {
+                        return;
+                    }
+
+                    let name = info.name.as_ref().map(|n| n.to_string());
+                    let description = info.description.as_ref().map(|d| d.to_string());
+
+                    if let Some(name) = name {
+                        sources.borrow_mut().push(SourceMenuEntry { name, description });
+                    }
+                }
+                ListResult::End | ListResult::Error => done.set(true),
+            });
+    }
+
+    while !done.get() {
+        iterate(mainloop)?;
+        if matches!(
+            context.get_state(),
+            ContextState::Failed | ContextState::Terminated
+        ) {
+            return None;
+        }
+    }
+
+    let mut entries = sources.borrow().clone();
+    entries.sort_by(|a, b| a.name.cmp(&b.name));
+    Some(entries)
+}
+
+fn sources_to_menu_items(
+    entries: &[SourceMenuEntry],
+    default_source: Option<&str>,
+) -> Vec<GaugeMenuItem> {
+    entries
+        .iter()
+        .map(|entry| {
+            let raw_label = entry
+                .description
+                .clone()
+                .unwrap_or_else(|| entry.name.split(" - ").last().unwrap_or(&entry.name).to_string());
+            let label = truncate_label(raw_label);
+            GaugeMenuItem {
+                id: entry.name.clone(),
+                label,
+                selected: default_source.map(|d| d == entry.name).unwrap_or(false),
+            }
+        })
+        .collect()
+}
+
+fn truncate_label(raw: String) -> String {
+    let max = 92usize;
+    let count = raw.chars().count();
+    if count <= max {
+        return raw;
+    }
+
+    let keep = max.saturating_sub(3);
+    let mut truncated: String = raw.chars().take(keep).collect();
+    truncated.push_str("...");
+    truncated
 }
 
 fn handle_command(
     command: InputCommand,
     last_status: &Option<SourceStatus>,
     mainloop: &mut Mainloop,
-    context: &Context,
+    context: &mut Context,
     refresh_needed: &Cell<bool>,
 ) {
+    if let InputCommand::SetDefaultSource(name) = &command {
+        context.set_default_source(name, |_| {});
+        refresh_needed.set(true);
+        return;
+    }
+
     if let Some(status) = last_status
         && let Some(source) = default_source_name(mainloop, context)
     {
         match command {
             InputCommand::ToggleMute => {
                 let target = !status.muted;
-                context
-                    .introspect()
-                    .set_source_mute_by_name(&source, target, None::<Box<dyn FnMut(bool)>>);
+                context.introspect().set_source_mute_by_name(
+                    &source,
+                    target,
+                    None::<Box<dyn FnMut(bool)>>,
+                );
             }
             InputCommand::AdjustVolume(delta) => {
                 if status.channels > 0 {
                     let new_percent = status.percent.saturating_add_signed(delta).clamp(0, 99);
                     let mut volumes = ChannelVolumes::default();
                     volumes.set(status.channels, volume_from_percent(new_percent));
-                    context
-                        .introspect()
-                        .set_source_volume_by_name(&source, &volumes, None::<Box<dyn FnMut(bool)>>);
+                    context.introspect().set_source_volume_by_name(
+                        &source,
+                        &volumes,
+                        None::<Box<dyn FnMut(bool)>>,
+                    );
                 }
             }
+            InputCommand::SetDefaultSource(_) => {}
         }
         refresh_needed.set(true);
     }
@@ -179,7 +284,7 @@ fn audio_in_stream() -> impl iced::futures::Stream<Item = crate::gauge::GaugeMod
     let on_click: GaugeClickAction = {
         let command_tx = command_tx.clone();
         Arc::new(move |click: GaugeClick| match click.input {
-            crate::gauge::GaugeInput::Button(iced::mouse::Button::Right) => {
+            crate::gauge::GaugeInput::Button(iced::mouse::Button::Left) => {
                 let _ = command_tx.send(InputCommand::ToggleMute);
             }
             crate::gauge::GaugeInput::ScrollUp => {
@@ -191,6 +296,12 @@ fn audio_in_stream() -> impl iced::futures::Stream<Item = crate::gauge::GaugeMod
             _ => {}
         })
     };
+    let menu_select: MenuSelectAction = {
+        let command_tx = command_tx.clone();
+        Arc::new(move |source: String| {
+            let _ = command_tx.send(InputCommand::SetDefaultSource(source));
+        })
+    };
 
     event_stream(
         "audio_in",
@@ -199,12 +310,25 @@ fn audio_in_stream() -> impl iced::futures::Stream<Item = crate::gauge::GaugeMod
             let icon_unmuted = svg_asset("microphone.svg");
             let icon_muted = svg_asset("microphone-disabled.svg");
 
-            let mut send_value = |status: Option<SourceStatus>| {
+            let mut send_value =
+                |status: Option<SourceStatus>, menu_items: Option<Vec<GaugeMenuItem>>| {
                 let (value, attention) = format_level(status.map(|s| s.percent));
 
                 let icon = status
-                    .map(|s| if s.muted { icon_muted.clone() } else { icon_unmuted.clone() })
+                    .map(|s| {
+                        if s.muted {
+                            icon_muted.clone()
+                        } else {
+                            icon_unmuted.clone()
+                        }
+                    })
                     .unwrap_or_else(|| icon_unmuted.clone());
+
+                let menu = menu_items.map(|items| GaugeMenu {
+                    title: "Input Devices".to_string(),
+                    items,
+                    on_select: Some(menu_select.clone()),
+                });
 
                 let _ = sender.try_send(crate::gauge::GaugeModel {
                     id: "audio_in",
@@ -212,30 +336,31 @@ fn audio_in_stream() -> impl iced::futures::Stream<Item = crate::gauge::GaugeMod
                     value,
                     attention,
                     on_click: Some(on_click.clone()),
+                    menu,
                 });
             };
 
             let mut mainloop = match Mainloop::new() {
                 Some(m) => m,
                 None => {
-                    send_value(None);
+                    send_value(None, None);
                     return;
                 }
             };
             let mut context = match Context::new(&mainloop, "grelier-audio-in") {
                 Some(c) => c,
                 None => {
-                    send_value(None);
+                    send_value(None, None);
                     return;
                 }
             };
             if context.connect(None, FlagSet::NOFLAGS, None).is_err() {
-                send_value(None);
+                send_value(None, None);
                 return;
             }
 
             if wait_for_context_ready(&mut mainloop, &context).is_none() {
-                send_value(None);
+                send_value(None, None);
                 return;
             }
 
@@ -251,6 +376,7 @@ fn audio_in_stream() -> impl iced::futures::Stream<Item = crate::gauge::GaugeMod
             })));
             context.subscribe(InterestMaskSet::SOURCE | InterestMaskSet::SERVER, |_| {});
             let mut last_status: Option<SourceStatus> = None;
+            let mut last_menu_items: Option<Vec<GaugeMenuItem>> = None;
 
             loop {
                 while let Ok(command) = command_rx.try_recv() {
@@ -258,7 +384,7 @@ fn audio_in_stream() -> impl iced::futures::Stream<Item = crate::gauge::GaugeMod
                         command,
                         &last_status,
                         &mut mainloop,
-                        &context,
+                        &mut context,
                         &refresh_needed,
                     );
                 }
@@ -271,19 +397,31 @@ fn audio_in_stream() -> impl iced::futures::Stream<Item = crate::gauge::GaugeMod
                     if status.is_some() {
                         last_status = status;
                     }
-                    send_value(status);
+
+                    let current_items = collect_sources(&mut mainloop, &context)
+                        .map(|entries| sources_to_menu_items(&entries, source.as_deref()));
+
+                    if let Some(items) = current_items.clone() {
+                        last_menu_items = Some(items);
+                    }
+
+                    let menu_snapshot = current_items
+                        .or_else(|| last_menu_items.clone())
+                        .unwrap_or_default();
+
+                    send_value(status, Some(menu_snapshot));
                 }
 
                 if matches!(
                     context.get_state(),
                     ContextState::Failed | ContextState::Terminated
                 ) {
-                    send_value(None);
+                    send_value(None, None);
                     break;
                 }
 
                 if iterate(&mut mainloop).is_none() {
-                    send_value(None);
+                    send_value(None, None);
                     break;
                 }
 
@@ -292,12 +430,12 @@ fn audio_in_stream() -> impl iced::futures::Stream<Item = crate::gauge::GaugeMod
                         command,
                         &last_status,
                         &mut mainloop,
-                        &context,
+                        &mut context,
                         &refresh_needed,
                     ),
                     Err(RecvTimeoutError::Timeout) => {}
                     Err(RecvTimeoutError::Disconnected) => {
-                        send_value(None);
+                        send_value(None, None);
                         break;
                     }
                 }
@@ -313,6 +451,33 @@ pub fn audio_in_subscription() -> Subscription<Message> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn menu_items_prefer_description_or_suffix() {
+        let entries = vec![
+            SourceMenuEntry {
+                name: "alsa_input.foo - Long Name".into(),
+                description: Some("Human Name".into()),
+            },
+            SourceMenuEntry {
+                name: "alsa_input.bar - Pretty Label".into(),
+                description: None,
+            },
+        ];
+        let items = sources_to_menu_items(&entries, Some("alsa_input.bar - Pretty Label"));
+
+        assert_eq!(items[0].label, "Human Name");
+        assert_eq!(items[1].label, "Pretty Label");
+        assert!(items[1].selected);
+    }
+
+    #[test]
+    fn truncate_label_limits_to_max_chars() {
+        let long = "a".repeat(100);
+        let truncated = truncate_label(long);
+        assert_eq!(truncated.len(), 92);
+        assert!(truncated.ends_with("..."));
+    }
 
     #[test]
     fn formats_with_two_digits() {

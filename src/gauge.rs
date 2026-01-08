@@ -20,6 +20,22 @@ pub enum GaugeValue {
     Svg(svg::Handle),
 }
 
+#[derive(Debug, Clone)]
+pub struct GaugeMenuItem {
+    pub id: String,
+    pub label: String,
+    pub selected: bool,
+}
+
+pub type MenuSelectAction = Arc<dyn Fn(String) + Send + Sync>;
+
+#[derive(Clone)]
+pub struct GaugeMenu {
+    pub title: String,
+    pub items: Vec<GaugeMenuItem>,
+    pub on_select: Option<MenuSelectAction>,
+}
+
 #[derive(Clone)]
 pub struct GaugeModel {
     pub id: &'static str,
@@ -27,6 +43,7 @@ pub struct GaugeModel {
     pub value: Option<GaugeValue>,
     pub attention: GaugeValueAttention,
     pub on_click: Option<GaugeClickAction>,
+    pub menu: Option<GaugeMenu>,
 }
 
 impl fmt::Debug for GaugeModel {
@@ -36,6 +53,14 @@ impl fmt::Debug for GaugeModel {
             .field("icon", &self.icon)
             .field("value", &self.value)
             .field("attention", &self.attention)
+            .field(
+                "menu",
+                &self
+                    .menu
+                    .as_ref()
+                    .map(|menu| menu.title.clone())
+                    .unwrap_or_else(|| "<none>".to_string()),
+            )
             .finish_non_exhaustive()
     }
 }
@@ -98,6 +123,7 @@ pub fn fixed_interval(
                     value,
                     attention,
                     on_click: on_click.clone(),
+                    menu: None,
                 });
             }
 
@@ -172,7 +198,10 @@ mod tests {
             || Duration::from_millis(5),
             move || {
                 ticks.fetch_add(1, Ordering::SeqCst);
-                Some((Some(GaugeValue::Text(String::from("ok"))), GaugeValueAttention::Nominal))
+                Some((
+                    Some(GaugeValue::Text(String::from("ok"))),
+                    GaugeValueAttention::Nominal,
+                ))
             },
             None,
         );

@@ -35,6 +35,7 @@ fn battery_stream() -> impl iced::futures::Stream<Item = GaugeModel> {
                     value,
                     attention,
                     on_click: None,
+                    menu: None,
                 });
             }
         }
@@ -74,6 +75,7 @@ fn send_snapshot(sender: &mut iced::futures::channel::mpsc::Sender<GaugeModel>) 
                 value,
                 attention,
                 on_click: None,
+                menu: None,
             });
         }
     }
@@ -94,7 +96,10 @@ fn battery_value(dev: &udev::Device) -> Option<(Option<GaugeValue>, GaugeValueAt
     if let Some(cap) = capacity {
         if let Ok(percent) = cap.parse::<u8>() {
             let attention = attention_for_capacity(percent);
-            return Some((Some(GaugeValue::Svg(svg_asset(battery_icon(percent)))), attention));
+            return Some((
+                Some(GaugeValue::Svg(svg_asset(battery_icon(percent)))),
+                attention,
+            ));
         }
 
         if let Some(status) = status {

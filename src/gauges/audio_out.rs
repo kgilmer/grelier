@@ -1,5 +1,8 @@
 use crate::app::Message;
-use crate::gauge::{GaugeClick, GaugeClickAction, GaugeValue, GaugeValueAttention, event_stream};
+use crate::gauge::{
+    GaugeClick, GaugeClickAction, GaugeMenu, GaugeMenuItem, GaugeValue, GaugeValueAttention,
+    MenuSelectAction, event_stream,
+};
 use crate::icon::svg_asset;
 use iced::Subscription;
 use iced::futures::StreamExt;
@@ -36,6 +39,12 @@ struct SinkStatus {
     percent: u8,
     muted: bool,
     channels: u8,
+}
+
+#[derive(Clone)]
+struct SinkMenuEntry {
+    name: String,
+    description: Option<String>,
 }
 
 fn percent_from_volume(volume: Volume) -> u8 {
@@ -130,6 +139,7 @@ fn read_sink_status(
 enum SoundCommand {
     ToggleMute,
     AdjustVolume(i8),
+    SetDefaultSink(String),
 }
 
 fn volume_from_percent(percent: u8) -> Volume {
@@ -144,13 +154,90 @@ fn recv_with_idle_wait(
     receiver.recv_timeout(IDLE_WAIT)
 }
 
+fn collect_sinks(mainloop: &mut Mainloop, context: &Context) -> Option<Vec<SinkMenuEntry>> {
+    let sinks = Rc::new(RefCell::new(Vec::new()));
+    let done = Rc::new(Cell::new(false));
+
+    {
+        let sinks = Rc::clone(&sinks);
+        let done = Rc::clone(&done);
+        context
+            .introspect()
+            .get_sink_info_list(move |result| match result {
+                ListResult::Item(info) => {
+                    let name = info.name.as_ref().map(|n| n.to_string());
+                    let description = info.description.as_ref().map(|d| d.to_string());
+
+                    if let Some(name) = name {
+                        sinks.borrow_mut().push(SinkMenuEntry { name, description });
+                    }
+                }
+                ListResult::End | ListResult::Error => done.set(true),
+            });
+    }
+
+    while !done.get() {
+        iterate(mainloop)?;
+        if matches!(
+            context.get_state(),
+            ContextState::Failed | ContextState::Terminated
+        ) {
+            return None;
+        }
+    }
+
+    let mut entries = sinks.borrow().clone();
+    entries.sort_by(|a, b| a.name.cmp(&b.name));
+    Some(entries)
+}
+
+fn sinks_to_menu_items(
+    entries: &[SinkMenuEntry],
+    default_sink: Option<&str>,
+) -> Vec<GaugeMenuItem> {
+    entries
+        .iter()
+        .map(|entry| {
+            let raw_label = entry
+                .description
+                .clone()
+                .unwrap_or_else(|| entry.name.split(" - ").last().unwrap_or(&entry.name).to_string());
+            let label = truncate_label(raw_label);
+            GaugeMenuItem {
+                id: entry.name.clone(),
+                label,
+                selected: default_sink.map(|d| d == entry.name).unwrap_or(false),
+            }
+        })
+        .collect()
+}
+
+fn truncate_label(raw: String) -> String {
+    let max = 92usize;
+    let count = raw.chars().count();
+    if count <= max {
+        return raw;
+    }
+
+    let keep = max.saturating_sub(3);
+    let mut truncated: String = raw.chars().take(keep).collect();
+    truncated.push_str("...");
+    truncated
+}
+
 fn handle_command(
     command: SoundCommand,
     last_status: &Option<SinkStatus>,
     mainloop: &mut Mainloop,
-    context: &Context,
+    context: &mut Context,
     refresh_needed: &Cell<bool>,
 ) {
+    if let SoundCommand::SetDefaultSink(name) = &command {
+        context.set_default_sink(name, |_| {});
+        refresh_needed.set(true);
+        return;
+    }
+
     if let Some(status) = last_status
         && let Some(sink) = default_sink_name(mainloop, context)
     {
@@ -175,6 +262,7 @@ fn handle_command(
                     );
                 }
             }
+            SoundCommand::SetDefaultSink(_) => {}
         }
         refresh_needed.set(true);
     }
@@ -185,7 +273,7 @@ fn audio_out_stream() -> impl iced::futures::Stream<Item = crate::gauge::GaugeMo
     let on_click: GaugeClickAction = {
         let command_tx = command_tx.clone();
         Arc::new(move |click: GaugeClick| match click.input {
-            crate::gauge::GaugeInput::Button(iced::mouse::Button::Right) => {
+            crate::gauge::GaugeInput::Button(iced::mouse::Button::Left) => {
                 let _ = command_tx.send(SoundCommand::ToggleMute);
             }
             crate::gauge::GaugeInput::ScrollUp => {
@@ -197,6 +285,12 @@ fn audio_out_stream() -> impl iced::futures::Stream<Item = crate::gauge::GaugeMo
             _ => {}
         })
     };
+    let menu_select: MenuSelectAction = {
+        let command_tx = command_tx.clone();
+        Arc::new(move |sink: String| {
+            let _ = command_tx.send(SoundCommand::SetDefaultSink(sink));
+        })
+    };
 
     event_stream(
         "audio_out",
@@ -205,48 +299,56 @@ fn audio_out_stream() -> impl iced::futures::Stream<Item = crate::gauge::GaugeMo
             let icon_unmuted = svg_asset("speaker.svg");
             let icon_muted = svg_asset("speaker-mute.svg");
 
-            let mut send_value = |status: Option<SinkStatus>| {
-                let (value, attention) = format_level(status.map(|s| s.percent));
-                let icon = status
-                    .map(|s| {
-                        if s.muted {
-                            icon_muted.clone()
-                        } else {
-                            icon_unmuted.clone()
-                        }
-                    })
-                    .unwrap_or_else(|| icon_unmuted.clone());
+            let mut send_value =
+                |status: Option<SinkStatus>, menu_items: Option<Vec<GaugeMenuItem>>| {
+                    let (value, attention) = format_level(status.map(|s| s.percent));
+                    let icon = status
+                        .map(|s| {
+                            if s.muted {
+                                icon_muted.clone()
+                            } else {
+                                icon_unmuted.clone()
+                            }
+                        })
+                        .unwrap_or_else(|| icon_unmuted.clone());
 
-                let _ = sender.try_send(crate::gauge::GaugeModel {
-                    id: "audio_out",
-                    icon: Some(icon),
-                    value,
-                    attention,
-                    on_click: Some(on_click.clone()),
-                });
-            };
+                    let menu = menu_items.map(|items| GaugeMenu {
+                        title: "Output Devices".to_string(),
+                        items,
+                        on_select: Some(menu_select.clone()),
+                    });
+
+                    let _ = sender.try_send(crate::gauge::GaugeModel {
+                        id: "audio_out",
+                        icon: Some(icon),
+                        value,
+                        attention,
+                        on_click: Some(on_click.clone()),
+                        menu,
+                    });
+                };
 
             let mut mainloop = match Mainloop::new() {
                 Some(m) => m,
                 None => {
-                    send_value(None);
+                    send_value(None, None);
                     return;
                 }
             };
             let mut context = match Context::new(&mainloop, "grelier-audio-out") {
                 Some(c) => c,
                 None => {
-                    send_value(None);
+                    send_value(None, None);
                     return;
                 }
             };
             if context.connect(None, FlagSet::NOFLAGS, None).is_err() {
-                send_value(None);
+                send_value(None, None);
                 return;
             }
 
             if wait_for_context_ready(&mut mainloop, &context).is_none() {
-                send_value(None);
+                send_value(None, None);
                 return;
             }
 
@@ -262,6 +364,7 @@ fn audio_out_stream() -> impl iced::futures::Stream<Item = crate::gauge::GaugeMo
             })));
             context.subscribe(InterestMaskSet::SINK | InterestMaskSet::SERVER, |_| {});
             let mut last_status: Option<SinkStatus> = None;
+            let mut last_menu_items: Option<Vec<GaugeMenuItem>> = None;
 
             loop {
                 while let Ok(command) = command_rx.try_recv() {
@@ -269,7 +372,7 @@ fn audio_out_stream() -> impl iced::futures::Stream<Item = crate::gauge::GaugeMo
                         command,
                         &last_status,
                         &mut mainloop,
-                        &context,
+                        &mut context,
                         &refresh_needed,
                     );
                 }
@@ -279,22 +382,31 @@ fn audio_out_stream() -> impl iced::futures::Stream<Item = crate::gauge::GaugeMo
                     let status = sink
                         .as_deref()
                         .and_then(|name| read_sink_status(&mut mainloop, &context, name));
-                    if status.is_some() {
-                        last_status = status;
+                    last_status = status;
+                    let current_items = collect_sinks(&mut mainloop, &context)
+                        .map(|entries| sinks_to_menu_items(&entries, sink.as_deref()));
+
+                    if let Some(items) = current_items.clone() {
+                        last_menu_items = Some(items);
                     }
-                    send_value(status);
+
+                    let menu_snapshot = current_items
+                        .or_else(|| last_menu_items.clone())
+                        .unwrap_or_default();
+
+                    send_value(status, Some(menu_snapshot));
                 }
 
                 if matches!(
                     context.get_state(),
                     ContextState::Failed | ContextState::Terminated
                 ) {
-                    send_value(None);
+                    send_value(None, None);
                     break;
                 }
 
                 if iterate(&mut mainloop).is_none() {
-                    send_value(None);
+                    send_value(None, None);
                     break;
                 }
 
@@ -303,12 +415,12 @@ fn audio_out_stream() -> impl iced::futures::Stream<Item = crate::gauge::GaugeMo
                         command,
                         &last_status,
                         &mut mainloop,
-                        &context,
+                        &mut context,
                         &refresh_needed,
                     ),
                     Err(RecvTimeoutError::Timeout) => {}
                     Err(RecvTimeoutError::Disconnected) => {
-                        send_value(None);
+                        send_value(None, None);
                         break;
                     }
                 }
@@ -324,6 +436,33 @@ pub fn audio_out_subscription() -> Subscription<Message> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn menu_items_prefer_description_or_suffix() {
+        let entries = vec![
+            SinkMenuEntry {
+                name: "alsa_output.foo - Long Name".into(),
+                description: Some("Human Name".into()),
+            },
+            SinkMenuEntry {
+                name: "alsa_output.bar - Pretty Label".into(),
+                description: None,
+            },
+        ];
+        let items = sinks_to_menu_items(&entries, Some("alsa_output.bar - Pretty Label"));
+
+        assert_eq!(items[0].label, "Human Name");
+        assert_eq!(items[1].label, "Pretty Label");
+        assert!(items[1].selected);
+    }
+
+    #[test]
+    fn truncate_label_limits_to_max_chars() {
+        let long = "a".repeat(100);
+        let truncated = truncate_label(long);
+        assert_eq!(truncated.len(), 92);
+        assert!(truncated.ends_with("..."));
+    }
 
     #[test]
     fn formats_with_two_digits() {

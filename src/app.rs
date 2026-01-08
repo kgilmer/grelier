@@ -1,8 +1,11 @@
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::convert::TryInto;
 
-use crate::gauge::{GaugeClickTarget, GaugeInput, GaugeModel, GaugeValue, GaugeValueAttention};
+use crate::gauge::{
+    GaugeClickTarget, GaugeInput, GaugeMenu, GaugeModel, GaugeValue, GaugeValueAttention,
+};
 use crate::icon::svg_asset;
+use crate::menu_dialog::{dialog_dimensions, menu_view};
 use crate::sway_workspace::WorkspaceInfo;
 use iced::alignment;
 use iced::border;
@@ -10,35 +13,32 @@ use iced::font::Weight;
 use iced::widget::svg::{self, Svg};
 use iced::widget::text;
 use iced::widget::{Column, Space, Text, button, container, mouse_area};
-use iced::{Border, Color, Element, Font, Length, Theme, mouse};
+use iced::{Border, Color, Element, Font, Length, Task, Theme, mouse, window};
 use iced_anim::animation_builder::AnimationBuilder;
 use iced_anim::transition::Easing;
-use iced_layershell::actions::LayershellCustomActionWithId;
+use iced_layershell::actions::IcedNewPopupSettings;
+use iced_layershell::to_layer_message;
 
+#[to_layer_message(multi)]
 #[derive(Debug, Clone)]
 pub enum Message {
     Workspaces(Vec<WorkspaceInfo>),
     WorkspaceClicked(String),
+    BackgroundClicked,
     Gauge(GaugeModel),
     GaugeClicked {
         id: String,
         target: GaugeClickTarget,
         input: GaugeInput,
     },
-}
-
-impl TryInto<LayershellCustomActionWithId> for Message {
-    type Error = Message;
-
-    fn try_into(self) -> Result<LayershellCustomActionWithId, Message> {
-        match self {
-            // All messages stay within the app; none translate to layer-shell actions.
-            Message::Workspaces(_)
-            | Message::WorkspaceClicked(_)
-            | Message::Gauge(_)
-            | Message::GaugeClicked { .. } => Err(self),
-        }
-    }
+    MenuItemSelected {
+        window: iced::window::Id,
+        gauge_id: String,
+        item_id: String,
+    },
+    MenuDismissed(iced::window::Id),
+    WindowClosed(iced::window::Id),
+    IcedEvent(iced::Event),
 }
 
 fn lerp_color(from: Color, to: Color, t: f32) -> Color {
@@ -105,40 +105,98 @@ fn scroll_input(delta: mouse::ScrollDelta) -> Option<GaugeInput> {
     }
 }
 
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub struct BarState {
     pub workspaces: Vec<WorkspaceInfo>,
     pub gauges: Vec<GaugeModel>,
     pub gauge_order: Vec<String>,
+    pub menu_windows: HashMap<window::Id, GaugeMenuWindow>,
+    pub last_cursor: Option<iced::Point>,
+    pub closing_menus: HashSet<window::Id>,
+    pub gauge_menu_anchor: HashMap<String, i32>,
+}
+
+#[derive(Clone)]
+pub struct GaugeMenuWindow {
+    pub gauge_id: String,
+    pub menu: GaugeMenu,
 }
 
 impl BarState {
     pub fn new() -> Self {
-        Self {
-            workspaces: Vec::new(),
-            gauges: Vec::new(),
-            gauge_order: Vec::new(),
-        }
+        Self::default()
     }
 
     pub fn with_workspaces(workspaces: Vec<WorkspaceInfo>) -> Self {
         Self {
             workspaces,
-            gauges: Vec::new(),
-            gauge_order: Vec::new(),
+            ..Self::default()
         }
     }
 
     pub fn with_gauge_order(gauge_order: Vec<String>) -> Self {
         Self {
-            workspaces: Vec::new(),
-            gauges: Vec::new(),
             gauge_order,
+            ..Self::default()
         }
     }
 
     pub fn namespace() -> String {
         env!("CARGO_PKG_NAME").to_string()
+    }
+
+    pub fn open_menu(
+        &mut self,
+        gauge_id: &str,
+        menu: GaugeMenu,
+        anchor_y: Option<i32>,
+    ) -> Task<Message> {
+        let mut tasks = vec![self.close_menus()];
+
+        let (width, height) = dialog_dimensions(&menu);
+        let bar_width: i32 = 28; // keep in sync with LayerShellSettings size.x
+        let anchor_y = anchor_y
+            .or_else(|| self.gauge_menu_anchor.get(gauge_id).copied())
+            .or_else(|| self.last_cursor.map(|p| p.y as i32))
+            .unwrap_or_default();
+
+        let settings = IcedNewPopupSettings {
+            size: (width, height),
+            position: (bar_width, anchor_y),
+        };
+        let (window, task) = Message::popup_open(settings);
+        self.gauge_menu_anchor
+            .insert(gauge_id.to_string(), anchor_y);
+        self.menu_windows.insert(
+            window,
+            GaugeMenuWindow {
+                gauge_id: gauge_id.to_string(),
+                menu,
+            },
+        );
+        tasks.push(task);
+
+        Task::batch(tasks)
+    }
+
+    pub fn close_menus(&mut self) -> Task<Message> {
+        let ids: Vec<window::Id> = self.menu_windows.keys().copied().collect();
+        self.menu_windows.clear();
+        for id in &ids {
+            self.closing_menus.insert(*id);
+        }
+        Task::batch(ids.into_iter().map(Message::RemoveWindow).map(Task::done))
+    }
+
+    pub fn gauge_anchor_y(&self, target: GaugeClickTarget) -> Option<i32> {
+        let p = self.last_cursor?;
+        // Align to top of icon for the gauge regardless of click location.
+        // Icon is 14px tall with no padding; value sits below with a 3px spacer.
+        let offset = match target {
+            GaugeClickTarget::Icon => 7.0, // half of 14px to reach top
+            GaugeClickTarget::Value => 28.0, // approx icon+spacer+half text line
+        };
+        Some((p.y - offset).round() as i32)
     }
 
     fn ordered_gauges(&self) -> Vec<&GaugeModel> {
@@ -155,7 +213,22 @@ impl BarState {
         ordered.into_iter().map(|(_, gauge)| gauge).collect()
     }
 
-    pub fn view(&self) -> Element<'_, Message> {
+    pub fn view<'a>(&'a self, window: window::Id) -> Element<'a, Message> {
+        if let Some(menu_window) = self.menu_windows.get(&window) {
+            let gauge_id = menu_window.gauge_id.clone();
+            let window_id = window;
+            return menu_view(&menu_window.menu, move |item_id| {
+                Message::MenuItemSelected {
+                    window: window_id,
+                    gauge_id: gauge_id.clone(),
+                    item_id,
+                }
+            });
+        }
+        if self.closing_menus.contains(&window) {
+            return container(Space::new()).into();
+        }
+
         let workspaces =
             self.workspaces
                 .iter()
@@ -262,30 +335,6 @@ impl BarState {
                         .width(Length::Fill)
                         .align_x(alignment::Horizontal::Center)
                         .into();
-                    let icon_id = gauge.id.to_string();
-                    let centered_icon: Element<'_, Message> = mouse_area(centered_icon)
-                        .on_press(Message::GaugeClicked {
-                            id: icon_id.clone(),
-                            target: GaugeClickTarget::Icon,
-                            input: GaugeInput::Button(mouse::Button::Left),
-                        })
-                        .on_right_press(Message::GaugeClicked {
-                            id: icon_id.clone(),
-                            target: GaugeClickTarget::Icon,
-                            input: GaugeInput::Button(mouse::Button::Right),
-                        })
-                        .on_middle_press(Message::GaugeClicked {
-                            id: icon_id.clone(),
-                            target: GaugeClickTarget::Icon,
-                            input: GaugeInput::Button(mouse::Button::Middle),
-                        })
-                        .on_scroll(move |delta| Message::GaugeClicked {
-                            id: icon_id.clone(),
-                            target: GaugeClickTarget::Icon,
-                            input: scroll_input(delta).unwrap_or(GaugeInput::ScrollUp),
-                        })
-                        .interaction(mouse::Interaction::Pointer)
-                        .into();
                     gauge_column = gauge_column
                         .push(centered_icon)
                         .push(Space::new().height(Length::Fixed(3.0)));
@@ -352,32 +401,38 @@ impl BarState {
                     .width(Length::Fill)
                     .align_x(alignment::Horizontal::Center)
                     .into();
-                let value_id = gauge.id.to_string();
-                let centered_value: Element<'_, Message> = mouse_area(centered_value)
-                    .on_press(Message::GaugeClicked {
-                        id: value_id.clone(),
-                        target: GaugeClickTarget::Value,
-                        input: GaugeInput::Button(mouse::Button::Left),
-                    })
-                    .on_right_press(Message::GaugeClicked {
-                        id: value_id.clone(),
-                        target: GaugeClickTarget::Value,
-                        input: GaugeInput::Button(mouse::Button::Right),
-                    })
-                    .on_middle_press(Message::GaugeClicked {
-                        id: value_id.clone(),
-                        target: GaugeClickTarget::Value,
-                        input: GaugeInput::Button(mouse::Button::Middle),
-                    })
-                    .on_scroll(move |delta| Message::GaugeClicked {
-                        id: value_id.clone(),
-                        target: GaugeClickTarget::Value,
-                        input: scroll_input(delta).unwrap_or(GaugeInput::ScrollUp),
-                    })
-                    .interaction(mouse::Interaction::Pointer)
-                    .into();
 
-                col.push(gauge_column.push(centered_value))
+                let gauge_id = gauge.id.to_string();
+                let gauge_element: Element<'_, Message> = mouse_area(
+                    gauge_column
+                        .push(centered_value)
+                        .align_x(alignment::Horizontal::Center)
+                        .width(Length::Fill),
+                )
+                .on_press(Message::GaugeClicked {
+                    id: gauge_id.clone(),
+                    target: GaugeClickTarget::Icon,
+                    input: GaugeInput::Button(mouse::Button::Left),
+                })
+                .on_right_press(Message::GaugeClicked {
+                    id: gauge_id.clone(),
+                    target: GaugeClickTarget::Icon,
+                    input: GaugeInput::Button(mouse::Button::Right),
+                })
+                .on_middle_press(Message::GaugeClicked {
+                    id: gauge_id.clone(),
+                    target: GaugeClickTarget::Icon,
+                    input: GaugeInput::Button(mouse::Button::Middle),
+                })
+                .on_scroll(move |delta| Message::GaugeClicked {
+                    id: gauge_id.clone(),
+                    target: GaugeClickTarget::Icon,
+                    input: scroll_input(delta).unwrap_or(GaugeInput::ScrollUp),
+                })
+                .interaction(mouse::Interaction::Pointer)
+                .into();
+
+                col.push(gauge_element)
             },
         );
 
@@ -397,6 +452,8 @@ impl BarState {
             });
 
         mouse_area(filled)
+            .on_press(Message::BackgroundClicked)
+            .on_right_press(Message::BackgroundClicked)
             .interaction(mouse::Interaction::Pointer)
             .into()
     }
@@ -414,15 +471,16 @@ mod tests {
             value: Some(GaugeValue::Text(id.to_string())),
             attention: GaugeValueAttention::Nominal,
             on_click: None,
+            menu: None,
         }
     }
 
     #[test]
     fn orders_gauges_by_config_then_appends_rest() {
         let state = BarState {
-            workspaces: Vec::new(),
             gauges: vec![gauge("cpu"), gauge("ram"), gauge("disk")],
             gauge_order: vec!["ram".into(), "clock".into(), "cpu".into()],
+            ..BarState::default()
         };
 
         let ordered_ids: Vec<_> = state.ordered_gauges().into_iter().map(|g| g.id).collect();

@@ -1,37 +1,38 @@
 #![allow(dead_code)] // workspace handling will be re-enabled later
 mod app;
 mod gauges {
+    pub mod audio_in;
+    pub mod audio_out;
     pub mod battery;
     pub mod brightness;
     pub mod clock;
     pub mod cpu;
     pub mod date;
     pub mod disk;
-    pub mod audio_in;
-    pub mod audio_out;
     pub mod net_common;
     pub mod net_down;
     pub mod net_up;
-    pub mod test_gauge;
     pub mod ram;
+    pub mod test_gauge;
 }
 mod gauge;
 mod icon;
+mod menu_dialog;
 mod sway_workspace;
 mod theme;
 
 use argh::FromArgs;
 use iced::Font;
-use iced::Subscription;
 use iced::Task;
+use iced::{Subscription, event, mouse, window};
 
-use iced_layershell::application;
+use iced_layershell::daemon;
 use iced_layershell::reexport::{Anchor, KeyboardInteractivity, Layer};
 use iced_layershell::settings::{LayerShellSettings, Settings, StartMode};
 
 use crate::app::Orientation;
 use crate::app::{BarState, Message};
-use crate::gauge::{GaugeClick, GaugeModel};
+use crate::gauge::{GaugeClick, GaugeInput, GaugeModel};
 use crate::gauges::{
     audio_in, audio_out, battery, brightness, clock, cpu, date, disk, net_down, net_up, ram,
     test_gauge,
@@ -56,6 +57,8 @@ struct Args {
 fn app_subscription(_state: &BarState, gauges: &[&str]) -> Subscription<Message> {
     let mut subs = Vec::new();
     subs.push(sway_workspace::workspace_subscription());
+    subs.push(event::listen().map(Message::IcedEvent));
+    subs.push(window::close_events().map(Message::WindowClosed));
     for gauge in gauges {
         match *gauge {
             "clock" => subs.push(clock::clock_subscription()),
@@ -104,7 +107,10 @@ fn main() -> Result<(), iced_layershell::Error> {
 
     for gauge in &gauges {
         if !KNOWN_GAUGES.contains(&gauge.as_str()) {
-            eprintln!("Unknown gauge '{gauge}'. Known gauges: {}", KNOWN_GAUGES.join(", "));
+            eprintln!(
+                "Unknown gauge '{gauge}'. Known gauges: {}",
+                KNOWN_GAUGES.join(", ")
+            );
             std::process::exit(1);
         }
     }
@@ -138,7 +144,7 @@ fn main() -> Result<(), iced_layershell::Error> {
 
     let gauge_order = gauges.clone();
 
-    application(
+    daemon(
         move || BarState::with_gauge_order(gauge_order.clone()),
         BarState::namespace,
         update,
@@ -160,25 +166,110 @@ fn update(state: &mut BarState, message: Message) -> Task<Message> {
     match message {
         Message::Workspaces(ws) => state.workspaces = ws,
         Message::WorkspaceClicked(name) => {
+            if !state.menu_windows.is_empty() {
+                return state.close_menus();
+            }
             if let Err(err) = sway_workspace::focus_workspace(&name) {
                 eprintln!("Failed to focus workspace \"{name}\": {err}");
+            }
+        }
+        Message::IcedEvent(iced::Event::Mouse(mouse::Event::CursorMoved { position })) => {
+            state.last_cursor = Some(position);
+        }
+        Message::BackgroundClicked => {
+            if !state.menu_windows.is_empty() {
+                return state.close_menus();
             }
         }
         Message::Gauge(gauge) => {
             update_gauge(&mut state.gauges, gauge);
         }
         Message::GaugeClicked { id, target, input } => {
-            if let Some(callback) = state
-                .gauges
-                .iter()
-                .find(|g| g.id == id)
-                .and_then(|g| g.on_click.clone())
+            let close_menus_task = if state.menu_windows.is_empty() {
+                Task::none()
+            } else {
+                state.close_menus()
+            };
+
+            let gauge_index = state.gauges.iter().position(|g| g.id == id);
+            let gauge_menu = gauge_index.and_then(|idx| state.gauges[idx].menu.clone());
+            let gauge_callback = gauge_index.and_then(|idx| state.gauges[idx].on_click.clone());
+
+            if matches!(input, GaugeInput::Button(iced::mouse::Button::Right))
+                && let Some(menu) = gauge_menu
             {
+                let anchor_y = state
+                    .gauge_menu_anchor
+                    .get(&id)
+                    .copied()
+                    .or_else(|| state.gauge_anchor_y(target));
+                return Task::batch(vec![
+                    close_menus_task,
+                    state.open_menu(&id, menu, anchor_y),
+                ]);
+            }
+
+            if let Some(callback) = gauge_callback {
                 callback(GaugeClick { input, target });
             } else {
                 println!("Gauge '{id}' clicked: {:?} {:?}", target, input);
             }
+
+            if close_menus_task.units() > 0 {
+                return close_menus_task;
+            }
         }
+        Message::MenuItemSelected {
+            window,
+            gauge_id,
+            item_id,
+        } => {
+            // close menus first so clicking in parent bar after selection behaves consistently
+            state.menu_windows.remove(&window);
+            state.closing_menus.remove(&window);
+            let _ = state.close_menus();
+            if let Some(menu) = state
+                .gauges
+                .iter()
+                .find(|g| g.id == gauge_id)
+                .and_then(|g| g.menu.as_ref())
+                .and_then(|menu| menu.on_select.clone())
+            {
+                menu(item_id.clone());
+            }
+            return Task::done(Message::RemoveWindow(window));
+        }
+        Message::MenuDismissed(window) => {
+            state.menu_windows.remove(&window);
+            state.closing_menus.remove(&window);
+            return Task::done(Message::RemoveWindow(window));
+        }
+        Message::WindowClosed(window) => {
+            state.menu_windows.remove(&window);
+            state.closing_menus.remove(&window);
+        }
+        Message::IcedEvent(iced::Event::Window(iced::window::Event::Unfocused)) => {
+            if let Some(window) = state.menu_windows.keys().copied().next() {
+                state.menu_windows.remove(&window);
+                return Task::done(Message::RemoveWindow(window));
+            }
+        }
+        Message::IcedEvent(_) => {}
+        Message::AnchorChange { .. }
+        | Message::SetInputRegion { .. }
+        | Message::AnchorSizeChange { .. }
+        | Message::LayerChange { .. }
+        | Message::MarginChange { .. }
+        | Message::SizeChange { .. }
+        | Message::ExclusiveZoneChange { .. }
+        | Message::VirtualKeyboardPressed { .. }
+        | Message::NewLayerShell { .. }
+        | Message::NewBaseWindow { .. }
+        | Message::NewPopUp { .. }
+        | Message::NewMenu { .. }
+        | Message::NewInputPanel { .. }
+        | Message::RemoveWindow(_)
+        | Message::ForgetLastOutput => {}
     }
 
     Task::none()
@@ -194,7 +285,10 @@ fn update_gauge(gauges: &mut Vec<GaugeModel>, new: GaugeModel) {
 
 #[cfg(test)]
 mod tests {
-    use crate::gauge::{GaugeValue, GaugeValueAttention};
+    use crate::app::GaugeMenuWindow;
+    use crate::gauge::{GaugeClickTarget, GaugeMenu, GaugeValue, GaugeValueAttention};
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::sync::Arc;
 
     use super::*;
 
@@ -207,6 +301,7 @@ mod tests {
             value: Some(GaugeValue::Text("12\n00".to_string())),
             attention: GaugeValueAttention::Nominal,
             on_click: None,
+            menu: None,
         };
         let g2 = GaugeModel {
             id: "clock",
@@ -214,6 +309,7 @@ mod tests {
             value: Some(GaugeValue::Text("12\n01".to_string())),
             attention: GaugeValueAttention::Nominal,
             on_click: None,
+            menu: None,
         };
 
         update_gauge(&mut gauges, g1.clone());
@@ -230,9 +326,110 @@ mod tests {
             value: Some(GaugeValue::Text("01\n01".to_string())),
             attention: GaugeValueAttention::Nominal,
             on_click: None,
+            menu: None,
         };
         update_gauge(&mut gauges, g3.clone());
         assert_eq!(gauges.len(), 2, "different id should append");
+    }
+
+    #[test]
+    fn left_click_closes_open_menu_and_invokes_callback() {
+        let mut state = BarState::default();
+        let window = window::Id::unique();
+        state.menu_windows.insert(
+            window,
+            GaugeMenuWindow {
+                gauge_id: "audio_out".to_string(),
+                menu: GaugeMenu {
+                    title: "Test".into(),
+                    items: Vec::new(),
+                    on_select: None,
+                },
+            },
+        );
+
+        let clicked = Arc::new(AtomicBool::new(false));
+        state.gauges.push(GaugeModel {
+            id: "audio_out",
+            icon: None,
+            value: None,
+            attention: GaugeValueAttention::Nominal,
+            on_click: Some(Arc::new({
+                let clicked = clicked.clone();
+                move |_click| clicked.store(true, Ordering::SeqCst)
+            })),
+            menu: None,
+        });
+
+        let task = update(
+            &mut state,
+            Message::GaugeClicked {
+                id: "audio_out".to_string(),
+                target: GaugeClickTarget::Icon,
+                input: GaugeInput::Button(mouse::Button::Left),
+            },
+        );
+
+        assert!(
+            clicked.load(Ordering::SeqCst),
+            "callback should be invoked"
+        );
+        assert!(state.menu_windows.is_empty(), "menu windows should be cleared");
+        assert!(
+            state.closing_menus.contains(&window),
+            "window should be marked for closing"
+        );
+        assert!(
+            task.units() > 0,
+            "closing menus should return a non-empty task"
+        );
+    }
+
+    #[test]
+    fn right_click_leaves_menu_open() {
+        let mut state = BarState::default();
+        let window = window::Id::unique();
+        state.menu_windows.insert(
+            window,
+            GaugeMenuWindow {
+                gauge_id: "audio_out".to_string(),
+                menu: GaugeMenu {
+                    title: "Test".into(),
+                    items: Vec::new(),
+                    on_select: None,
+                },
+            },
+        );
+        state.gauges.push(GaugeModel {
+            id: "audio_out",
+            icon: None,
+            value: None,
+            attention: GaugeValueAttention::Nominal,
+            on_click: None,
+            menu: None,
+        });
+
+        let task = update(
+            &mut state,
+            Message::GaugeClicked {
+                id: "audio_out".to_string(),
+                target: GaugeClickTarget::Icon,
+                input: GaugeInput::Button(mouse::Button::Right),
+            },
+        );
+
+        assert!(
+            !state.menu_windows.contains_key(&window),
+            "any click should close existing menu"
+        );
+        assert!(
+            state.closing_menus.contains(&window),
+            "window should be marked for closing"
+        );
+        assert!(
+            task.units() > 0,
+            "close menus task should be returned even on right click"
+        );
     }
 
     fn assert_text_value(model: &GaugeModel, expected: &str) {

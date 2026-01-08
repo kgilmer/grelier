@@ -101,10 +101,7 @@ impl CpuState {
 fn cpu_value(utilization: Option<f32>) -> (Option<GaugeValue>, GaugeValueAttention) {
     match utilization {
         Some(util) => (
-            Some(GaugeValue::Svg(icon_quantity(
-                QuantityStyle::Grid,
-                util,
-            ))),
+            Some(GaugeValue::Svg(icon_quantity(QuantityStyle::Grid, util))),
             attention_for(util),
         ),
         None => (None, GaugeValueAttention::Danger),

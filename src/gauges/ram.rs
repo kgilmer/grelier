@@ -114,10 +114,7 @@ fn attention_for(utilization: f32) -> GaugeValueAttention {
 fn ram_value(utilization: Option<f32>) -> (Option<GaugeValue>, GaugeValueAttention) {
     match utilization {
         Some(util) => (
-            Some(GaugeValue::Svg(icon_quantity(
-                QuantityStyle::Grid,
-                util,
-            ))),
+            Some(GaugeValue::Svg(icon_quantity(QuantityStyle::Grid, util))),
             attention_for(util),
         ),
         None => (None, GaugeValueAttention::Danger),
@@ -173,10 +170,10 @@ fn ram_stream() -> impl iced::futures::Stream<Item = crate::gauge::GaugeModel> {
             move || {
                 let utilization = memory_utilization();
                 let (value, attention) = ram_value(utilization);
-                if let Ok(mut state) = state.lock() {
-                    if let Some(util) = utilization {
-                        state.update_interval_state(util);
-                    }
+                if let Ok(mut state) = state.lock()
+                    && let Some(util) = utilization
+                {
+                    state.update_interval_state(util);
                 }
 
                 Some((value, attention))
