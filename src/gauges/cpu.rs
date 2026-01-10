@@ -1,7 +1,11 @@
 use crate::app::Message;
-use crate::gauge::{GaugeValue, GaugeValueAttention, fixed_interval};
+use crate::gauge::{
+    GaugeClick, GaugeClickAction, GaugeInput, GaugeValue, GaugeValueAttention, SettingSpec,
+    fixed_interval,
+};
 use crate::icon::{QuantityStyle, icon_quantity, svg_asset};
-use iced::Subscription;
+use crate::settings;
+use iced::{Subscription, mouse};
 use iced::futures::StreamExt;
 use std::fs::File;
 use std::io::{BufRead, BufReader};
@@ -72,6 +76,7 @@ struct CpuState {
     previous: Option<CpuTime>,
     fast_interval: bool,
     below_threshold_streak: u8,
+    quantity_style: QuantityStyle,
 }
 
 impl CpuState {
@@ -98,10 +103,13 @@ impl CpuState {
     }
 }
 
-fn cpu_value(utilization: Option<f32>) -> (Option<GaugeValue>, GaugeValueAttention) {
+fn cpu_value(
+    utilization: Option<f32>,
+    style: QuantityStyle,
+) -> (Option<GaugeValue>, GaugeValueAttention) {
     match utilization {
         Some(util) => (
-            Some(GaugeValue::Svg(icon_quantity(QuantityStyle::Grid, util))),
+            Some(GaugeValue::Svg(icon_quantity(style, util))),
             attention_for(util),
         ),
         None => (None, GaugeValueAttention::Danger),
@@ -109,8 +117,27 @@ fn cpu_value(utilization: Option<f32>) -> (Option<GaugeValue>, GaugeValueAttenti
 }
 
 fn cpu_stream() -> impl iced::futures::Stream<Item = crate::gauge::GaugeModel> {
-    let state = Arc::new(Mutex::new(CpuState::default()));
+    let style_value = settings::settings().get_or("grelier.cpu.quantitystyle", "grid");
+    let style = QuantityStyle::parse_setting("grelier.cpu.quantitystyle", &style_value);
+    let state = Arc::new(Mutex::new(CpuState {
+        quantity_style: style,
+        ..CpuState::default()
+    }));
     let interval_state = Arc::clone(&state);
+    let on_click: GaugeClickAction = {
+        let state = Arc::clone(&state);
+        Arc::new(move |click: GaugeClick| {
+            if matches!(click.input, GaugeInput::Button(mouse::Button::Left)) {
+                if let Ok(mut state) = state.lock() {
+                    state.quantity_style = state.quantity_style.toggle();
+                    settings::settings().update(
+                        "grelier.cpu.quantitystyle",
+                        state.quantity_style.as_setting_value(),
+                    );
+                }
+            }
+        })
+    };
 
     fixed_interval(
         "cpu",
@@ -124,19 +151,20 @@ fn cpu_stream() -> impl iced::futures::Stream<Item = crate::gauge::GaugeModel> {
         move || {
             let now = match read_cpu_time() {
                 Some(now) => now,
-                None => return Some(cpu_value(None)),
+                None => return Some(cpu_value(None, QuantityStyle::Grid)),
             };
 
             let mut state = match state.lock() {
                 Ok(state) => state,
-                Err(_) => return Some(cpu_value(None)),
+                Err(_) => return Some(cpu_value(None, QuantityStyle::Grid)),
             };
+            let style = state.quantity_style;
             let previous = match state.previous {
                 Some(prev) => prev,
                 None => {
                     state.previous = Some(now);
                     return Some((
-                        Some(GaugeValue::Svg(icon_quantity(QuantityStyle::Grid, 0.0))),
+                        Some(GaugeValue::Svg(icon_quantity(style, 0.0))),
                         GaugeValueAttention::Nominal,
                     ));
                 }
@@ -146,14 +174,22 @@ fn cpu_stream() -> impl iced::futures::Stream<Item = crate::gauge::GaugeModel> {
             state.previous = Some(now);
             state.update_interval_state(utilization);
 
-            Some(cpu_value(Some(utilization)))
+            Some(cpu_value(Some(utilization), style))
         },
-        None,
+        Some(on_click),
     )
 }
 
 pub fn cpu_subscription() -> Subscription<Message> {
     Subscription::run(|| cpu_stream().map(Message::Gauge))
+}
+
+pub fn settings() -> &'static [SettingSpec] {
+    const SETTINGS: &[SettingSpec] = &[SettingSpec {
+        key: "grelier.cpu.quantitystyle",
+        default: "grid",
+    }];
+    SETTINGS
 }
 
 #[cfg(test)]
@@ -181,7 +217,7 @@ mod tests {
 
     #[test]
     fn returns_none_on_missing_utilization() {
-        let (value, attention) = super::cpu_value(None);
+        let (value, attention) = super::cpu_value(None, QuantityStyle::Grid);
         assert!(value.is_none());
         assert_eq!(attention, GaugeValueAttention::Danger);
     }

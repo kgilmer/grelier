@@ -270,7 +270,6 @@ impl BarState {
                                         )
                                     };
                                     let text_color = {
-                                        // Fade text toward the contrasting background color as focus/urgency ramps up.
                                         let emphasis = focus.max(urgent);
                                         lerp_color(
                                             theme.palette().text,
@@ -372,8 +371,8 @@ impl BarState {
                             .into()
                     }
                     Some(GaugeValue::Svg(handle)) => Svg::new(handle.clone())
-                        .width(Length::Fixed(22.0))
-                        .height(Length::Fixed(22.0))
+                        .width(Length::Fixed(20.0))
+                        .height(Length::Fixed(20.0))
                         .style({
                             let attention = gauge_attention;
                             move |theme: &Theme, _status| svg::Style {
@@ -390,8 +389,8 @@ impl BarState {
                         })
                         .into(),
                     None => Svg::new(error_icon.clone())
-                        .width(Length::Fixed(22.0))
-                        .height(Length::Fixed(22.0))
+                        .width(Length::Fixed(20.0))
+                        .height(Length::Fixed(20.0))
                         .style({
                             let attention = GaugeValueAttention::Danger;
                             move |theme: &Theme, _status| svg::Style {

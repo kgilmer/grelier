@@ -1,5 +1,7 @@
 use crate::app::Message;
-use crate::gauge::{GaugeModel, GaugeValue, GaugeValueAttention, event_stream};
+use crate::gauge::{
+    GaugeModel, GaugeValue, GaugeValueAttention, NO_SETTINGS, SettingSpec, event_stream,
+};
 use crate::icon::svg_asset;
 use iced::Subscription;
 use iced::futures::StreamExt;
@@ -208,4 +210,8 @@ fn property_str(dev: &udev::Device, key: &str) -> Option<String> {
 
 pub fn battery_subscription() -> Subscription<Message> {
     Subscription::run(|| battery_stream().map(Message::Gauge))
+}
+
+pub fn settings() -> &'static [SettingSpec] {
+    NO_SETTINGS
 }

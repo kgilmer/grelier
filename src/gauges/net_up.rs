@@ -1,5 +1,5 @@
 use crate::app::Message;
-use crate::gauge::{GaugeValue, GaugeValueAttention, fixed_interval};
+use crate::gauge::{GaugeValue, GaugeValueAttention, NO_SETTINGS, SettingSpec, fixed_interval};
 use crate::gauges::net_common::{NetIntervalState, format_rate, shared_net_sampler};
 use crate::icon::svg_asset;
 use iced::Subscription;
@@ -58,6 +58,10 @@ fn net_up_stream() -> impl iced::futures::Stream<Item = crate::gauge::GaugeModel
 
 pub fn net_up_subscription() -> Subscription<Message> {
     Subscription::run(|| net_up_stream().map(Message::Gauge))
+}
+
+pub fn settings() -> &'static [SettingSpec] {
+    NO_SETTINGS
 }
 
 #[cfg(test)]

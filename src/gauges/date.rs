@@ -3,7 +3,7 @@ use iced::Subscription;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use crate::app::Message;
-use crate::gauge::{GaugeValue, GaugeValueAttention, fixed_interval};
+use crate::gauge::{GaugeValue, GaugeValueAttention, NO_SETTINGS, SettingSpec, fixed_interval};
 use crate::icon::svg_asset;
 
 use iced::futures::StreamExt;
@@ -51,4 +51,8 @@ fn day_stream() -> impl iced::futures::Stream<Item = crate::gauge::GaugeModel> {
 
 pub fn date_subscription() -> Subscription<Message> {
     Subscription::run(|| day_stream().map(Message::Gauge))
+}
+
+pub fn settings() -> &'static [SettingSpec] {
+    NO_SETTINGS
 }

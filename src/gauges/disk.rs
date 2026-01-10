@@ -1,11 +1,16 @@
 use crate::app::Message;
-use crate::gauge::{GaugeValue, GaugeValueAttention, fixed_interval};
+use crate::gauge::{
+    GaugeClick, GaugeClickAction, GaugeInput, GaugeValue, GaugeValueAttention, SettingSpec,
+    fixed_interval,
+};
 use crate::icon::{QuantityStyle, icon_quantity, svg_asset};
-use iced::Subscription;
+use crate::settings;
+use iced::{Subscription, mouse};
 use iced::futures::StreamExt;
 use std::ffi::CString;
 use std::mem::MaybeUninit;
 use std::os::raw::{c_char, c_int, c_ulong};
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 const ROOT_PATH: &str = "/";
@@ -84,33 +89,75 @@ fn attention_for(utilization: f32) -> GaugeValueAttention {
     }
 }
 
-fn disk_value(utilization: Option<f32>) -> (Option<GaugeValue>, GaugeValueAttention) {
+fn disk_value(
+    utilization: Option<f32>,
+    style: QuantityStyle,
+) -> (Option<GaugeValue>, GaugeValueAttention) {
     match utilization {
         Some(util) => (
-            Some(GaugeValue::Svg(icon_quantity(QuantityStyle::Grid, util))),
+            Some(GaugeValue::Svg(icon_quantity(style, util))),
             attention_for(util),
         ),
         None => (None, GaugeValueAttention::Danger),
     }
 }
 
+#[derive(Default)]
+struct DiskState {
+    quantity_style: QuantityStyle,
+}
+
 fn disk_stream() -> impl iced::futures::Stream<Item = crate::gauge::GaugeModel> {
+    let style_value = settings::settings().get_or("grelier.disk.quantitystyle", "grid");
+    let style = QuantityStyle::parse_setting("grelier.disk.quantitystyle", &style_value);
+    let state = Arc::new(Mutex::new(DiskState {
+        quantity_style: style,
+    }));
+    let on_click: GaugeClickAction = {
+        let state = Arc::clone(&state);
+        Arc::new(move |click: GaugeClick| {
+            if matches!(click.input, GaugeInput::Button(mouse::Button::Left)) {
+                if let Ok(mut state) = state.lock() {
+                    state.quantity_style = state.quantity_style.toggle();
+                    settings::settings().update(
+                        "grelier.disk.quantitystyle",
+                        state.quantity_style.as_setting_value(),
+                    );
+                }
+            }
+        })
+    };
+
     fixed_interval(
         "disk",
         Some(svg_asset("disk.svg")),
         || Duration::from_secs(60),
-        || {
-            let utilization = root_utilization();
-
-            let (value, attention) = disk_value(utilization);
-            Some((value, attention))
+        {
+            let state = Arc::clone(&state);
+            move || {
+                let utilization = root_utilization();
+                let style = state
+                    .lock()
+                    .map(|state| state.quantity_style)
+                    .unwrap_or(QuantityStyle::Grid);
+                let (value, attention) = disk_value(utilization, style);
+                Some((value, attention))
+            }
         },
-        None,
+        Some(on_click),
     )
 }
 
 pub fn disk_subscription() -> Subscription<Message> {
     Subscription::run(|| disk_stream().map(Message::Gauge))
+}
+
+pub fn settings() -> &'static [SettingSpec] {
+    const SETTINGS: &[SettingSpec] = &[SettingSpec {
+        key: "grelier.disk.quantitystyle",
+        default: "grid",
+    }];
+    SETTINGS
 }
 
 #[cfg(test)]
@@ -127,7 +174,7 @@ mod tests {
 
     #[test]
     fn returns_none_on_missing_utilization() {
-        let (value, attention) = disk_value(None);
+        let (value, attention) = disk_value(None, QuantityStyle::Grid);
         assert!(value.is_none());
         assert_eq!(attention, GaugeValueAttention::Danger);
     }

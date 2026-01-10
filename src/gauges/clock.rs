@@ -5,8 +5,11 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use crate::app::Message;
-use crate::gauge::{GaugeClick, GaugeClickAction, GaugeValue, GaugeValueAttention, fixed_interval};
+use crate::gauge::{
+    GaugeClick, GaugeClickAction, GaugeValue, GaugeValueAttention, SettingSpec, fixed_interval,
+};
 use crate::icon::svg_asset;
+use crate::settings;
 use iced::futures::StreamExt;
 
 #[derive(Debug, Clone, Copy, Default)]
@@ -32,9 +35,21 @@ impl HourFormat {
     }
 }
 
+fn hour_format_from_setting() -> HourFormat {
+    let value = settings::settings().get_or("grelier.clock.hourformat", "24");
+    match value.as_str() {
+        "24" => HourFormat::TwentyFour,
+        "12" => HourFormat::Twelve,
+        other => panic!(
+            "Invalid setting 'grelier.clock.hourformat': expected 12 or 24, got '{other}'"
+        ),
+    }
+}
+
 /// Stream of the current wall-clock hour/minute, formatted on two lines.
 fn seconds_stream() -> impl iced::futures::Stream<Item = crate::gauge::GaugeModel> {
-    let format_state = Arc::new(Mutex::new(HourFormat::TwentyFour));
+    let show_seconds = settings::settings().get_bool_or("grelier.clock.showseconds", false);
+    let format_state = Arc::new(Mutex::new(hour_format_from_setting()));
     let on_click: GaugeClickAction = {
         let format_state = Arc::clone(&format_state);
         Arc::new(move |click: GaugeClick| {
@@ -50,13 +65,15 @@ fn seconds_stream() -> impl iced::futures::Stream<Item = crate::gauge::GaugeMode
     fixed_interval(
         "clock",
         Some(svg_asset("clock.svg")),
-        || {
+        move || {
             let elapsed = SystemTime::now()
                 .duration_since(UNIX_EPOCH)
                 .unwrap_or_else(|_| Duration::from_secs(0));
-            // Sleep until the next minute boundary
-            let elapsed_in_minute = Duration::new(elapsed.as_secs() % 60, elapsed.subsec_nanos());
-            Duration::from_secs(60).saturating_sub(elapsed_in_minute)
+            let window = if show_seconds { 1 } else { 60 };
+            // Sleep until the next window boundary
+            let elapsed_in_window =
+                Duration::new(elapsed.as_secs() % window, elapsed.subsec_nanos());
+            Duration::from_secs(window).saturating_sub(elapsed_in_window)
         },
         {
             let format_state = Arc::clone(&format_state);
@@ -66,12 +83,18 @@ fn seconds_stream() -> impl iced::futures::Stream<Item = crate::gauge::GaugeMode
                     .lock()
                     .map(|format| format.format_str())
                     .unwrap_or("%H");
-                Some((
-                    Some(GaugeValue::Text(format!(
-                        "{}\n{}",
+                let time_text = if show_seconds {
+                    format!(
+                        "{}\n{}\n{}",
                         now.format(hour_format),
-                        now.format("%M")
-                    ))),
+                        now.format("%M"),
+                        now.format("%S")
+                    )
+                } else {
+                    format!("{}\n{}", now.format(hour_format), now.format("%M"))
+                };
+                Some((
+                    Some(GaugeValue::Text(time_text)),
                     GaugeValueAttention::Nominal,
                 ))
             }
@@ -82,4 +105,18 @@ fn seconds_stream() -> impl iced::futures::Stream<Item = crate::gauge::GaugeMode
 
 pub fn clock_subscription() -> Subscription<Message> {
     Subscription::run(|| seconds_stream().map(Message::Gauge))
+}
+
+pub fn settings() -> &'static [SettingSpec] {
+    const SETTINGS: &[SettingSpec] = &[
+        SettingSpec {
+            key: "grelier.clock.showseconds",
+            default: "false",
+        },
+        SettingSpec {
+            key: "grelier.clock.hourformat",
+            default: "24",
+        },
+    ];
+    SETTINGS
 }

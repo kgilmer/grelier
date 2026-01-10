@@ -16,6 +16,38 @@ pub enum QuantityStyle {
     Pie,
 }
 
+impl QuantityStyle {
+    pub fn toggle(self) -> Self {
+        match self {
+            QuantityStyle::Grid => QuantityStyle::Pie,
+            QuantityStyle::Pie => QuantityStyle::Grid,
+        }
+    }
+
+    pub fn parse_setting(key: &str, value: &str) -> Self {
+        match value {
+            "grid" => QuantityStyle::Grid,
+            "pie" => QuantityStyle::Pie,
+            other => panic!(
+                "Invalid setting '{key}': expected grid or pie, got '{other}'"
+            ),
+        }
+    }
+
+    pub fn as_setting_value(self) -> &'static str {
+        match self {
+            QuantityStyle::Grid => "grid",
+            QuantityStyle::Pie => "pie",
+        }
+    }
+}
+
+impl Default for QuantityStyle {
+    fn default() -> Self {
+        QuantityStyle::Grid
+    }
+}
+
 /// Returns the appropriate handle to the SVG representing the quantity `value`.
 /// `value` must be a number between 0 and 1.  0 indicates "no quantity" and 1 indicates "full quantity".
 /// grid-0.svg - grid-9.svg and pie-0.svg - pie-8.svg are the icons returned.

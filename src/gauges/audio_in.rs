@@ -1,7 +1,7 @@
 use crate::app::Message;
 use crate::gauge::{
     GaugeClick, GaugeClickAction, GaugeMenu, GaugeMenuItem, GaugeValue, GaugeValueAttention,
-    MenuSelectAction, event_stream,
+    MenuSelectAction, NO_SETTINGS, SettingSpec, event_stream,
 };
 use crate::icon::svg_asset;
 use iced::Subscription;
@@ -452,6 +452,10 @@ fn audio_in_stream() -> impl iced::futures::Stream<Item = crate::gauge::GaugeMod
 
 pub fn audio_in_subscription() -> Subscription<Message> {
     Subscription::run(|| audio_in_stream().map(Message::Gauge))
+}
+
+pub fn settings() -> &'static [SettingSpec] {
+    NO_SETTINGS
 }
 
 #[cfg(test)]

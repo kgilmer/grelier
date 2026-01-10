@@ -1,10 +1,15 @@
 use crate::app::Message;
-use crate::gauge::{GaugeValue, GaugeValueAttention, fixed_interval};
+use crate::gauge::{
+    GaugeClick, GaugeClickAction, GaugeInput, GaugeValue, GaugeValueAttention, SettingSpec,
+    fixed_interval,
+};
 use crate::icon::{QuantityStyle, icon_quantity, svg_asset};
-use iced::Subscription;
+use crate::settings;
+use iced::{Subscription, mouse};
 use iced::futures::StreamExt;
 use std::fs::{File, read_to_string};
 use std::io::{BufRead, BufReader};
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 #[derive(Default)]
@@ -111,10 +116,13 @@ fn attention_for(utilization: f32) -> GaugeValueAttention {
     }
 }
 
-fn ram_value(utilization: Option<f32>) -> (Option<GaugeValue>, GaugeValueAttention) {
+fn ram_value(
+    utilization: Option<f32>,
+    style: QuantityStyle,
+) -> (Option<GaugeValue>, GaugeValueAttention) {
     match utilization {
         Some(util) => (
-            Some(GaugeValue::Svg(icon_quantity(QuantityStyle::Grid, util))),
+            Some(GaugeValue::Svg(icon_quantity(style, util))),
             attention_for(util),
         ),
         None => (None, GaugeValueAttention::Danger),
@@ -125,6 +133,7 @@ fn ram_value(utilization: Option<f32>) -> (Option<GaugeValue>, GaugeValueAttenti
 struct RamState {
     fast_interval: bool,
     below_threshold_streak: u8,
+    quantity_style: QuantityStyle,
 }
 
 impl RamState {
@@ -151,13 +160,32 @@ impl RamState {
 }
 
 fn ram_stream() -> impl iced::futures::Stream<Item = crate::gauge::GaugeModel> {
-    let state = std::sync::Arc::new(std::sync::Mutex::new(RamState::default()));
+    let style_value = settings::settings().get_or("grelier.ram.quantitystyle", "grid");
+    let style = QuantityStyle::parse_setting("grelier.ram.quantitystyle", &style_value);
+    let state = Arc::new(Mutex::new(RamState {
+        quantity_style: style,
+        ..RamState::default()
+    }));
+    let on_click: GaugeClickAction = {
+        let state = Arc::clone(&state);
+        Arc::new(move |click: GaugeClick| {
+            if matches!(click.input, GaugeInput::Button(mouse::Button::Left)) {
+                if let Ok(mut state) = state.lock() {
+                    state.quantity_style = state.quantity_style.toggle();
+                    settings::settings().update(
+                        "grelier.ram.quantitystyle",
+                        state.quantity_style.as_setting_value(),
+                    );
+                }
+            }
+        })
+    };
 
     fixed_interval(
         "ram",
         Some(svg_asset("ram.svg")),
         {
-            let state = std::sync::Arc::clone(&state);
+            let state = Arc::clone(&state);
             move || {
                 state
                     .lock()
@@ -166,25 +194,35 @@ fn ram_stream() -> impl iced::futures::Stream<Item = crate::gauge::GaugeModel> {
             }
         },
         {
-            let state = std::sync::Arc::clone(&state);
+            let state = Arc::clone(&state);
             move || {
                 let utilization = memory_utilization();
-                let (value, attention) = ram_value(utilization);
-                if let Ok(mut state) = state.lock()
-                    && let Some(util) = utilization
-                {
-                    state.update_interval_state(util);
+                let mut style = QuantityStyle::Grid;
+                if let Ok(mut state) = state.lock() {
+                    style = state.quantity_style;
+                    if let Some(util) = utilization {
+                        state.update_interval_state(util);
+                    }
                 }
 
+                let (value, attention) = ram_value(utilization, style);
                 Some((value, attention))
             }
         },
-        None,
+        Some(on_click),
     )
 }
 
 pub fn ram_subscription() -> Subscription<Message> {
     Subscription::run(|| ram_stream().map(Message::Gauge))
+}
+
+pub fn settings() -> &'static [SettingSpec] {
+    const SETTINGS: &[SettingSpec] = &[SettingSpec {
+        key: "grelier.ram.quantitystyle",
+        default: "grid",
+    }];
+    SETTINGS
 }
 
 #[cfg(test)]
@@ -220,7 +258,7 @@ mod tests {
 
     #[test]
     fn returns_none_on_missing_utilization() {
-        let (value, attention) = ram_value(None);
+        let (value, attention) = ram_value(None, QuantityStyle::Grid);
         assert!(value.is_none());
         assert_eq!(attention, GaugeValueAttention::Danger);
     }

@@ -27,6 +27,14 @@ pub struct GaugeMenuItem {
     pub selected: bool,
 }
 
+#[derive(Debug, Clone, Copy)]
+pub struct SettingSpec {
+    pub key: &'static str,
+    pub default: &'static str,
+}
+
+pub const NO_SETTINGS: &[SettingSpec] = &[];
+
 pub type MenuSelectAction = Arc<dyn Fn(String) + Send + Sync>;
 
 #[derive(Clone)]

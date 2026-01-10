@@ -1,6 +1,7 @@
 use crate::app::Message;
 use crate::gauge::{
-    GaugeClick, GaugeClickAction, GaugeInput, GaugeValue, GaugeValueAttention, event_stream,
+    GaugeClick, GaugeClickAction, GaugeInput, GaugeValue, GaugeValueAttention, NO_SETTINGS,
+    SettingSpec, event_stream,
 };
 use crate::icon::svg_asset;
 use iced::Subscription;
@@ -227,6 +228,10 @@ fn brightness_stream() -> impl iced::futures::Stream<Item = crate::gauge::GaugeM
 
 pub fn brightness_subscription() -> Subscription<Message> {
     Subscription::run(|| brightness_stream().map(Message::Gauge))
+}
+
+pub fn settings() -> &'static [SettingSpec] {
+    NO_SETTINGS
 }
 
 #[cfg(test)]

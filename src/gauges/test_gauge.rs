@@ -3,8 +3,9 @@ use std::sync::Mutex;
 use std::time::Duration;
 
 use crate::app::Message;
-use crate::gauge::{GaugeClick, GaugeClickAction, GaugeValue, GaugeValueAttention, fixed_interval};
+use crate::gauge::{GaugeClick, GaugeClickAction, GaugeValue, GaugeValueAttention, SettingSpec, fixed_interval};
 use crate::icon::{QuantityStyle, icon_quantity};
+use crate::settings;
 use iced::futures::StreamExt;
 use std::sync::Arc;
 
@@ -15,7 +16,6 @@ const STEP: f32 = 1.0 / 9.0;
 enum QuantityMode {
     Grid,
     Pie,
-    Error,
 }
 
 /// Tracks a ping-pong sequence over the pie icon indices.
@@ -75,8 +75,7 @@ impl QuantityState {
     fn cycle_mode(&mut self) {
         self.mode = match self.mode {
             QuantityMode::Grid => QuantityMode::Pie,
-            QuantityMode::Pie => QuantityMode::Error,
-            QuantityMode::Error => QuantityMode::Grid,
+            QuantityMode::Pie => QuantityMode::Grid,
         };
     }
 
@@ -104,14 +103,15 @@ impl QuantityState {
                 ))),
                 self.attention,
             ),
-            QuantityMode::Error => (None, GaugeValueAttention::Danger),
         }
     }
 }
 
 /// Cycles over pie-[0-8].svg, bouncing when hitting the ends.
 fn test_gauge_stream() -> impl iced::futures::Stream<Item = crate::gauge::GaugeModel> {
-    let state = Arc::new(Mutex::new(QuantityState::new(QuantityStyle::Pie)));
+    let style_value = settings::settings().get_or("grelier.test_gauge.quantitystyle", "pie");
+    let style = QuantityStyle::parse_setting("grelier.test_gauge.quantitystyle", &style_value);
+    let state = Arc::new(Mutex::new(QuantityState::new(style)));
     let on_click: GaugeClickAction = {
         let state = Arc::clone(&state);
         Arc::new(move |click: GaugeClick| {
@@ -120,7 +120,17 @@ fn test_gauge_stream() -> impl iced::futures::Stream<Item = crate::gauge::GaugeM
                     crate::gauge::GaugeInput::Button(mouse::Button::Right) => {
                         state.cycle_attention()
                     }
-                    crate::gauge::GaugeInput::Button(_) => state.cycle_mode(),
+                    crate::gauge::GaugeInput::Button(mouse::Button::Left) => {
+                        state.cycle_mode();
+                        let style_value = match state.mode {
+                            QuantityMode::Grid => QuantityStyle::Grid,
+                            QuantityMode::Pie => QuantityStyle::Pie,
+                        };
+                        settings::settings().update(
+                            "grelier.test_gauge.quantitystyle",
+                            style_value.as_setting_value(),
+                        );
+                    }
                     _ => {}
                 }
                 (state.mode, state.attention)
@@ -148,6 +158,14 @@ fn test_gauge_stream() -> impl iced::futures::Stream<Item = crate::gauge::GaugeM
 
 pub fn test_gauge_subscription() -> Subscription<Message> {
     Subscription::run(|| test_gauge_stream().map(Message::Gauge))
+}
+
+pub fn settings() -> &'static [SettingSpec] {
+    const SETTINGS: &[SettingSpec] = &[SettingSpec {
+        key: "grelier.test_gauge.quantitystyle",
+        default: "pie",
+    }];
+    SETTINGS
 }
 
 #[cfg(test)]
@@ -189,14 +207,12 @@ mod tests {
     }
 
     #[test]
-    fn mode_cycles_through_styles_and_error() {
+    fn mode_cycles_between_styles() {
         let mut state = QuantityState::new(QuantityStyle::Grid);
 
         assert!(matches!(state.mode, QuantityMode::Grid));
         state.cycle_mode();
         assert!(matches!(state.mode, QuantityMode::Pie));
-        state.cycle_mode();
-        assert!(matches!(state.mode, QuantityMode::Error));
         state.cycle_mode();
         assert!(matches!(state.mode, QuantityMode::Grid));
     }

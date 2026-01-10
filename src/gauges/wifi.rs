@@ -1,11 +1,15 @@
 use crate::app::Message;
-use crate::gauge::{GaugeModel, GaugeValue, GaugeValueAttention, event_stream};
+use crate::gauge::{
+    GaugeClick, GaugeClickAction, GaugeInput, GaugeModel, GaugeValue, GaugeValueAttention,
+    SettingSpec, event_stream,
+};
 use crate::icon::{QuantityStyle, icon_quantity, svg_asset};
-use iced::Subscription;
+use crate::settings;
+use iced::{Subscription, mouse};
 use iced::futures::StreamExt;
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::thread;
+use std::sync::{Arc, Mutex, mpsc as sync_mpsc};
 use std::time::Duration;
 
 const SYS_NET: &str = "/sys/class/net";
@@ -135,7 +139,11 @@ fn wifi_snapshot() -> WifiSnapshot {
     }
 }
 
-fn wifi_gauge(snapshot: WifiSnapshot) -> GaugeModel {
+fn wifi_gauge(
+    snapshot: WifiSnapshot,
+    style: QuantityStyle,
+    on_click: Option<GaugeClickAction>,
+) -> GaugeModel {
     let (icon, attention) = match snapshot.state {
         WifiState::Connected => ("wifi.svg", GaugeValueAttention::Nominal),
         WifiState::NotConnected => ("wifi-off.svg", GaugeValueAttention::Warning),
@@ -148,26 +156,64 @@ fn wifi_gauge(snapshot: WifiSnapshot) -> GaugeModel {
         value: match snapshot.state {
             WifiState::NoDevice => None,
             _ => Some(GaugeValue::Svg(icon_quantity(
-                QuantityStyle::Grid,
+                style,
                 snapshot.strength,
             ))),
         },
         attention,
-        on_click: None,
+        on_click,
         menu: None,
     }
 }
 
 fn wifi_stream() -> impl iced::futures::Stream<Item = GaugeModel> {
     event_stream("wifi", None, move |mut sender| {
+        let style_value = settings::settings().get_or("grelier.wifi.quantitystyle", "grid");
+        let style = QuantityStyle::parse_setting("grelier.wifi.quantitystyle", &style_value);
+        let state = Arc::new(Mutex::new(style));
+        let (trigger_tx, trigger_rx) = sync_mpsc::channel::<()>();
+        let on_click: GaugeClickAction = {
+            let state = Arc::clone(&state);
+            let trigger_tx = trigger_tx.clone();
+            Arc::new(move |click: GaugeClick| {
+                if matches!(click.input, GaugeInput::Button(mouse::Button::Left)) {
+                    if let Ok(mut style) = state.lock() {
+                        *style = style.toggle();
+                        settings::settings().update(
+                            "grelier.wifi.quantitystyle",
+                            style.as_setting_value(),
+                        );
+                    }
+                    let _ = trigger_tx.send(());
+                }
+            })
+        };
+
+        let _trigger_tx = trigger_tx;
         loop {
             let snapshot = wifi_snapshot();
-            let _ = sender.try_send(wifi_gauge(snapshot));
-            thread::sleep(POLL_INTERVAL);
+            let style = state
+                .lock()
+                .map(|style| *style)
+                .unwrap_or(QuantityStyle::Grid);
+            let _ = sender.try_send(wifi_gauge(snapshot, style, Some(on_click.clone())));
+
+            match trigger_rx.recv_timeout(POLL_INTERVAL) {
+                Ok(()) | Err(sync_mpsc::RecvTimeoutError::Timeout) => continue,
+                Err(sync_mpsc::RecvTimeoutError::Disconnected) => break,
+            }
         }
     })
 }
 
 pub fn wifi_subscription() -> Subscription<Message> {
     Subscription::run(|| wifi_stream().map(Message::Gauge))
+}
+
+pub fn settings() -> &'static [SettingSpec] {
+    const SETTINGS: &[SettingSpec] = &[SettingSpec {
+        key: "grelier.wifi.quantitystyle",
+        default: "grid",
+    }];
+    SETTINGS
 }

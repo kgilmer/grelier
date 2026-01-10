@@ -19,6 +19,8 @@ mod gauges {
 mod gauge;
 mod icon;
 mod menu_dialog;
+mod settings;
+mod settings_storage;
 mod sway_workspace;
 mod theme;
 
@@ -29,11 +31,11 @@ use iced::{Subscription, event, mouse, window};
 
 use iced_layershell::daemon;
 use iced_layershell::reexport::{Anchor, KeyboardInteractivity, Layer};
-use iced_layershell::settings::{LayerShellSettings, Settings, StartMode};
+use iced_layershell::settings::{LayerShellSettings, Settings as LayerShellAppSettings, StartMode};
 
 use crate::app::Orientation;
 use crate::app::{BarState, Message};
-use crate::gauge::{GaugeClick, GaugeInput, GaugeModel};
+use crate::gauge::{GaugeClick, GaugeInput, GaugeModel, SettingSpec};
 use crate::gauges::{
     audio_in, audio_out, battery, brightness, clock, cpu, date, disk, net_down, net_up, ram,
     test_gauge, wifi,
@@ -53,6 +55,14 @@ struct Args {
     /// theme name: CatppuccinFrappe,CatppuccinLatte,CatppuccinMacchiato,CatppuccinMocha,Dark,Dracula,Ferra,GruvboxDark,GruvboxLight,KanagawaDragon,KanagawaLotus,KanagawaWave,Light,Moonfly,Nightfly,Nord,Oxocarbon,TokyoNight,TokyoNightLight,TokyoNightStorm,AyuMirage
     #[argh(option)]
     theme: Option<String>,
+
+    /// comma-separated settings overrides (key=value,key2=value2)
+    #[argh(option)]
+    settings: Option<String>,
+
+    /// list settings for the selected gauges and exit
+    #[argh(switch)]
+    list_settings: bool,
 }
 
 fn app_subscription(_state: &BarState, gauges: &[&str]) -> Subscription<Message> {
@@ -79,6 +89,25 @@ fn app_subscription(_state: &BarState, gauges: &[&str]) -> Subscription<Message>
         }
     }
     Subscription::batch(subs)
+}
+
+fn gauge_settings(gauge: &str) -> &'static [SettingSpec] {
+    match gauge {
+        "clock" => clock::settings(),
+        "date" => date::settings(),
+        "battery" => battery::settings(),
+        "cpu" => cpu::settings(),
+        "disk" => disk::settings(),
+        "ram" => ram::settings(),
+        "net_up" => net_up::settings(),
+        "net_down" => net_down::settings(),
+        "audio_out" => audio_out::settings(),
+        "audio_in" => audio_in::settings(),
+        "brightness" => brightness::settings(),
+        "wifi" => wifi::settings(),
+        "test_gauge" => test_gauge::settings(),
+        other => unreachable!("gauges validated before settings list: {other}"),
+    }
 }
 
 fn main() -> Result<(), iced_layershell::Error> {
@@ -118,12 +147,50 @@ fn main() -> Result<(), iced_layershell::Error> {
         }
     }
 
+    if args.list_settings {
+        for gauge in &gauges {
+            let specs = gauge_settings(gauge.as_str());
+
+            for spec in specs {
+                println!("{}:{}", spec.key, spec.default);
+            }
+        }
+
+        return Ok(());
+    }
+
+    let storage = settings_storage::SettingsStorage::new(settings_storage::SettingsStorage::default_path());
+    let mut known_settings = std::collections::HashSet::new();
+    for gauge in &gauges {
+        for spec in gauge_settings(gauge.as_str()) {
+            if !known_settings.insert(spec.key) {
+                eprintln!("Duplicate setting key '{}'", spec.key);
+                std::process::exit(1);
+            }
+        }
+    }
+
+    let settings = settings::init_settings(settings::Settings::new(storage));
+
+    if let Some(arg) = args.settings.as_deref() {
+        let overrides = match settings::parse_settings_arg(arg) {
+            Ok(map) => map,
+            Err(err) => {
+                eprintln!("Invalid settings: {err}");
+                std::process::exit(1);
+            }
+        };
+        for (key, value) in overrides {
+            settings.update(&key, &value);
+        }
+    }
+
     let anchor = match args.orientation {
         Orientation::Left => Anchor::Left,
         Orientation::Right => Anchor::Right,
     };
 
-    let settings = Settings {
+    let settings = LayerShellAppSettings {
         layer_settings: LayerShellSettings {
             size: Some((28, 0)),
             exclusive_zone: 28,
@@ -136,7 +203,7 @@ fn main() -> Result<(), iced_layershell::Error> {
         },
         antialiasing: true,
         default_font: Font::MONOSPACE,
-        ..Settings::default()
+        ..LayerShellAppSettings::default()
     };
 
     let theme = args
