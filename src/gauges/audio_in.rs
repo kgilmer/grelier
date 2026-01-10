@@ -1,9 +1,10 @@
 use crate::app::Message;
 use crate::gauge::{
     GaugeClick, GaugeClickAction, GaugeMenu, GaugeMenuItem, GaugeValue, GaugeValueAttention,
-    MenuSelectAction, NO_SETTINGS, SettingSpec, event_stream,
+    MenuSelectAction, SettingSpec, event_stream,
 };
 use crate::icon::svg_asset;
+use crate::settings;
 use iced::Subscription;
 use iced::futures::StreamExt;
 use libpulse_binding as pulse;
@@ -20,6 +21,7 @@ use std::sync::mpsc::{self, RecvTimeoutError};
 use std::time::Duration;
 
 const IDLE_WAIT: Duration = Duration::from_millis(25);
+const DEFAULT_STEP_PERCENT: i8 = 5;
 
 fn format_percent(value: u8) -> String {
     format!("{:02}", value.min(99))
@@ -287,6 +289,11 @@ fn handle_command(
 
 fn audio_in_stream() -> impl iced::futures::Stream<Item = crate::gauge::GaugeModel> {
     let (command_tx, command_rx) = mpsc::channel::<InputCommand>();
+    let mut step_percent =
+        settings::settings().get_parsed_or("grelier.audio_in.step_percent", DEFAULT_STEP_PERCENT);
+    if step_percent == 0 {
+        step_percent = DEFAULT_STEP_PERCENT;
+    }
     let on_click: GaugeClickAction = {
         let command_tx = command_tx.clone();
         Arc::new(move |click: GaugeClick| match click.input {
@@ -294,10 +301,10 @@ fn audio_in_stream() -> impl iced::futures::Stream<Item = crate::gauge::GaugeMod
                 let _ = command_tx.send(InputCommand::ToggleMute);
             }
             crate::gauge::GaugeInput::ScrollUp => {
-                let _ = command_tx.send(InputCommand::AdjustVolume(5));
+                let _ = command_tx.send(InputCommand::AdjustVolume(step_percent));
             }
             crate::gauge::GaugeInput::ScrollDown => {
-                let _ = command_tx.send(InputCommand::AdjustVolume(-5));
+                let _ = command_tx.send(InputCommand::AdjustVolume(-step_percent));
             }
             _ => {}
         })
@@ -455,7 +462,11 @@ pub fn audio_in_subscription() -> Subscription<Message> {
 }
 
 pub fn settings() -> &'static [SettingSpec] {
-    NO_SETTINGS
+    const SETTINGS: &[SettingSpec] = &[SettingSpec {
+        key: "grelier.audio_in.step_percent",
+        default: "5",
+    }];
+    SETTINGS
 }
 
 #[cfg(test)]

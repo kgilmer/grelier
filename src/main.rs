@@ -159,7 +159,8 @@ fn main() -> Result<(), iced_layershell::Error> {
         return Ok(());
     }
 
-    let storage = settings_storage::SettingsStorage::new(settings_storage::SettingsStorage::default_path());
+    let storage =
+        settings_storage::SettingsStorage::new(settings_storage::SettingsStorage::default_path());
     let mut known_settings = std::collections::HashSet::new();
     for gauge in &gauges {
         for spec in gauge_settings(gauge.as_str()) {
@@ -185,6 +186,8 @@ fn main() -> Result<(), iced_layershell::Error> {
         }
     }
 
+    let bar_width = settings::settings().get_parsed_or("grelier.bar.width", 28u32);
+
     let anchor = match args.orientation {
         Orientation::Left => Anchor::Left,
         Orientation::Right => Anchor::Right,
@@ -192,8 +195,8 @@ fn main() -> Result<(), iced_layershell::Error> {
 
     let settings = LayerShellAppSettings {
         layer_settings: LayerShellSettings {
-            size: Some((28, 0)),
-            exclusive_zone: 28,
+            size: Some((bar_width, 0)),
+            exclusive_zone: bar_width as i32,
             anchor,
             layer: Layer::Top,
             margin: (0, 0, 0, 0),

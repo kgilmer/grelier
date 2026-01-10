@@ -3,7 +3,9 @@ use std::sync::Mutex;
 use std::time::Duration;
 
 use crate::app::Message;
-use crate::gauge::{GaugeClick, GaugeClickAction, GaugeValue, GaugeValueAttention, SettingSpec, fixed_interval};
+use crate::gauge::{
+    GaugeClick, GaugeClickAction, GaugeValue, GaugeValueAttention, SettingSpec, fixed_interval,
+};
 use crate::icon::{QuantityStyle, icon_quantity};
 use crate::settings;
 use iced::futures::StreamExt;

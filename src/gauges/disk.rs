@@ -5,15 +5,18 @@ use crate::gauge::{
 };
 use crate::icon::{QuantityStyle, icon_quantity, svg_asset};
 use crate::settings;
-use iced::{Subscription, mouse};
 use iced::futures::StreamExt;
+use iced::{Subscription, mouse};
 use std::ffi::CString;
 use std::mem::MaybeUninit;
 use std::os::raw::{c_char, c_int, c_ulong};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-const ROOT_PATH: &str = "/";
+const DEFAULT_ROOT_PATH: &str = "/";
+const DEFAULT_POLL_INTERVAL_SECS: u64 = 60;
+const DEFAULT_WARNING_THRESHOLD: f32 = 0.85;
+const DEFAULT_DANGER_THRESHOLD: f32 = 0.95;
 
 #[repr(C)]
 #[derive(Clone, Copy)]
@@ -70,8 +73,8 @@ fn disk_usage(path: &str) -> Option<DiskUsage> {
     Some(DiskUsage { used, total })
 }
 
-fn root_utilization() -> Option<f32> {
-    let usage = disk_usage(ROOT_PATH)?;
+fn root_utilization(path: &str) -> Option<f32> {
+    let usage = disk_usage(path)?;
     if usage.total == 0 {
         return None;
     }
@@ -79,10 +82,14 @@ fn root_utilization() -> Option<f32> {
     Some((usage.used as f32 / usage.total as f32).clamp(0.0, 1.0))
 }
 
-fn attention_for(utilization: f32) -> GaugeValueAttention {
-    if utilization > 0.95 {
+fn attention_for(
+    utilization: f32,
+    warning_threshold: f32,
+    danger_threshold: f32,
+) -> GaugeValueAttention {
+    if utilization > danger_threshold {
         GaugeValueAttention::Danger
-    } else if utilization > 0.85 {
+    } else if utilization > warning_threshold {
         GaugeValueAttention::Warning
     } else {
         GaugeValueAttention::Nominal
@@ -92,11 +99,13 @@ fn attention_for(utilization: f32) -> GaugeValueAttention {
 fn disk_value(
     utilization: Option<f32>,
     style: QuantityStyle,
+    warning_threshold: f32,
+    danger_threshold: f32,
 ) -> (Option<GaugeValue>, GaugeValueAttention) {
     match utilization {
         Some(util) => (
             Some(GaugeValue::Svg(icon_quantity(style, util))),
-            attention_for(util),
+            attention_for(util, warning_threshold, danger_threshold),
         ),
         None => (None, GaugeValueAttention::Danger),
     }
@@ -110,20 +119,29 @@ struct DiskState {
 fn disk_stream() -> impl iced::futures::Stream<Item = crate::gauge::GaugeModel> {
     let style_value = settings::settings().get_or("grelier.disk.quantitystyle", "grid");
     let style = QuantityStyle::parse_setting("grelier.disk.quantitystyle", &style_value);
+    let path = settings::settings().get_or("grelier.disk.path", DEFAULT_ROOT_PATH);
+    let poll_interval_secs = settings::settings().get_parsed_or(
+        "grelier.disk.poll_interval_secs",
+        DEFAULT_POLL_INTERVAL_SECS,
+    );
+    let warning_threshold = settings::settings()
+        .get_parsed_or("grelier.disk.warning_threshold", DEFAULT_WARNING_THRESHOLD);
+    let danger_threshold = settings::settings()
+        .get_parsed_or("grelier.disk.danger_threshold", DEFAULT_DANGER_THRESHOLD);
     let state = Arc::new(Mutex::new(DiskState {
         quantity_style: style,
     }));
     let on_click: GaugeClickAction = {
         let state = Arc::clone(&state);
         Arc::new(move |click: GaugeClick| {
-            if matches!(click.input, GaugeInput::Button(mouse::Button::Left)) {
-                if let Ok(mut state) = state.lock() {
-                    state.quantity_style = state.quantity_style.toggle();
-                    settings::settings().update(
-                        "grelier.disk.quantitystyle",
-                        state.quantity_style.as_setting_value(),
-                    );
-                }
+            if matches!(click.input, GaugeInput::Button(mouse::Button::Left))
+                && let Ok(mut state) = state.lock()
+            {
+                state.quantity_style = state.quantity_style.toggle();
+                settings::settings().update(
+                    "grelier.disk.quantitystyle",
+                    state.quantity_style.as_setting_value(),
+                );
             }
         })
     };
@@ -131,16 +149,18 @@ fn disk_stream() -> impl iced::futures::Stream<Item = crate::gauge::GaugeModel> 
     fixed_interval(
         "disk",
         Some(svg_asset("disk.svg")),
-        || Duration::from_secs(60),
+        move || Duration::from_secs(poll_interval_secs),
         {
             let state = Arc::clone(&state);
+            let path = path.clone();
             move || {
-                let utilization = root_utilization();
+                let utilization = root_utilization(&path);
                 let style = state
                     .lock()
                     .map(|state| state.quantity_style)
                     .unwrap_or(QuantityStyle::Grid);
-                let (value, attention) = disk_value(utilization, style);
+                let (value, attention) =
+                    disk_value(utilization, style, warning_threshold, danger_threshold);
                 Some((value, attention))
             }
         },
@@ -153,10 +173,28 @@ pub fn disk_subscription() -> Subscription<Message> {
 }
 
 pub fn settings() -> &'static [SettingSpec] {
-    const SETTINGS: &[SettingSpec] = &[SettingSpec {
-        key: "grelier.disk.quantitystyle",
-        default: "grid",
-    }];
+    const SETTINGS: &[SettingSpec] = &[
+        SettingSpec {
+            key: "grelier.disk.quantitystyle",
+            default: "grid",
+        },
+        SettingSpec {
+            key: "grelier.disk.path",
+            default: DEFAULT_ROOT_PATH,
+        },
+        SettingSpec {
+            key: "grelier.disk.poll_interval_secs",
+            default: "60",
+        },
+        SettingSpec {
+            key: "grelier.disk.warning_threshold",
+            default: "0.85",
+        },
+        SettingSpec {
+            key: "grelier.disk.danger_threshold",
+            default: "0.95",
+        },
+    ];
     SETTINGS
 }
 
@@ -166,15 +204,32 @@ mod tests {
 
     #[test]
     fn attention_thresholds_match_spec() {
-        assert_eq!(attention_for(0.80), GaugeValueAttention::Nominal);
-        assert_eq!(attention_for(0.86), GaugeValueAttention::Warning);
-        assert_eq!(attention_for(0.95), GaugeValueAttention::Warning);
-        assert_eq!(attention_for(0.96), GaugeValueAttention::Danger);
+        assert_eq!(
+            attention_for(0.80, DEFAULT_WARNING_THRESHOLD, DEFAULT_DANGER_THRESHOLD),
+            GaugeValueAttention::Nominal
+        );
+        assert_eq!(
+            attention_for(0.86, DEFAULT_WARNING_THRESHOLD, DEFAULT_DANGER_THRESHOLD),
+            GaugeValueAttention::Warning
+        );
+        assert_eq!(
+            attention_for(0.95, DEFAULT_WARNING_THRESHOLD, DEFAULT_DANGER_THRESHOLD),
+            GaugeValueAttention::Warning
+        );
+        assert_eq!(
+            attention_for(0.96, DEFAULT_WARNING_THRESHOLD, DEFAULT_DANGER_THRESHOLD),
+            GaugeValueAttention::Danger
+        );
     }
 
     #[test]
     fn returns_none_on_missing_utilization() {
-        let (value, attention) = disk_value(None, QuantityStyle::Grid);
+        let (value, attention) = disk_value(
+            None,
+            QuantityStyle::Grid,
+            DEFAULT_WARNING_THRESHOLD,
+            DEFAULT_DANGER_THRESHOLD,
+        );
         assert!(value.is_none());
         assert_eq!(attention, GaugeValueAttention::Danger);
     }

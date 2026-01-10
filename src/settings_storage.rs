@@ -96,7 +96,7 @@ fn parse_line(line: &str, line_number: usize) -> Result<Option<(String, String)>
     }
 
     let sep_index = trimmed
-        .find(|c| c == ':' || c == '=')
+        .find([':', '='])
         .ok_or_else(|| format!("line {line_number}: missing ':' or '=' separator"))?;
     let (key, value) = trimmed.split_at(sep_index);
     let key = key.trim();
@@ -116,7 +116,11 @@ mod tests {
 
     fn temp_storage(name: &str) -> (SettingsStorage, PathBuf) {
         let mut dir = std::env::temp_dir();
-        dir.push(format!("grelier_settings_test_{}_{}", name, std::process::id()));
+        dir.push(format!(
+            "grelier_settings_test_{}_{}",
+            name,
+            std::process::id()
+        ));
         fs::create_dir_all(&dir).expect("create temp test dir");
         let mut file_path = dir.clone();
         file_path.push("Settings.xresources");
@@ -144,10 +148,7 @@ mod tests {
         storage.save(&map).expect("save settings");
         let contents = fs::read_to_string(storage.path).expect("read settings storage");
 
-        assert_eq!(
-            contents,
-            "grelier.alpha: first\ngrelier.zeta: last\n"
-        );
+        assert_eq!(contents, "grelier.alpha: first\ngrelier.zeta: last\n");
 
         let _ = fs::remove_dir_all(dir);
     }

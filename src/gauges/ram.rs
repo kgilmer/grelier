@@ -5,12 +5,19 @@ use crate::gauge::{
 };
 use crate::icon::{QuantityStyle, icon_quantity, svg_asset};
 use crate::settings;
-use iced::{Subscription, mouse};
 use iced::futures::StreamExt;
+use iced::{Subscription, mouse};
 use std::fs::{File, read_to_string};
 use std::io::{BufRead, BufReader};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
+
+const DEFAULT_WARNING_THRESHOLD: f32 = 0.85;
+const DEFAULT_DANGER_THRESHOLD: f32 = 0.95;
+const DEFAULT_FAST_THRESHOLD: f32 = 0.70;
+const DEFAULT_FAST_INTERVAL_SECS: u64 = 1;
+const DEFAULT_SLOW_INTERVAL_SECS: u64 = 4;
+const DEFAULT_CALM_TICKS: u8 = 4;
 
 #[derive(Default)]
 struct MemorySnapshot {
@@ -106,10 +113,14 @@ fn memory_utilization() -> Option<f32> {
     Some(utilization.clamp(0.0, 1.0))
 }
 
-fn attention_for(utilization: f32) -> GaugeValueAttention {
-    if utilization > 0.95 {
+fn attention_for(
+    utilization: f32,
+    warning_threshold: f32,
+    danger_threshold: f32,
+) -> GaugeValueAttention {
+    if utilization > danger_threshold {
         GaugeValueAttention::Danger
-    } else if utilization > 0.85 {
+    } else if utilization > warning_threshold {
         GaugeValueAttention::Warning
     } else {
         GaugeValueAttention::Nominal
@@ -119,31 +130,38 @@ fn attention_for(utilization: f32) -> GaugeValueAttention {
 fn ram_value(
     utilization: Option<f32>,
     style: QuantityStyle,
+    warning_threshold: f32,
+    danger_threshold: f32,
 ) -> (Option<GaugeValue>, GaugeValueAttention) {
     match utilization {
         Some(util) => (
             Some(GaugeValue::Svg(icon_quantity(style, util))),
-            attention_for(util),
+            attention_for(util, warning_threshold, danger_threshold),
         ),
         None => (None, GaugeValueAttention::Danger),
     }
 }
 
-#[derive(Default)]
 struct RamState {
     fast_interval: bool,
     below_threshold_streak: u8,
     quantity_style: QuantityStyle,
+    fast_threshold: f32,
+    calm_ticks: u8,
+    fast_interval_duration: Duration,
+    slow_interval_duration: Duration,
+    warning_threshold: f32,
+    danger_threshold: f32,
 }
 
 impl RamState {
     fn update_interval_state(&mut self, utilization: f32) {
-        if utilization > 0.70 {
+        if utilization > self.fast_threshold {
             self.fast_interval = true;
             self.below_threshold_streak = 0;
         } else if self.fast_interval {
             self.below_threshold_streak = self.below_threshold_streak.saturating_add(1);
-            if self.below_threshold_streak > 3 {
+            if self.below_threshold_streak >= self.calm_ticks {
                 self.fast_interval = false;
                 self.below_threshold_streak = 0;
             }
@@ -152,9 +170,9 @@ impl RamState {
 
     fn interval(&self) -> Duration {
         if self.fast_interval {
-            Duration::from_secs(1)
+            self.fast_interval_duration
         } else {
-            Duration::from_secs(4)
+            self.slow_interval_duration
         }
     }
 }
@@ -162,21 +180,40 @@ impl RamState {
 fn ram_stream() -> impl iced::futures::Stream<Item = crate::gauge::GaugeModel> {
     let style_value = settings::settings().get_or("grelier.ram.quantitystyle", "grid");
     let style = QuantityStyle::parse_setting("grelier.ram.quantitystyle", &style_value);
+    let warning_threshold = settings::settings()
+        .get_parsed_or("grelier.ram.warning_threshold", DEFAULT_WARNING_THRESHOLD);
+    let danger_threshold = settings::settings()
+        .get_parsed_or("grelier.ram.danger_threshold", DEFAULT_DANGER_THRESHOLD);
+    let fast_threshold =
+        settings::settings().get_parsed_or("grelier.ram.fast_threshold", DEFAULT_FAST_THRESHOLD);
+    let calm_ticks =
+        settings::settings().get_parsed_or("grelier.ram.calm_ticks", DEFAULT_CALM_TICKS);
+    let fast_interval_secs = settings::settings()
+        .get_parsed_or("grelier.ram.fast_interval_secs", DEFAULT_FAST_INTERVAL_SECS);
+    let slow_interval_secs = settings::settings()
+        .get_parsed_or("grelier.ram.slow_interval_secs", DEFAULT_SLOW_INTERVAL_SECS);
     let state = Arc::new(Mutex::new(RamState {
         quantity_style: style,
-        ..RamState::default()
+        fast_threshold,
+        calm_ticks,
+        fast_interval_duration: Duration::from_secs(fast_interval_secs),
+        slow_interval_duration: Duration::from_secs(slow_interval_secs),
+        warning_threshold,
+        danger_threshold,
+        fast_interval: false,
+        below_threshold_streak: 0,
     }));
     let on_click: GaugeClickAction = {
         let state = Arc::clone(&state);
         Arc::new(move |click: GaugeClick| {
-            if matches!(click.input, GaugeInput::Button(mouse::Button::Left)) {
-                if let Ok(mut state) = state.lock() {
-                    state.quantity_style = state.quantity_style.toggle();
-                    settings::settings().update(
-                        "grelier.ram.quantitystyle",
-                        state.quantity_style.as_setting_value(),
-                    );
-                }
+            if matches!(click.input, GaugeInput::Button(mouse::Button::Left))
+                && let Ok(mut state) = state.lock()
+            {
+                state.quantity_style = state.quantity_style.toggle();
+                settings::settings().update(
+                    "grelier.ram.quantitystyle",
+                    state.quantity_style.as_setting_value(),
+                );
             }
         })
     };
@@ -205,7 +242,8 @@ fn ram_stream() -> impl iced::futures::Stream<Item = crate::gauge::GaugeModel> {
                     }
                 }
 
-                let (value, attention) = ram_value(utilization, style);
+                let (value, attention) =
+                    ram_value(utilization, style, warning_threshold, danger_threshold);
                 Some((value, attention))
             }
         },
@@ -218,10 +256,36 @@ pub fn ram_subscription() -> Subscription<Message> {
 }
 
 pub fn settings() -> &'static [SettingSpec] {
-    const SETTINGS: &[SettingSpec] = &[SettingSpec {
-        key: "grelier.ram.quantitystyle",
-        default: "grid",
-    }];
+    const SETTINGS: &[SettingSpec] = &[
+        SettingSpec {
+            key: "grelier.ram.quantitystyle",
+            default: "grid",
+        },
+        SettingSpec {
+            key: "grelier.ram.warning_threshold",
+            default: "0.85",
+        },
+        SettingSpec {
+            key: "grelier.ram.danger_threshold",
+            default: "0.95",
+        },
+        SettingSpec {
+            key: "grelier.ram.fast_threshold",
+            default: "0.70",
+        },
+        SettingSpec {
+            key: "grelier.ram.calm_ticks",
+            default: "4",
+        },
+        SettingSpec {
+            key: "grelier.ram.fast_interval_secs",
+            default: "1",
+        },
+        SettingSpec {
+            key: "grelier.ram.slow_interval_secs",
+            default: "4",
+        },
+    ];
     SETTINGS
 }
 
@@ -231,34 +295,70 @@ mod tests {
 
     #[test]
     fn attention_thresholds_match_spec() {
-        assert_eq!(attention_for(0.80), GaugeValueAttention::Nominal);
-        assert_eq!(attention_for(0.86), GaugeValueAttention::Warning);
-        assert_eq!(attention_for(0.95), GaugeValueAttention::Warning);
-        assert_eq!(attention_for(0.96), GaugeValueAttention::Danger);
+        assert_eq!(
+            attention_for(0.80, DEFAULT_WARNING_THRESHOLD, DEFAULT_DANGER_THRESHOLD),
+            GaugeValueAttention::Nominal
+        );
+        assert_eq!(
+            attention_for(0.86, DEFAULT_WARNING_THRESHOLD, DEFAULT_DANGER_THRESHOLD),
+            GaugeValueAttention::Warning
+        );
+        assert_eq!(
+            attention_for(0.95, DEFAULT_WARNING_THRESHOLD, DEFAULT_DANGER_THRESHOLD),
+            GaugeValueAttention::Warning
+        );
+        assert_eq!(
+            attention_for(0.96, DEFAULT_WARNING_THRESHOLD, DEFAULT_DANGER_THRESHOLD),
+            GaugeValueAttention::Danger
+        );
     }
 
     #[test]
     fn ram_interval_speeds_up_and_recovers() {
-        let mut state = RamState::default();
+        let mut state = RamState {
+            quantity_style: QuantityStyle::Grid,
+            fast_threshold: DEFAULT_FAST_THRESHOLD,
+            calm_ticks: DEFAULT_CALM_TICKS,
+            fast_interval_duration: Duration::from_secs(DEFAULT_FAST_INTERVAL_SECS),
+            slow_interval_duration: Duration::from_secs(DEFAULT_SLOW_INTERVAL_SECS),
+            warning_threshold: DEFAULT_WARNING_THRESHOLD,
+            danger_threshold: DEFAULT_DANGER_THRESHOLD,
+            fast_interval: false,
+            below_threshold_streak: 0,
+        };
 
         // Jump to fast interval when utilization crosses threshold.
         state.update_interval_state(0.8);
-        assert_eq!(state.interval(), Duration::from_secs(1));
+        assert_eq!(
+            state.interval(),
+            Duration::from_secs(DEFAULT_FAST_INTERVAL_SECS)
+        );
 
         // Stay fast for several below-threshold ticks.
         for _ in 0..3 {
             state.update_interval_state(0.5);
-            assert_eq!(state.interval(), Duration::from_secs(1));
+            assert_eq!(
+                state.interval(),
+                Duration::from_secs(DEFAULT_FAST_INTERVAL_SECS)
+            );
         }
 
         // Recover to slow interval after the 4th below-threshold tick.
         state.update_interval_state(0.5);
-        assert_eq!(state.interval(), Duration::from_secs(4));
+        assert_eq!(
+            state.interval(),
+            Duration::from_secs(DEFAULT_SLOW_INTERVAL_SECS)
+        );
     }
 
     #[test]
     fn returns_none_on_missing_utilization() {
-        let (value, attention) = ram_value(None, QuantityStyle::Grid);
+        let (value, attention) = ram_value(
+            None,
+            QuantityStyle::Grid,
+            DEFAULT_WARNING_THRESHOLD,
+            DEFAULT_DANGER_THRESHOLD,
+        );
         assert!(value.is_none());
         assert_eq!(attention, GaugeValueAttention::Danger);
     }

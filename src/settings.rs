@@ -94,7 +94,7 @@ pub fn parse_settings_arg(arg: &str) -> Result<HashMap<String, String>, String> 
 
     for pair in trimmed.split(',').map(str::trim).filter(|s| !s.is_empty()) {
         let sep_index = pair
-            .find(|c| c == '=' || c == ':')
+            .find(['=', ':'])
             .ok_or_else(|| format!("missing '=' or ':' in setting '{pair}'"))?;
         let (key, value) = pair.split_at(sep_index);
         let value = &value[1..];

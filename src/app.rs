@@ -6,6 +6,7 @@ use crate::gauge::{
 };
 use crate::icon::svg_asset;
 use crate::menu_dialog::{dialog_dimensions, menu_view};
+use crate::settings;
 use crate::sway_workspace::WorkspaceInfo;
 use iced::alignment;
 use iced::border;
@@ -154,7 +155,7 @@ impl BarState {
         let mut tasks = vec![self.close_menus()];
 
         let (width, height) = dialog_dimensions(&menu);
-        let bar_width: i32 = 28; // keep in sync with LayerShellSettings size.x
+        let bar_width = settings::settings().get_parsed_or("grelier.bar.width", 28u32) as i32;
         let anchor_y = anchor_y
             .or_else(|| self.gauge_menu_anchor.get(gauge_id).copied())
             .or_else(|| self.last_cursor.map(|p| p.y as i32))
@@ -192,9 +193,13 @@ impl BarState {
         let p = self.last_cursor?;
         // Align to top of icon for the gauge regardless of click location.
         // Icon is 14px tall with no padding; value sits below with a 3px spacer.
+        let icon_offset =
+            settings::settings().get_parsed_or("grelier.app.gauge_anchor_offset_icon", 7.0);
+        let value_offset =
+            settings::settings().get_parsed_or("grelier.app.gauge_anchor_offset_value", 28.0);
         let offset = match target {
-            GaugeClickTarget::Icon => 7.0,   // half of 14px to reach top
-            GaugeClickTarget::Value => 28.0, // approx icon+spacer+half text line
+            GaugeClickTarget::Icon => icon_offset, // half of icon size to reach top
+            GaugeClickTarget::Value => value_offset, // approx icon+spacer+half text line
         };
         Some((p.y - offset).round() as i32)
     }
@@ -214,6 +219,41 @@ impl BarState {
     }
 
     pub fn view<'a>(&'a self, window: window::Id) -> Element<'a, Message> {
+        let workspace_padding_x =
+            settings::settings().get_parsed_or("grelier.app.workspace_padding_x", 4u16);
+        let workspace_padding_y =
+            settings::settings().get_parsed_or("grelier.app.workspace_padding_y", 2u16);
+        let workspace_spacing =
+            settings::settings().get_parsed_or("grelier.app.workspace_spacing", 2u32);
+        let workspace_button_padding_x =
+            settings::settings().get_parsed_or("grelier.app.workspace_button_padding_x", 4u16);
+        let workspace_button_padding_y =
+            settings::settings().get_parsed_or("grelier.app.workspace_button_padding_y", 4u16);
+        let workspace_corner_radius =
+            settings::settings().get_parsed_or("grelier.app.workspace_corner_radius", 5.0);
+        let gauge_padding_x =
+            settings::settings().get_parsed_or("grelier.app.gauge_padding_x", 2u16);
+        let gauge_padding_y =
+            settings::settings().get_parsed_or("grelier.app.gauge_padding_y", 2u16);
+        let gauge_spacing = settings::settings().get_parsed_or("grelier.app.gauge_spacing", 18u32);
+        let gauge_icon_size =
+            settings::settings().get_parsed_or("grelier.app.gauge_icon_size", 17.0);
+        let gauge_value_icon_size =
+            settings::settings().get_parsed_or("grelier.app.gauge_value_icon_size", 20.0);
+        let gauge_icon_value_spacing =
+            settings::settings().get_parsed_or("grelier.app.gauge_icon_value_spacing", 3.0);
+        let border_blend = settings::settings().get_bool_or("grelier.bar.border_blend", true);
+        let border_line_width =
+            settings::settings().get_parsed_or("grelier.bar.border_line_width", 1.0);
+        let border_column_width =
+            settings::settings().get_parsed_or("grelier.bar.border_column_width", 3.0);
+        let border_mix_1 = settings::settings().get_parsed_or("grelier.bar.border_mix_1", 0.2);
+        let border_mix_2 = settings::settings().get_parsed_or("grelier.bar.border_mix_2", 0.6);
+        let border_mix_3 = settings::settings().get_parsed_or("grelier.bar.border_mix_3", 1.0);
+        let border_alpha_1 = settings::settings().get_parsed_or("grelier.bar.border_alpha_1", 0.9);
+        let border_alpha_2 = settings::settings().get_parsed_or("grelier.bar.border_alpha_2", 0.7);
+        let border_alpha_3 = settings::settings().get_parsed_or("grelier.bar.border_alpha_3", 0.9);
+
         if let Some(menu_window) = self.menu_windows.get(&window) {
             let gauge_id = menu_window.gauge_id.clone();
             let window_id = window;
@@ -229,88 +269,89 @@ impl BarState {
             return container(Space::new()).into();
         }
 
-        let workspaces =
-            self.workspaces
-                .iter()
-                .fold(Column::new().padding([4, 2]).spacing(2), |col, ws| {
-                    let ws_name = ws.name.clone();
-                    let ws_num = ws.num;
-                    let (focus_level, urgent_level) = workspace_levels(ws);
+        let workspaces = self.workspaces.iter().fold(
+            Column::new()
+                .padding([workspace_padding_y, workspace_padding_x])
+                .spacing(workspace_spacing),
+            |col, ws| {
+                let ws_name = ws.name.clone();
+                let ws_num = ws.num;
+                let (focus_level, urgent_level) = workspace_levels(ws);
 
-                    let animated_workspace = AnimationBuilder::new(
-                        (focus_level, urgent_level),
-                        move |(focus, urgent)| {
-                            let name = ws_name.clone();
-                            let mut label = Text::new(ws_num.to_string())
-                                .width(Length::Fill)
-                                .align_x(text::Alignment::Center);
-                            if focus > 0.0 {
-                                label = label.font(Font {
-                                    weight: Weight::Bold,
-                                    ..Font::DEFAULT
-                                });
-                            }
+                let animated_workspace =
+                    AnimationBuilder::new((focus_level, urgent_level), move |(focus, urgent)| {
+                        let name = ws_name.clone();
+                        let mut label = Text::new(ws_num.to_string())
+                            .width(Length::Fill)
+                            .align_x(text::Alignment::Center);
+                        if focus > 0.0 {
+                            label = label.font(Font {
+                                weight: Weight::Bold,
+                                ..Font::DEFAULT
+                            });
+                        }
 
-                            let content = container(label)
-                                .padding([4, 4])
-                                .width(Length::Fill)
-                                .style(move |theme: &Theme| {
-                                    let palette = theme.extended_palette();
-                                    let is_inactive = focus <= 0.0 && urgent <= 0.0;
+                        let content = container(label)
+                            .padding([workspace_button_padding_y, workspace_button_padding_x])
+                            .width(Length::Fill)
+                            .style(move |theme: &Theme| {
+                                let palette = theme.extended_palette();
+                                let is_inactive = focus <= 0.0 && urgent <= 0.0;
 
-                                    let background_color = if is_inactive {
-                                        palette.background.stronger.color
-                                    } else {
-                                        workspace_color(
-                                            focus,
-                                            urgent,
-                                            palette.background.base.color,
-                                            palette.primary.base.color,
-                                            palette.danger.base.color,
-                                        )
-                                    };
-                                    let text_color = {
-                                        let emphasis = focus.max(urgent);
-                                        lerp_color(
-                                            theme.palette().text,
-                                            palette.background.base.color,
-                                            emphasis,
-                                        )
-                                    };
-                                    let border = Border::default().rounded(border::Radius::new(5.0));
+                                let background_color = if is_inactive {
+                                    palette.background.stronger.color
+                                } else {
+                                    workspace_color(
+                                        focus,
+                                        urgent,
+                                        palette.background.base.color,
+                                        palette.primary.base.color,
+                                        palette.danger.base.color,
+                                    )
+                                };
+                                let text_color = {
+                                    let emphasis = focus.max(urgent);
+                                    lerp_color(
+                                        theme.palette().text,
+                                        palette.background.base.color,
+                                        emphasis,
+                                    )
+                                };
+                                let border = Border::default()
+                                    .rounded(border::Radius::new(workspace_corner_radius));
 
-                                    container::Style {
-                                        background: Some(background_color.into()),
-                                        border,
-                                        text_color: Some(text_color),
-                                        ..container::Style::default()
-                                    }
-                                });
+                                container::Style {
+                                    background: Some(background_color.into()),
+                                    border,
+                                    text_color: Some(text_color),
+                                    ..container::Style::default()
+                                }
+                            });
 
-                            button(content)
-                                .style(|theme: &Theme, _status| button::Style {
-                                    background: None,
-                                    text_color: theme.palette().text,
-                                    ..button::Style::default()
-                                })
-                                .padding(0)
-                                .width(Length::Fill)
-                                .on_press(Message::WorkspaceClicked(name))
-                                .into()
-                        },
-                    )
+                        button(content)
+                            .style(|theme: &Theme, _status| button::Style {
+                                background: None,
+                                text_color: theme.palette().text,
+                                ..button::Style::default()
+                            })
+                            .padding(0)
+                            .width(Length::Fill)
+                            .on_press(Message::WorkspaceClicked(name))
+                            .into()
+                    })
                     .animation(Easing::EASE_IN_OUT.very_quick());
 
-                    col.push(animated_workspace)
-                });
+                col.push(animated_workspace)
+            },
+        );
 
         let ordered_gauges = self.ordered_gauges();
         let error_icon = svg_asset("error.svg");
 
         let gauges = ordered_gauges.into_iter().fold(
             Column::new()
-                .padding([2, 2])
-                .spacing(18)
+                .padding([gauge_padding_y, gauge_padding_x])
+                .spacing(gauge_spacing)
                 .width(Length::Fill)
                 .align_x(alignment::Horizontal::Center),
             |col, gauge| {
@@ -326,8 +367,8 @@ impl BarState {
 
                 if let Some(icon) = &gauge.icon {
                     let icon_view = Svg::new(icon.clone())
-                        .width(Length::Fixed(17.0))
-                        .height(Length::Fixed(17.0))
+                        .width(Length::Fixed(gauge_icon_size))
+                        .height(Length::Fixed(gauge_icon_size))
                         .style({
                             let attention = gauge_attention;
                             move |theme: &Theme, _status| svg::Style {
@@ -348,7 +389,7 @@ impl BarState {
                         .into();
                     gauge_column = gauge_column
                         .push(centered_icon)
-                        .push(Space::new().height(Length::Fixed(3.0)));
+                        .push(Space::new().height(Length::Fixed(gauge_icon_value_spacing)));
                 }
 
                 let value: Element<'_, Message> = match &gauge.value {
@@ -371,8 +412,8 @@ impl BarState {
                             .into()
                     }
                     Some(GaugeValue::Svg(handle)) => Svg::new(handle.clone())
-                        .width(Length::Fixed(20.0))
-                        .height(Length::Fixed(20.0))
+                        .width(Length::Fixed(gauge_value_icon_size))
+                        .height(Length::Fixed(gauge_value_icon_size))
                         .style({
                             let attention = gauge_attention;
                             move |theme: &Theme, _status| svg::Style {
@@ -389,8 +430,8 @@ impl BarState {
                         })
                         .into(),
                     None => Svg::new(error_icon.clone())
-                        .width(Length::Fixed(20.0))
-                        .height(Length::Fixed(20.0))
+                        .width(Length::Fixed(gauge_value_icon_size))
+                        .height(Length::Fixed(gauge_value_icon_size))
                         .style({
                             let attention = GaugeValueAttention::Danger;
                             move |theme: &Theme, _status| svg::Style {
@@ -464,12 +505,12 @@ impl BarState {
 
         let border = container({
             let line = |mix: f32, alpha: f32| {
-                rule::vertical(1).style(move |theme: &Theme| {
+                rule::vertical(border_line_width).style(move |theme: &Theme| {
                     let background = theme.palette().background;
-                    let blended = if mix == 0.0 {
-                        background
-                    } else {
+                    let blended = if border_blend && mix != 0.0 {
                         lerp_color(background, Color::BLACK, mix)
+                    } else {
+                        background
                     };
                     rule::Style {
                         color: Color {
@@ -482,16 +523,16 @@ impl BarState {
                     }
                 })
             };
-            let line1 = line(0.2, 0.9);
-            let line2 = line(0.6, 0.7);
-            let line3 = line(1.0, 0.9);
+            let line1 = line(border_mix_1, border_alpha_1);
+            let line2 = line(border_mix_2, border_alpha_2);
+            let line3 = line(border_mix_3, border_alpha_3);
 
             Row::new()
                 .spacing(0)
                 .push(line1)
                 .push(line2)
                 .push(line3)
-                .width(Length::Fixed(3.0))
+                .width(Length::Fixed(border_column_width))
                 .height(Length::Fill)
         })
         .width(Length::Fill)

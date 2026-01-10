@@ -10,8 +10,9 @@ pub fn svg_asset(name: &str) -> svg::Handle {
     svg::Handle::from_path(path)
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Default)]
 pub enum QuantityStyle {
+    #[default]
     Grid,
     Pie,
 }
@@ -28,9 +29,7 @@ impl QuantityStyle {
         match value {
             "grid" => QuantityStyle::Grid,
             "pie" => QuantityStyle::Pie,
-            other => panic!(
-                "Invalid setting '{key}': expected grid or pie, got '{other}'"
-            ),
+            other => panic!("Invalid setting '{key}': expected grid or pie, got '{other}'"),
         }
     }
 
@@ -39,12 +38,6 @@ impl QuantityStyle {
             QuantityStyle::Grid => "grid",
             QuantityStyle::Pie => "pie",
         }
-    }
-}
-
-impl Default for QuantityStyle {
-    fn default() -> Self {
-        QuantityStyle::Grid
     }
 }
 

@@ -1,9 +1,10 @@
 use crate::app::Message;
 use crate::gauge::{
-    GaugeClick, GaugeClickAction, GaugeInput, GaugeValue, GaugeValueAttention, NO_SETTINGS,
-    SettingSpec, event_stream,
+    GaugeClick, GaugeClickAction, GaugeInput, GaugeValue, GaugeValueAttention, SettingSpec,
+    event_stream,
 };
 use crate::icon::svg_asset;
+use crate::settings;
 use iced::Subscription;
 use iced::futures::StreamExt;
 use std::fs;
@@ -13,7 +14,8 @@ use std::sync::Arc;
 use std::sync::mpsc::{self, RecvTimeoutError};
 use std::time::Duration;
 
-const STEP_PERCENT: i8 = 5;
+const DEFAULT_STEP_PERCENT: i8 = 5;
+const DEFAULT_REFRESH_INTERVAL_SECS: u64 = 2;
 const DISPLAY_MAX: u8 = 99;
 const ABS_MAX_PERCENT: u8 = 100;
 const SYS_BACKLIGHT: &str = "/sys/class/backlight";
@@ -118,15 +120,24 @@ enum BrightnessCommand {
 
 fn brightness_stream() -> impl iced::futures::Stream<Item = crate::gauge::GaugeModel> {
     let (command_tx, command_rx) = mpsc::channel::<BrightnessCommand>();
+    let mut step_percent =
+        settings::settings().get_parsed_or("grelier.brightness.step_percent", DEFAULT_STEP_PERCENT);
+    if step_percent == 0 {
+        step_percent = DEFAULT_STEP_PERCENT;
+    }
+    let refresh_interval_secs = settings::settings().get_parsed_or(
+        "grelier.brightness.refresh_interval_secs",
+        DEFAULT_REFRESH_INTERVAL_SECS,
+    );
 
     let on_click: GaugeClickAction = {
         let command_tx = command_tx.clone();
         Arc::new(move |click: GaugeClick| match click.input {
             GaugeInput::ScrollUp => {
-                let _ = command_tx.send(BrightnessCommand::Adjust(STEP_PERCENT));
+                let _ = command_tx.send(BrightnessCommand::Adjust(step_percent));
             }
             GaugeInput::ScrollDown => {
-                let _ = command_tx.send(BrightnessCommand::Adjust(-STEP_PERCENT));
+                let _ = command_tx.send(BrightnessCommand::Adjust(-step_percent));
             }
             _ => {}
         })
@@ -176,28 +187,29 @@ fn brightness_stream() -> impl iced::futures::Stream<Item = crate::gauge::GaugeM
             send_state(percent, attention);
 
             loop {
-                let needs_refresh = match command_rx.recv_timeout(Duration::from_secs(2)) {
-                    Ok(BrightnessCommand::Adjust(delta)) => {
-                        if backlight.is_none() {
-                            backlight = Backlight::discover();
-                        }
+                let needs_refresh =
+                    match command_rx.recv_timeout(Duration::from_secs(refresh_interval_secs)) {
+                        Ok(BrightnessCommand::Adjust(delta)) => {
+                            if backlight.is_none() {
+                                backlight = Backlight::discover();
+                            }
 
-                        if let Some(ref ctl) = backlight
-                            && let Err(err) = ctl.adjust_percent(delta)
-                        {
-                            eprintln!("brightness gauge: failed to adjust brightness: {err}");
-                            backlight = None;
+                            if let Some(ref ctl) = backlight
+                                && let Err(err) = ctl.adjust_percent(delta)
+                            {
+                                eprintln!("brightness gauge: failed to adjust brightness: {err}");
+                                backlight = None;
+                            }
+                            true
                         }
-                        true
-                    }
-                    Err(RecvTimeoutError::Timeout) => {
-                        if backlight.is_none() {
-                            backlight = Backlight::discover();
+                        Err(RecvTimeoutError::Timeout) => {
+                            if backlight.is_none() {
+                                backlight = Backlight::discover();
+                            }
+                            true
                         }
-                        true
-                    }
-                    Err(RecvTimeoutError::Disconnected) => break,
-                };
+                        Err(RecvTimeoutError::Disconnected) => break,
+                    };
 
                 if needs_refresh {
                     let percent = if let Some(ref ctl) = backlight {
@@ -231,7 +243,17 @@ pub fn brightness_subscription() -> Subscription<Message> {
 }
 
 pub fn settings() -> &'static [SettingSpec] {
-    NO_SETTINGS
+    const SETTINGS: &[SettingSpec] = &[
+        SettingSpec {
+            key: "grelier.brightness.step_percent",
+            default: "5",
+        },
+        SettingSpec {
+            key: "grelier.brightness.refresh_interval_secs",
+            default: "2",
+        },
+    ];
+    SETTINGS
 }
 
 #[cfg(test)]

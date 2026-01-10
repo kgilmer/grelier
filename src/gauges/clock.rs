@@ -40,9 +40,9 @@ fn hour_format_from_setting() -> HourFormat {
     match value.as_str() {
         "24" => HourFormat::TwentyFour,
         "12" => HourFormat::Twelve,
-        other => panic!(
-            "Invalid setting 'grelier.clock.hourformat': expected 12 or 24, got '{other}'"
-        ),
+        other => {
+            panic!("Invalid setting 'grelier.clock.hourformat': expected 12 or 24, got '{other}'")
+        }
     }
 }
 

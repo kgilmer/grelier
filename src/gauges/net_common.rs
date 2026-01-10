@@ -1,7 +1,9 @@
 use std::fs;
-use std::path::Path;
+use std::path::PathBuf;
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant};
+
+use crate::settings;
 
 /// Direction to compute a transfer rate for.
 #[derive(Clone, Copy)]
@@ -33,18 +35,25 @@ pub struct NetRates {
 pub struct NetIntervalState {
     fast: bool,
     idle_streak: u8,
+    config: NetIntervalConfig,
 }
 
 impl NetIntervalState {
-    const IDLE_THRESHOLD_BPS: f64 = 10_240.0; // 10 KB/s
+    pub fn new(config: NetIntervalConfig) -> Self {
+        Self {
+            fast: false,
+            idle_streak: 0,
+            config,
+        }
+    }
 
     pub fn update(&mut self, rate: f64) {
-        if rate > Self::IDLE_THRESHOLD_BPS {
+        if rate > self.config.idle_threshold_bps {
             self.fast = true;
             self.idle_streak = 0;
         } else if self.fast {
             self.idle_streak = self.idle_streak.saturating_add(1);
-            if self.idle_streak > 3 {
+            if self.idle_streak >= self.config.calm_ticks {
                 self.fast = false;
                 self.idle_streak = 0;
             }
@@ -53,10 +62,90 @@ impl NetIntervalState {
 
     pub fn interval(&self) -> Duration {
         if self.fast {
-            Duration::from_secs(1)
+            self.config.fast_interval
         } else {
-            Duration::from_secs(3)
+            self.config.slow_interval
         }
+    }
+}
+
+#[derive(Clone, Copy, Debug)]
+pub struct NetIntervalConfig {
+    pub idle_threshold_bps: f64,
+    pub fast_interval: Duration,
+    pub slow_interval: Duration,
+    pub calm_ticks: u8,
+}
+
+impl Default for NetIntervalConfig {
+    fn default() -> Self {
+        Self {
+            idle_threshold_bps: 10_240.0,
+            fast_interval: Duration::from_secs(1),
+            slow_interval: Duration::from_secs(3),
+            calm_ticks: 4,
+        }
+    }
+}
+
+pub fn net_interval_config_from_settings() -> NetIntervalConfig {
+    let idle_threshold_bps =
+        settings::settings().get_parsed_or("grelier.net.idle_threshold_bps", 10_240.0);
+    let fast_interval_secs =
+        settings::settings().get_parsed_or("grelier.net.fast_interval_secs", 1u64);
+    let slow_interval_secs =
+        settings::settings().get_parsed_or("grelier.net.slow_interval_secs", 3u64);
+    let calm_ticks = settings::settings().get_parsed_or("grelier.net.calm_ticks", 4u8);
+
+    NetIntervalConfig {
+        idle_threshold_bps,
+        fast_interval: Duration::from_secs(fast_interval_secs),
+        slow_interval: Duration::from_secs(slow_interval_secs),
+        calm_ticks,
+    }
+}
+
+const DEFAULT_IFACE_CACHE_TTL_SECS: u64 = 10;
+const DEFAULT_IFACE_TTL_SECS: u64 = 5;
+const DEFAULT_SAMPLER_MIN_INTERVAL_MS: u64 = 900;
+const DEFAULT_SYS_CLASS_NET_PATH: &str = "/sys/class/net";
+const DEFAULT_PROC_NET_ROUTE_PATH: &str = "/proc/net/route";
+const DEFAULT_PROC_NET_DEV_PATH: &str = "/proc/net/dev";
+
+#[derive(Clone, Copy, Debug)]
+pub struct NetSamplerConfig {
+    pub min_interval: Duration,
+    pub iface_ttl: Duration,
+}
+
+impl NetSamplerConfig {
+    pub fn default_settings() -> Self {
+        Self {
+            min_interval: Duration::from_millis(DEFAULT_SAMPLER_MIN_INTERVAL_MS),
+            iface_ttl: Duration::from_secs(DEFAULT_IFACE_TTL_SECS),
+        }
+    }
+
+    #[cfg(test)]
+    fn with_timings(min_interval: Duration, iface_ttl: Duration) -> Self {
+        Self {
+            min_interval,
+            iface_ttl,
+        }
+    }
+}
+
+pub fn sampler_config_from_settings() -> NetSamplerConfig {
+    let min_interval_ms = settings::settings().get_parsed_or(
+        "grelier.net.sampler_min_interval_ms",
+        DEFAULT_SAMPLER_MIN_INTERVAL_MS,
+    );
+    let iface_ttl_secs =
+        settings::settings().get_parsed_or("grelier.net.iface_ttl_secs", DEFAULT_IFACE_TTL_SECS);
+
+    NetSamplerConfig {
+        min_interval: Duration::from_millis(min_interval_ms),
+        iface_ttl: Duration::from_secs(iface_ttl_secs),
     }
 }
 
@@ -79,8 +168,9 @@ impl NetDataProvider for SystemNetProvider {
 
     fn active_interface(&mut self) -> Option<String> {
         let now = Instant::now();
+        let cache_ttl = iface_cache_ttl();
         if let (Some(iface), Some(last_check)) = (self.cached_iface.clone(), self.last_iface_check)
-            && now.duration_since(last_check) < Duration::from_secs(10)
+            && now.duration_since(last_check) < cache_ttl
             && interface_is_up(&iface)
         {
             return Some(iface);
@@ -111,39 +201,40 @@ pub struct NetSampler<P: NetDataProvider = SystemNetProvider> {
 
 impl NetSampler<SystemNetProvider> {
     pub fn new() -> Self {
-        Self::with_provider(SystemNetProvider {
-            cached_iface: None,
-            last_iface_check: None,
-        })
+        Self::with_provider_and_config(
+            SystemNetProvider {
+                cached_iface: None,
+                last_iface_check: None,
+            },
+            sampler_config_from_settings(),
+        )
     }
 }
 
 impl<P: NetDataProvider> NetSampler<P> {
-    pub fn with_provider(provider: P) -> Self {
+    pub fn with_provider_and_config(provider: P, config: NetSamplerConfig) -> Self {
         Self {
             provider,
             last_sample: None,
             last_rates: None,
             last_at: None,
-            min_interval: Duration::from_millis(900),
+            min_interval: config.min_interval,
             last_iface: None,
             last_iface_check: None,
-            iface_ttl: Duration::from_secs(5),
+            iface_ttl: config.iface_ttl,
         }
+    }
+
+    pub fn with_provider(provider: P) -> Self {
+        Self::with_provider_and_config(provider, NetSamplerConfig::default_settings())
     }
 
     #[cfg(test)]
     fn with_timings(provider: P, min_interval: Duration, iface_ttl: Duration) -> Self {
-        Self {
+        Self::with_provider_and_config(
             provider,
-            last_sample: None,
-            last_rates: None,
-            last_at: None,
-            min_interval,
-            last_iface: None,
-            last_iface_check: None,
-            iface_ttl,
-        }
+            NetSamplerConfig::with_timings(min_interval, iface_ttl),
+        )
     }
 
     /// Returns upload/download bytes per second, refreshing counters only if the cached sample
@@ -247,7 +338,7 @@ pub fn format_rate(bytes_per_sec: f64) -> String {
 
 /// Attempt to find the interface that carries the default route.
 fn default_route_interface() -> Option<String> {
-    let contents = fs::read_to_string("/proc/net/route").ok()?;
+    let contents = fs::read_to_string(proc_net_route_path()).ok()?;
     for line in contents.lines().skip(1) {
         let fields: Vec<&str> = line.split_whitespace().collect();
         if fields.len() < 8 {
@@ -267,7 +358,7 @@ fn default_route_interface() -> Option<String> {
 
 /// Fallback: pick the first non-loopback interface that is up (and, if present, has carrier).
 fn first_up_interface() -> Option<String> {
-    let base = Path::new("/sys/class/net");
+    let base = sys_class_net_path();
     for entry in fs::read_dir(base).ok()?.flatten() {
         let name = entry.file_name().to_string_lossy().to_string();
         if name == "lo" {
@@ -303,7 +394,7 @@ fn active_interface_scan() -> Option<String> {
 }
 
 pub fn read_counters(iface: &str) -> Option<NetCounters> {
-    let contents = fs::read_to_string("/proc/net/dev").ok()?;
+    let contents = fs::read_to_string(proc_net_dev_path()).ok()?;
     for line in contents.lines().skip(2) {
         let trimmed = line.trim();
         let Some(pos) = trimmed.find(':') else {
@@ -332,7 +423,7 @@ pub fn read_counters(iface: &str) -> Option<NetCounters> {
 }
 
 fn interface_is_up(iface: &str) -> bool {
-    let base = Path::new("/sys/class/net").join(iface);
+    let base = sys_class_net_path().join(iface);
     let operstate = fs::read_to_string(base.join("operstate"))
         .unwrap_or_default()
         .trim()
@@ -348,6 +439,33 @@ fn interface_is_up(iface: &str) -> bool {
     }
 
     true
+}
+
+fn iface_cache_ttl() -> Duration {
+    let ttl_secs = settings::settings().get_parsed_or(
+        "grelier.net.iface_cache_ttl_secs",
+        DEFAULT_IFACE_CACHE_TTL_SECS,
+    );
+    Duration::from_secs(ttl_secs)
+}
+
+fn sys_class_net_path() -> PathBuf {
+    PathBuf::from(
+        settings::settings().get_or("grelier.net.sys_class_net_path", DEFAULT_SYS_CLASS_NET_PATH),
+    )
+}
+
+fn proc_net_route_path() -> PathBuf {
+    PathBuf::from(settings::settings().get_or(
+        "grelier.net.proc_net_route_path",
+        DEFAULT_PROC_NET_ROUTE_PATH,
+    ))
+}
+
+fn proc_net_dev_path() -> PathBuf {
+    PathBuf::from(
+        settings::settings().get_or("grelier.net.proc_net_dev_path", DEFAULT_PROC_NET_DEV_PATH),
+    )
 }
 
 #[cfg(test)]
@@ -534,7 +652,7 @@ mod tests {
 
     #[test]
     fn net_interval_slows_after_idle_and_resumes_on_activity() {
-        let mut state = NetIntervalState::default();
+        let mut state = NetIntervalState::new(NetIntervalConfig::default());
 
         // Activity above threshold -> fast interval.
         state.update(20_000.0);

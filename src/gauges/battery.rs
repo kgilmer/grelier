@@ -1,16 +1,22 @@
 use crate::app::Message;
-use crate::gauge::{
-    GaugeModel, GaugeValue, GaugeValueAttention, NO_SETTINGS, SettingSpec, event_stream,
-};
+use crate::gauge::{GaugeModel, GaugeValue, GaugeValueAttention, SettingSpec, event_stream};
 use crate::icon::svg_asset;
+use crate::settings;
 use iced::Subscription;
 use iced::futures::StreamExt;
+
+const DEFAULT_WARNING_PERCENT: u8 = 49;
+const DEFAULT_DANGER_PERCENT: u8 = 19;
 
 /// Stream battery information via udev power_supply events.
 fn battery_stream() -> impl iced::futures::Stream<Item = GaugeModel> {
     event_stream("battery", None, |mut sender| {
+        let warning_percent = settings::settings()
+            .get_parsed_or("grelier.battery.warning_percent", DEFAULT_WARNING_PERCENT);
+        let danger_percent = settings::settings()
+            .get_parsed_or("grelier.battery.danger_percent", DEFAULT_DANGER_PERCENT);
         // Send current state so the UI shows something before the first event.
-        send_snapshot(&mut sender);
+        send_snapshot(&mut sender, warning_percent, danger_percent);
 
         // Try to open a udev monitor; if it fails, just exit the worker.
         let monitor = match udev::MonitorBuilder::new()
@@ -30,7 +36,9 @@ fn battery_stream() -> impl iced::futures::Stream<Item = GaugeModel> {
                 continue;
             }
 
-            if let Some((value, attention)) = battery_value(&device) {
+            if let Some((value, attention)) =
+                battery_value(&device, warning_percent, danger_percent)
+            {
                 let icon = if value.is_some() {
                     None
                 } else {
@@ -49,7 +57,11 @@ fn battery_stream() -> impl iced::futures::Stream<Item = GaugeModel> {
     })
 }
 
-fn send_snapshot(sender: &mut iced::futures::channel::mpsc::Sender<GaugeModel>) {
+fn send_snapshot(
+    sender: &mut iced::futures::channel::mpsc::Sender<GaugeModel>,
+    warning_percent: u8,
+    danger_percent: u8,
+) {
     let mut enumerator = match udev::Enumerator::new() {
         Ok(e) => e,
         Err(err) => {
@@ -78,7 +90,7 @@ fn send_snapshot(sender: &mut iced::futures::channel::mpsc::Sender<GaugeModel>) 
             continue;
         }
         found_battery = true;
-        if let Some((value, attention)) = battery_value(&dev) {
+        if let Some((value, attention)) = battery_value(&dev, warning_percent, danger_percent) {
             let icon = if value.is_some() {
                 None
             } else {
@@ -114,7 +126,11 @@ fn is_battery(dev: &udev::Device) -> bool {
         .unwrap_or(false)
 }
 
-fn battery_value(dev: &udev::Device) -> Option<(Option<GaugeValue>, GaugeValueAttention)> {
+fn battery_value(
+    dev: &udev::Device,
+    warning_percent: u8,
+    danger_percent: u8,
+) -> Option<(Option<GaugeValue>, GaugeValueAttention)> {
     let capacity =
         property_str(dev, "POWER_SUPPLY_CAPACITY").or_else(|| property_str(dev, "CAPACITY"));
     let status = property_str(dev, "POWER_SUPPLY_STATUS");
@@ -125,7 +141,7 @@ fn battery_value(dev: &udev::Device) -> Option<(Option<GaugeValue>, GaugeValueAt
 
     if let Some(cap) = capacity {
         if let Ok(percent) = cap.parse::<u8>() {
-            let attention = attention_for_capacity(percent);
+            let attention = attention_for_capacity(percent, warning_percent, danger_percent);
             return Some((
                 Some(GaugeValue::Svg(svg_asset(battery_icon(
                     percent,
@@ -178,7 +194,7 @@ fn battery_icon(percent: u8, is_charging: bool) -> &'static str {
 }
 
 fn battery_icon_step(percent: u8, allow_full: bool) -> u8 {
-    let mut step = ((u16::from(percent) + 9) / 10) * 10;
+    let mut step = u16::from(percent).div_ceil(10) * 10;
     if step < 10 {
         step = 10;
     }
@@ -189,11 +205,17 @@ fn battery_icon_step(percent: u8, allow_full: bool) -> u8 {
     step as u8
 }
 
-fn attention_for_capacity(percent: u8) -> GaugeValueAttention {
-    match percent {
-        0..=19 => GaugeValueAttention::Danger,
-        20..=49 => GaugeValueAttention::Warning,
-        _ => GaugeValueAttention::Nominal,
+fn attention_for_capacity(
+    percent: u8,
+    warning_percent: u8,
+    danger_percent: u8,
+) -> GaugeValueAttention {
+    if percent <= danger_percent {
+        GaugeValueAttention::Danger
+    } else if percent <= warning_percent {
+        GaugeValueAttention::Warning
+    } else {
+        GaugeValueAttention::Nominal
     }
 }
 
@@ -213,5 +235,15 @@ pub fn battery_subscription() -> Subscription<Message> {
 }
 
 pub fn settings() -> &'static [SettingSpec] {
-    NO_SETTINGS
+    const SETTINGS: &[SettingSpec] = &[
+        SettingSpec {
+            key: "grelier.battery.warning_percent",
+            default: "49",
+        },
+        SettingSpec {
+            key: "grelier.battery.danger_percent",
+            default: "19",
+        },
+    ];
+    SETTINGS
 }

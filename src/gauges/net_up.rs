@@ -1,6 +1,8 @@
 use crate::app::Message;
-use crate::gauge::{GaugeValue, GaugeValueAttention, NO_SETTINGS, SettingSpec, fixed_interval};
-use crate::gauges::net_common::{NetIntervalState, format_rate, shared_net_sampler};
+use crate::gauge::{GaugeValue, GaugeValueAttention, SettingSpec, fixed_interval};
+use crate::gauges::net_common::{
+    NetIntervalState, format_rate, net_interval_config_from_settings, shared_net_sampler,
+};
 use crate::icon::svg_asset;
 use iced::Subscription;
 use iced::futures::StreamExt;
@@ -20,7 +22,9 @@ fn map_rate(rate: Option<f64>) -> (Option<GaugeValue>, GaugeValueAttention, f64)
 
 fn net_up_stream() -> impl iced::futures::Stream<Item = crate::gauge::GaugeModel> {
     let sampler = shared_net_sampler();
-    let interval_state = Arc::new(Mutex::new(NetIntervalState::default()));
+    let interval_state = Arc::new(Mutex::new(NetIntervalState::new(
+        net_interval_config_from_settings(),
+    )));
 
     fixed_interval(
         "net_up",
@@ -61,7 +65,49 @@ pub fn net_up_subscription() -> Subscription<Message> {
 }
 
 pub fn settings() -> &'static [SettingSpec] {
-    NO_SETTINGS
+    const SETTINGS: &[SettingSpec] = &[
+        SettingSpec {
+            key: "grelier.net.idle_threshold_bps",
+            default: "10240",
+        },
+        SettingSpec {
+            key: "grelier.net.fast_interval_secs",
+            default: "1",
+        },
+        SettingSpec {
+            key: "grelier.net.slow_interval_secs",
+            default: "3",
+        },
+        SettingSpec {
+            key: "grelier.net.calm_ticks",
+            default: "4",
+        },
+        SettingSpec {
+            key: "grelier.net.iface_cache_ttl_secs",
+            default: "10",
+        },
+        SettingSpec {
+            key: "grelier.net.iface_ttl_secs",
+            default: "5",
+        },
+        SettingSpec {
+            key: "grelier.net.sampler_min_interval_ms",
+            default: "900",
+        },
+        SettingSpec {
+            key: "grelier.net.sys_class_net_path",
+            default: "/sys/class/net",
+        },
+        SettingSpec {
+            key: "grelier.net.proc_net_route_path",
+            default: "/proc/net/route",
+        },
+        SettingSpec {
+            key: "grelier.net.proc_net_dev_path",
+            default: "/proc/net/dev",
+        },
+    ];
+    SETTINGS
 }
 
 #[cfg(test)]

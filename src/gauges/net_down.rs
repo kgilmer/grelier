@@ -1,6 +1,8 @@
 use crate::app::Message;
 use crate::gauge::{GaugeValue, GaugeValueAttention, NO_SETTINGS, SettingSpec, fixed_interval};
-use crate::gauges::net_common::{NetIntervalState, format_rate, shared_net_sampler};
+use crate::gauges::net_common::{
+    NetIntervalState, format_rate, net_interval_config_from_settings, shared_net_sampler,
+};
 use crate::icon::svg_asset;
 use iced::Subscription;
 use iced::futures::StreamExt;
@@ -20,7 +22,9 @@ fn map_rate(rate: Option<f64>) -> (Option<GaugeValue>, GaugeValueAttention, f64)
 
 fn net_down_stream() -> impl iced::futures::Stream<Item = crate::gauge::GaugeModel> {
     let sampler = shared_net_sampler();
-    let interval_state = Arc::new(Mutex::new(NetIntervalState::default()));
+    let interval_state = Arc::new(Mutex::new(NetIntervalState::new(
+        net_interval_config_from_settings(),
+    )));
 
     fixed_interval(
         "net_down",
