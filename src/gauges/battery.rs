@@ -136,8 +136,21 @@ fn battery_value(
     let capacity =
         property_str(dev, "POWER_SUPPLY_CAPACITY").or_else(|| property_str(dev, "CAPACITY"));
     let status = property_str(dev, "POWER_SUPPLY_STATUS");
+    battery_value_from_strings(
+        capacity.as_deref(),
+        status.as_deref(),
+        warning_percent,
+        danger_percent,
+    )
+}
+
+fn battery_value_from_strings(
+    capacity: Option<&str>,
+    status: Option<&str>,
+    warning_percent: u8,
+    danger_percent: u8,
+) -> Option<(Option<GaugeValue>, GaugeValueAttention)> {
     let is_charging = status
-        .as_deref()
         .map(|value| value.eq_ignore_ascii_case("Charging"))
         .unwrap_or(false);
 
@@ -248,4 +261,64 @@ pub fn settings() -> &'static [SettingSpec] {
         },
     ];
     SETTINGS
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn battery_icon_step_clamps_by_mode() {
+        assert_eq!(battery_icon_step(1, false), 10);
+        assert_eq!(battery_icon_step(95, false), 90);
+        assert_eq!(battery_icon_step(95, true), 100);
+    }
+
+    #[test]
+    fn attention_tracks_thresholds() {
+        assert_eq!(
+            attention_for_capacity(10, DEFAULT_WARNING_PERCENT, DEFAULT_DANGER_PERCENT),
+            GaugeValueAttention::Danger
+        );
+        assert_eq!(
+            attention_for_capacity(30, DEFAULT_WARNING_PERCENT, DEFAULT_DANGER_PERCENT),
+            GaugeValueAttention::Warning
+        );
+        assert_eq!(
+            attention_for_capacity(60, DEFAULT_WARNING_PERCENT, DEFAULT_DANGER_PERCENT),
+            GaugeValueAttention::Nominal
+        );
+    }
+
+    #[test]
+    fn battery_value_formats_fallback_text() {
+        let (value, attention) = battery_value_from_strings(
+            Some("abc"),
+            Some("Discharging"),
+            DEFAULT_WARNING_PERCENT,
+            DEFAULT_DANGER_PERCENT,
+        )
+        .expect("value present");
+        assert_eq!(attention, GaugeValueAttention::Nominal);
+        match value {
+            Some(GaugeValue::Text(text)) => assert_eq!(text, "abc% (Discharging)"),
+            _ => panic!("expected text fallback"),
+        }
+    }
+
+    #[test]
+    fn battery_value_uses_icon_when_numeric() {
+        let (value, attention) = battery_value_from_strings(
+            Some("50"),
+            Some("Charging"),
+            DEFAULT_WARNING_PERCENT,
+            DEFAULT_DANGER_PERCENT,
+        )
+        .expect("value present");
+        assert_eq!(attention, GaugeValueAttention::Nominal);
+        match value {
+            Some(GaugeValue::Svg(_)) => {}
+            _ => panic!("expected svg value"),
+        }
+    }
 }

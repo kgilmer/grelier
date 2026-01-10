@@ -360,6 +360,7 @@ mod tests {
     use crate::app::GaugeMenuWindow;
     use crate::gauge::{GaugeClickTarget, GaugeMenu, GaugeValue, GaugeValueAttention};
     use std::sync::Arc;
+    use std::sync::Mutex;
     use std::sync::atomic::{AtomicBool, Ordering};
 
     use super::*;
@@ -501,6 +502,109 @@ mod tests {
         assert!(
             task.units() > 0,
             "close menus task should be returned even on right click"
+        );
+    }
+
+    #[test]
+    fn menu_item_selected_invokes_callback_and_closes_other_menus() {
+        let mut state = BarState::default();
+        let window = window::Id::unique();
+        let other_window = window::Id::unique();
+        state.menu_windows.insert(
+            window,
+            GaugeMenuWindow {
+                gauge_id: "audio_out".to_string(),
+                menu: GaugeMenu {
+                    title: "Test".into(),
+                    items: Vec::new(),
+                    on_select: None,
+                },
+            },
+        );
+        state.menu_windows.insert(
+            other_window,
+            GaugeMenuWindow {
+                gauge_id: "audio_out".to_string(),
+                menu: GaugeMenu {
+                    title: "Other".into(),
+                    items: Vec::new(),
+                    on_select: None,
+                },
+            },
+        );
+
+        let selected = Arc::new(Mutex::new(None::<String>));
+        let on_select = {
+            let selected = Arc::clone(&selected);
+            Arc::new(move |item: String| {
+                *selected.lock().unwrap() = Some(item);
+            })
+        };
+        state.gauges.push(GaugeModel {
+            id: "audio_out",
+            icon: None,
+            value: None,
+            attention: GaugeValueAttention::Nominal,
+            on_click: None,
+            menu: Some(GaugeMenu {
+                title: "Test".into(),
+                items: Vec::new(),
+                on_select: Some(on_select),
+            }),
+        });
+
+        let task = update(
+            &mut state,
+            Message::MenuItemSelected {
+                window,
+                gauge_id: "audio_out".to_string(),
+                item_id: "sink-1".to_string(),
+            },
+        );
+
+        assert_eq!(
+            selected.lock().unwrap().as_deref(),
+            Some("sink-1"),
+            "menu selection should be forwarded"
+        );
+        assert!(state.menu_windows.is_empty(), "menus should be cleared");
+        assert!(
+            state.closing_menus.contains(&other_window),
+            "other menus should be marked for closing"
+        );
+        assert!(
+            !state.closing_menus.contains(&window),
+            "selected window is closed directly"
+        );
+        assert!(task.units() > 0, "menu selection returns a close task");
+    }
+
+    #[test]
+    fn menu_dismissed_clears_tracking() {
+        let mut state = BarState::default();
+        let window = window::Id::unique();
+        state.menu_windows.insert(
+            window,
+            GaugeMenuWindow {
+                gauge_id: "audio_out".to_string(),
+                menu: GaugeMenu {
+                    title: "Test".into(),
+                    items: Vec::new(),
+                    on_select: None,
+                },
+            },
+        );
+        state.closing_menus.insert(window);
+
+        let _ = update(&mut state, Message::MenuDismissed(window));
+
+        assert!(
+            !state.menu_windows.contains_key(&window),
+            "menu should be removed"
+        );
+        assert!(
+            !state.closing_menus.contains(&window),
+            "closing set should be cleared"
         );
     }
 

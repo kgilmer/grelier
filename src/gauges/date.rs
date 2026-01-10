@@ -18,7 +18,8 @@ const DEFAULT_DAY_FORMAT: &str = "%d";
 
 /// Stream of the current day (day-of-month, zero-padded) published once per day.
 fn day_stream() -> impl iced::futures::Stream<Item = crate::gauge::GaugeModel> {
-    let month_format = settings::settings().get_or("grelier.date.month_format", DEFAULT_MONTH_FORMAT);
+    let month_format =
+        settings::settings().get_or("grelier.date.month_format", DEFAULT_MONTH_FORMAT);
     let day_format = settings::settings().get_or("grelier.date.day_format", DEFAULT_DAY_FORMAT);
     fixed_interval(
         "date",
