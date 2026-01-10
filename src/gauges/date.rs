@@ -1,3 +1,5 @@
+// Date gauge stream that updates daily with month/day formatting.
+// Consumes Settings: grelier.date.month_format, grelier.date.day_format.
 use chrono::Local;
 use iced::Subscription;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};

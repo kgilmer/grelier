@@ -1,3 +1,5 @@
+// PulseAudio input volume gauge with mute/adjust actions and device menu.
+// Consumes Settings: grelier.audio_in.step_percent.
 use crate::app::Message;
 use crate::gauge::{
     GaugeClick, GaugeClickAction, GaugeMenu, GaugeMenuItem, GaugeValue, GaugeValueAttention,

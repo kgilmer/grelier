@@ -1,3 +1,5 @@
+// Entry point wiring CLI args, settings initialization, and gauge subscriptions for the bar.
+// Consumes Settings: grelier.bar.width.
 #![allow(dead_code)] // workspace handling will be re-enabled later
 mod app;
 mod gauges {

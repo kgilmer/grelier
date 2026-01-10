@@ -1,3 +1,4 @@
+// Gauge models, menus, and stream helpers for interval/event-driven gauges.
 use iced::futures::channel::mpsc;
 use iced::mouse;
 use iced::widget::svg;

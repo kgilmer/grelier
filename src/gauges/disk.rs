@@ -1,3 +1,5 @@
+// Disk usage gauge for a configurable filesystem path.
+// Consumes Settings: grelier.disk.*.
 use crate::app::Message;
 use crate::gauge::{
     GaugeClick, GaugeClickAction, GaugeInput, GaugeValue, GaugeValueAttention, SettingSpec,

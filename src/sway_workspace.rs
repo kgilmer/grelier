@@ -1,3 +1,4 @@
+// Sway IPC helpers for workspace state, focus, and subscriptions.
 use std::cell::RefCell;
 
 use iced::Subscription;

@@ -1,3 +1,5 @@
+// Backlight brightness gauge with scroll adjustments via sysfs.
+// Consumes Settings: grelier.brightness.step_percent, grelier.brightness.refresh_interval_secs.
 use crate::app::Message;
 use crate::gauge::{
     GaugeClick, GaugeClickAction, GaugeInput, GaugeValue, GaugeValueAttention, SettingSpec,

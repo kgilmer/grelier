@@ -1,3 +1,5 @@
+// Bar application state, update handling, and view composition for workspaces and gauges.
+// Consumes Settings: grelier.bar.width, grelier.bar.border_*, grelier.app.*.
 use std::collections::{HashMap, HashSet};
 use std::convert::TryInto;
 

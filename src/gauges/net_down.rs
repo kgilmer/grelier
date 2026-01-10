@@ -1,3 +1,5 @@
+// Download rate gauge backed by the shared network sampler.
+// Consumes Settings: grelier.net.* (via net_common).
 use crate::app::Message;
 use crate::gauge::{GaugeValue, GaugeValueAttention, NO_SETTINGS, SettingSpec, fixed_interval};
 use crate::gauges::net_common::{

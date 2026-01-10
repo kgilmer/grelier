@@ -1,3 +1,5 @@
+// Battery gauge driven by udev power_supply events and snapshots.
+// Consumes Settings: grelier.battery.warning_percent, grelier.battery.danger_percent.
 use crate::app::Message;
 use crate::gauge::{GaugeModel, GaugeValue, GaugeValueAttention, SettingSpec, event_stream};
 use crate::icon::svg_asset;

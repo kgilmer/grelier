@@ -1,3 +1,5 @@
+// Menu sizing and rendering for gauge popup dialogs.
+// Consumes Settings: grelier.menu_dialog.*.
 use crate::gauge::{GaugeMenu, GaugeMenuItem};
 use crate::icon::svg_asset;
 use crate::settings;

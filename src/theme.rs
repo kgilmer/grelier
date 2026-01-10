@@ -1,3 +1,4 @@
+// Theme parsing and custom palette definitions for the UI.
 use std::sync::Arc;
 
 use iced::{

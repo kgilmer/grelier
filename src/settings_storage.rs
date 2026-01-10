@@ -1,3 +1,4 @@
+// Load/save settings in an Xresources-style file under the grelier config directory.
 use std::collections::HashMap;
 use std::fs;
 use std::io::{BufRead, BufReader, Write};

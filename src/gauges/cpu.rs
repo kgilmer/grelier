@@ -1,3 +1,5 @@
+// CPU utilization gauge with adaptive polling and quantity-style icons.
+// Consumes Settings: grelier.cpu.*.
 use crate::app::Message;
 use crate::gauge::{
     GaugeClick, GaugeClickAction, GaugeInput, GaugeValue, GaugeValueAttention, SettingSpec,

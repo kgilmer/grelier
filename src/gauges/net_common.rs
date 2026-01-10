@@ -1,3 +1,5 @@
+// Shared network sampling, formatting, and interval logic for net gauges.
+// Consumes Settings: grelier.net.*.
 use std::fs;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, OnceLock};

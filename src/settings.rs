@@ -1,3 +1,4 @@
+// Global settings store with parsing helpers and runtime updates persisted to storage.
 use std::collections::HashMap;
 use std::str::FromStr;
 use std::sync::{OnceLock, RwLock};

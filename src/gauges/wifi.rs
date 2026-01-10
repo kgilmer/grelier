@@ -1,3 +1,5 @@
+// Wi-Fi signal/connection gauge that polls sysfs and /proc.
+// Consumes Settings: grelier.wifi.*.
 use crate::app::Message;
 use crate::gauge::{
     GaugeClick, GaugeClickAction, GaugeInput, GaugeModel, GaugeValue, GaugeValueAttention,

@@ -1,3 +1,5 @@
+// Test gauge that cycles quantity icons and toggles style/attention on clicks.
+// Consumes Settings: grelier.test_gauge.quantitystyle.
 use iced::{Subscription, mouse};
 use std::sync::Mutex;
 use std::time::Duration;

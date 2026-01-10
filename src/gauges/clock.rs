@@ -1,3 +1,5 @@
+// Clock gauge stream with hour format toggling and optional seconds display.
+// Consumes Settings: grelier.clock.hourformat, grelier.clock.showseconds.
 use chrono::Local;
 use iced::Subscription;
 use iced::mouse;

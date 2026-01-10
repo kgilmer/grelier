@@ -1,3 +1,4 @@
+// SVG asset helpers and quantity-style icon selection for gauges.
 use iced::widget::svg;
 use std::path::Path;
 

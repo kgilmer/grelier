@@ -1,3 +1,5 @@
+// RAM utilization gauge with adaptive polling and optional ZFS ARC accounting.
+// Consumes Settings: grelier.ram.*.
 use crate::app::Message;
 use crate::gauge::{
     GaugeClick, GaugeClickAction, GaugeInput, GaugeValue, GaugeValueAttention, SettingSpec,
