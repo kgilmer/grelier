@@ -1,16 +1,15 @@
 // Test gauge that cycles quantity icons and toggles style/attention on clicks.
 // Consumes Settings: grelier.gauge.test_gauge.quantitystyle.
-use iced::{Subscription, mouse};
+use iced::mouse;
 use std::sync::Mutex;
 use std::time::Duration;
 
-use crate::app::Message;
 use crate::gauge::{
     GaugeClick, GaugeClickAction, GaugeValue, GaugeValueAttention, SettingSpec, fixed_interval,
 };
+use crate::gauge_registry::{GaugeSpec, GaugeStream};
 use crate::icon::{QuantityStyle, icon_quantity};
 use crate::settings;
-use iced::futures::StreamExt;
 use std::sync::Arc;
 
 // Step sized to traverse all grid icons (0-9) without skipping.
@@ -161,16 +160,27 @@ fn test_gauge_stream() -> impl iced::futures::Stream<Item = crate::gauge::GaugeM
     )
 }
 
-pub fn test_gauge_subscription() -> Subscription<Message> {
-    Subscription::run(|| test_gauge_stream().map(Message::Gauge))
-}
-
 pub fn settings() -> &'static [SettingSpec] {
     const SETTINGS: &[SettingSpec] = &[SettingSpec {
         key: "grelier.gauge.test_gauge.quantitystyle",
         default: "pie",
     }];
     SETTINGS
+}
+
+fn stream() -> GaugeStream {
+    Box::new(test_gauge_stream())
+}
+
+inventory::submit! {
+    GaugeSpec {
+        id: "test_gauge",
+        label: "Test Gauge",
+        default_enabled: false,
+        settings,
+        stream,
+        validate: None,
+    }
 }
 
 #[cfg(test)]

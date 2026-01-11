@@ -1,18 +1,16 @@
 // Clock gauge stream with hour format toggling and optional seconds display.
 // Consumes Settings: grelier.gauge.clock.hourformat, grelier.gauge.clock.showseconds.
 use chrono::Local;
-use iced::Subscription;
 use iced::mouse;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use crate::app::Message;
 use crate::gauge::{
     GaugeClick, GaugeClickAction, GaugeValue, GaugeValueAttention, SettingSpec, fixed_interval,
 };
+use crate::gauge_registry::{GaugeSpec, GaugeStream};
 use crate::icon::svg_asset;
 use crate::settings;
-use iced::futures::StreamExt;
 
 #[derive(Debug, Clone, Copy, Default)]
 enum HourFormat {
@@ -107,10 +105,6 @@ fn seconds_stream() -> impl iced::futures::Stream<Item = crate::gauge::GaugeMode
     )
 }
 
-pub fn clock_subscription() -> Subscription<Message> {
-    Subscription::run(|| seconds_stream().map(Message::Gauge))
-}
-
 pub fn settings() -> &'static [SettingSpec] {
     const SETTINGS: &[SettingSpec] = &[
         SettingSpec {
@@ -123,4 +117,19 @@ pub fn settings() -> &'static [SettingSpec] {
         },
     ];
     SETTINGS
+}
+
+fn stream() -> GaugeStream {
+    Box::new(seconds_stream())
+}
+
+inventory::submit! {
+    GaugeSpec {
+        id: "clock",
+        label: "Clock",
+        default_enabled: true,
+        settings,
+        stream,
+        validate: None,
+    }
 }

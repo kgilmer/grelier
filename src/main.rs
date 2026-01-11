@@ -19,6 +19,7 @@ mod gauges {
     pub mod wifi;
 }
 mod gauge;
+mod gauge_registry;
 mod icon;
 mod menu_dialog;
 mod settings;
@@ -38,29 +39,123 @@ use iced_layershell::settings::{LayerShellSettings, Settings as LayerShellAppSet
 use crate::app::Orientation;
 use crate::app::{BarState, Message};
 use crate::gauge::{GaugeClick, GaugeInput, GaugeModel, SettingSpec};
-use crate::gauges::{
-    audio_in, audio_out, battery, brightness, clock, cpu, date, disk, net_down, net_up, ram,
-    test_gauge, wifi,
-};
 
-const DEFAULT_GAUGES: &str = "clock,date";
 const DEFAULT_ORIENTATION: &str = "left";
 const DEFAULT_THEME: &str = "Nord";
 
-const BASE_SETTING_SPECS: &[SettingSpec] = &[
-    SettingSpec {
-        key: "grelier.gauges",
-        default: DEFAULT_GAUGES,
-    },
-    SettingSpec {
-        key: "grelier.orientation",
-        default: DEFAULT_ORIENTATION,
-    },
-    SettingSpec {
-        key: "grelier.theme",
-        default: DEFAULT_THEME,
-    },
-];
+/// Base settings shared by the bar regardless of which gauges are enabled.
+fn base_setting_specs(default_gauges: &'static str) -> Vec<SettingSpec> {
+    vec![
+        SettingSpec {
+            key: "grelier.gauges",
+            default: default_gauges,
+        },
+        SettingSpec {
+            key: "grelier.orientation",
+            default: DEFAULT_ORIENTATION,
+        },
+        SettingSpec {
+            key: "grelier.theme",
+            default: DEFAULT_THEME,
+        },
+        SettingSpec {
+            key: "grelier.bar.width",
+            default: "28",
+        },
+        SettingSpec {
+            key: "grelier.bar.border_blend",
+            default: "true",
+        },
+        SettingSpec {
+            key: "grelier.bar.border_line_width",
+            default: "1.0",
+        },
+        SettingSpec {
+            key: "grelier.bar.border_column_width",
+            default: "3.0",
+        },
+        SettingSpec {
+            key: "grelier.bar.border_mix_1",
+            default: "0.2",
+        },
+        SettingSpec {
+            key: "grelier.bar.border_mix_2",
+            default: "0.6",
+        },
+        SettingSpec {
+            key: "grelier.bar.border_mix_3",
+            default: "1.0",
+        },
+        SettingSpec {
+            key: "grelier.bar.border_alpha_1",
+            default: "0.9",
+        },
+        SettingSpec {
+            key: "grelier.bar.border_alpha_2",
+            default: "0.7",
+        },
+        SettingSpec {
+            key: "grelier.bar.border_alpha_3",
+            default: "0.9",
+        },
+        SettingSpec {
+            key: "grelier.app.gauge_anchor_offset_icon",
+            default: "7.0",
+        },
+        SettingSpec {
+            key: "grelier.app.gauge_anchor_offset_value",
+            default: "28.0",
+        },
+        SettingSpec {
+            key: "grelier.app.workspace_padding_x",
+            default: "4",
+        },
+        SettingSpec {
+            key: "grelier.app.workspace_padding_y",
+            default: "2",
+        },
+        SettingSpec {
+            key: "grelier.app.workspace_spacing",
+            default: "2",
+        },
+        SettingSpec {
+            key: "grelier.app.workspace_button_padding_x",
+            default: "4",
+        },
+        SettingSpec {
+            key: "grelier.app.workspace_button_padding_y",
+            default: "4",
+        },
+        SettingSpec {
+            key: "grelier.app.workspace_corner_radius",
+            default: "5.0",
+        },
+        SettingSpec {
+            key: "grelier.app.gauge_padding_x",
+            default: "2",
+        },
+        SettingSpec {
+            key: "grelier.app.gauge_padding_y",
+            default: "2",
+        },
+        SettingSpec {
+            key: "grelier.app.gauge_spacing",
+            default: "18",
+        },
+        SettingSpec {
+            key: "grelier.app.gauge_icon_size",
+            default: "17.0",
+        },
+        SettingSpec {
+            key: "grelier.app.gauge_value_icon_size",
+            default: "20.0",
+        },
+        SettingSpec {
+            key: "grelier.app.gauge_icon_value_spacing",
+            default: "3.0",
+        },
+    ]
+}
 
 #[derive(FromArgs, Debug)]
 /// Workspace + gauges display
@@ -74,69 +169,34 @@ struct Args {
     list_settings: bool,
 }
 
-fn app_subscription(_state: &BarState, gauges: &[&str]) -> Subscription<Message> {
+fn app_subscription(_state: &BarState, gauges: &[String]) -> Subscription<Message> {
     let mut subs = Vec::new();
     subs.push(sway_workspace::workspace_subscription());
     subs.push(event::listen().map(Message::IcedEvent));
     subs.push(window::close_events().map(Message::WindowClosed));
     for gauge in gauges {
-        match *gauge {
-            "clock" => subs.push(clock::clock_subscription()),
-            "date" => subs.push(date::date_subscription()),
-            "battery" => subs.push(battery::battery_subscription()),
-            "cpu" => subs.push(cpu::cpu_subscription()),
-            "disk" => subs.push(disk::disk_subscription()),
-            "net_down" => subs.push(net_down::net_down_subscription()),
-            "net_up" => subs.push(net_up::net_up_subscription()),
-            "ram" => subs.push(ram::ram_subscription()),
-            "test_gauge" => subs.push(test_gauge::test_gauge_subscription()), // Special test gauge, intentionally omitted from help text
-            "audio_out" => subs.push(audio_out::audio_out_subscription()),
-            "brightness" => subs.push(brightness::brightness_subscription()),
-            "audio_in" => subs.push(audio_in::audio_in_subscription()),
-            "wifi" => subs.push(wifi::wifi_subscription()),
-            other => unreachable!("gauges validated before subscription: {other}"),
+        if let Some(spec) = gauge_registry::find(gauge) {
+            subs.push(gauge_registry::subscription_for(spec));
+        } else {
+            eprintln!("Unknown gauge '{gauge}' in subscription list.");
         }
     }
     Subscription::batch(subs)
 }
 
-fn gauge_settings(gauge: &str) -> &'static [SettingSpec] {
-    match gauge {
-        "clock" => clock::settings(),
-        "date" => date::settings(),
-        "battery" => battery::settings(),
-        "cpu" => cpu::settings(),
-        "disk" => disk::settings(),
-        "ram" => ram::settings(),
-        "net_up" => net_up::settings(),
-        "net_down" => net_down::settings(),
-        "audio_out" => audio_out::settings(),
-        "audio_in" => audio_in::settings(),
-        "brightness" => brightness::settings(),
-        "wifi" => wifi::settings(),
-        "test_gauge" => test_gauge::settings(),
-        other => unreachable!("gauges validated before settings list: {other}"),
-    }
-}
-
 fn main() -> Result<(), iced_layershell::Error> {
     let args: Args = argh::from_env();
 
-    const KNOWN_GAUGES: &[&str] = &[
-        "clock",
-        "date",
-        "battery",
-        "cpu",
-        "disk",
-        "ram",
-        "net_up",
-        "net_down",
-        "audio_out",
-        "audio_in",
-        "brightness",
-        "wifi",
-        "test_gauge",
-    ];
+    let default_gauges = gauge_registry::default_gauges();
+    let base_setting_specs = base_setting_specs(default_gauges);
+
+    let mut registered_gauges: Vec<&'static gauge_registry::GaugeSpec> =
+        gauge_registry::all().collect();
+    registered_gauges.sort_by_key(|spec| spec.id);
+    let known_gauge_names: Vec<&'static str> =
+        registered_gauges.iter().map(|spec| spec.id).collect();
+    let known_gauges: std::collections::HashSet<&'static str> =
+        known_gauge_names.iter().copied().collect();
 
     let storage =
         settings_storage::SettingsStorage::new(settings_storage::SettingsStorage::default_path());
@@ -155,14 +215,10 @@ fn main() -> Result<(), iced_layershell::Error> {
         }
     }
 
-    let mut all_setting_specs = Vec::new();
-    all_setting_specs.extend_from_slice(BASE_SETTING_SPECS);
-    for gauge in KNOWN_GAUGES {
-        all_setting_specs.extend_from_slice(gauge_settings(gauge));
-    }
+    let all_setting_specs = gauge_registry::collect_settings(&base_setting_specs);
     settings_store.ensure_defaults(&all_setting_specs);
 
-    let gauges_setting = settings_store.get_or("grelier.gauges", DEFAULT_GAUGES);
+    let gauges_setting = settings_store.get_or("grelier.gauges", default_gauges);
     let gauges: Vec<String> = gauges_setting
         .split(',')
         .map(str::trim)
@@ -171,29 +227,24 @@ fn main() -> Result<(), iced_layershell::Error> {
         .collect();
 
     for gauge in &gauges {
-        if !KNOWN_GAUGES.contains(&gauge.as_str()) {
+        if !known_gauges.contains(gauge.as_str()) {
             eprintln!(
                 "Unknown gauge '{gauge}'. Known gauges: {}",
-                KNOWN_GAUGES.join(", ")
+                known_gauge_names.join(", ")
             );
             std::process::exit(1);
         }
     }
 
     if args.list_settings {
-        for spec in BASE_SETTING_SPECS {
-            println!("{}: {}", spec.key, spec.default);
-        }
-
-        for gauge in KNOWN_GAUGES {
-            let specs = gauge_settings(gauge);
-
-            for spec in specs {
-                println!("{}:{}", spec.key, spec.default);
-            }
-        }
+        gauge_registry::list_settings(&base_setting_specs);
 
         return Ok(());
+    }
+
+    if let Err(err) = gauge_registry::validate_settings(settings_store) {
+        eprintln!("{err}");
+        std::process::exit(1);
     }
 
     let mut known_settings = std::collections::HashSet::new();
@@ -260,10 +311,7 @@ fn main() -> Result<(), iced_layershell::Error> {
     .theme(theme)
     .subscription({
         let gauges = gauges.clone();
-        move |state| {
-            let gauge_refs: Vec<&str> = gauges.iter().map(|s| s.as_str()).collect();
-            app_subscription(state, &gauge_refs)
-        }
+        move |state| app_subscription(state, &gauges)
     })
     .settings(settings)
     .run()
@@ -392,9 +440,9 @@ fn update_gauge(gauges: &mut Vec<GaugeModel>, new: GaugeModel) {
 
 #[cfg(test)]
 mod tests {
-    use crate::settings_storage::SettingsStorage;
     use crate::app::GaugeMenuWindow;
     use crate::gauge::{GaugeClickTarget, GaugeMenu, GaugeValue, GaugeValueAttention};
+    use crate::settings_storage::SettingsStorage;
     use std::sync::Arc;
     use std::sync::Mutex;
     use std::sync::atomic::{AtomicBool, Ordering};
@@ -416,8 +464,10 @@ mod tests {
         settings_store.update("grelier.theme", "Light");
 
         let mut all_setting_specs = Vec::new();
-        all_setting_specs.extend_from_slice(BASE_SETTING_SPECS);
-        all_setting_specs.extend_from_slice(gauge_settings("clock"));
+        let base_setting_specs = base_setting_specs(gauge_registry::default_gauges());
+        all_setting_specs.extend_from_slice(&base_setting_specs);
+        let clock_spec = gauge_registry::find("clock").expect("clock gauge spec registered");
+        all_setting_specs.extend_from_slice((clock_spec.settings)());
         settings_store.ensure_defaults(&all_setting_specs);
 
         let contents = std::fs::read_to_string(&path).expect("read settings storage");

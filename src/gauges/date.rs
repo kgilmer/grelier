@@ -1,15 +1,12 @@
 // Date gauge stream that updates daily with month/day formatting.
 // Consumes Settings: grelier.gauge.date.month_format, grelier.gauge.date.day_format.
 use chrono::Local;
-use iced::Subscription;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use crate::app::Message;
 use crate::gauge::{GaugeValue, GaugeValueAttention, SettingSpec, fixed_interval};
+use crate::gauge_registry::{GaugeSpec, GaugeStream};
 use crate::icon::svg_asset;
 use crate::settings;
-
-use iced::futures::StreamExt;
 
 const SECS_PER_DAY: u64 = 86_400;
 const DAY_LENGTH: Duration = Duration::from_secs(SECS_PER_DAY);
@@ -58,10 +55,6 @@ fn day_stream() -> impl iced::futures::Stream<Item = crate::gauge::GaugeModel> {
     )
 }
 
-pub fn date_subscription() -> Subscription<Message> {
-    Subscription::run(|| day_stream().map(Message::Gauge))
-}
-
 pub fn settings() -> &'static [SettingSpec] {
     const SETTINGS: &[SettingSpec] = &[
         SettingSpec {
@@ -74,4 +67,19 @@ pub fn settings() -> &'static [SettingSpec] {
         },
     ];
     SETTINGS
+}
+
+fn stream() -> GaugeStream {
+    Box::new(day_stream())
+}
+
+inventory::submit! {
+    GaugeSpec {
+        id: "date",
+        label: "Date",
+        default_enabled: true,
+        settings,
+        stream,
+        validate: None,
+    }
 }

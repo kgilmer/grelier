@@ -1,14 +1,13 @@
 // RAM utilization gauge with adaptive polling and optional ZFS ARC accounting.
 // Consumes Settings: grelier.gauge.ram.*.
-use crate::app::Message;
 use crate::gauge::{
     GaugeClick, GaugeClickAction, GaugeInput, GaugeValue, GaugeValueAttention, SettingSpec,
     fixed_interval,
 };
+use crate::gauge_registry::{GaugeSpec, GaugeStream};
 use crate::icon::{QuantityStyle, icon_quantity, svg_asset};
 use crate::settings;
-use iced::futures::StreamExt;
-use iced::{Subscription, mouse};
+use iced::mouse;
 use std::fs::{File, read_to_string};
 use std::io::{BufRead, BufReader};
 use std::sync::{Arc, Mutex};
@@ -261,10 +260,6 @@ fn ram_stream() -> impl iced::futures::Stream<Item = crate::gauge::GaugeModel> {
     )
 }
 
-pub fn ram_subscription() -> Subscription<Message> {
-    Subscription::run(|| ram_stream().map(Message::Gauge))
-}
-
 pub fn settings() -> &'static [SettingSpec] {
     const SETTINGS: &[SettingSpec] = &[
         SettingSpec {
@@ -297,6 +292,21 @@ pub fn settings() -> &'static [SettingSpec] {
         },
     ];
     SETTINGS
+}
+
+fn stream() -> GaugeStream {
+    Box::new(ram_stream())
+}
+
+inventory::submit! {
+    GaugeSpec {
+        id: "ram",
+        label: "RAM",
+        default_enabled: false,
+        settings,
+        stream,
+        validate: None,
+    }
 }
 
 #[cfg(test)]

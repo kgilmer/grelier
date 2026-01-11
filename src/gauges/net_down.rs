@@ -1,13 +1,11 @@
 // Download rate gauge backed by the shared network sampler.
 // Consumes Settings: grelier.gauge.net.* (via net_common).
-use crate::app::Message;
 use crate::gauge::{GaugeValue, GaugeValueAttention, NO_SETTINGS, SettingSpec, fixed_interval};
+use crate::gauge_registry::{GaugeSpec, GaugeStream};
 use crate::gauges::net_common::{
     NetIntervalState, format_rate, net_interval_config_from_settings, shared_net_sampler,
 };
 use crate::icon::svg_asset;
-use iced::Subscription;
-use iced::futures::StreamExt;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -62,12 +60,23 @@ fn net_down_stream() -> impl iced::futures::Stream<Item = crate::gauge::GaugeMod
     )
 }
 
-pub fn net_down_subscription() -> Subscription<Message> {
-    Subscription::run(|| net_down_stream().map(Message::Gauge))
-}
-
 pub fn settings() -> &'static [SettingSpec] {
     NO_SETTINGS
+}
+
+fn stream() -> GaugeStream {
+    Box::new(net_down_stream())
+}
+
+inventory::submit! {
+    GaugeSpec {
+        id: "net_down",
+        label: "Net Down",
+        default_enabled: false,
+        settings,
+        stream,
+        validate: None,
+    }
 }
 
 #[cfg(test)]

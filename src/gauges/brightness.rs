@@ -1,14 +1,12 @@
 // Backlight brightness gauge with scroll adjustments via sysfs.
 // Consumes Settings: grelier.gauge.brightness.step_percent, grelier.gauge.brightness.refresh_interval_secs.
-use crate::app::Message;
 use crate::gauge::{
     GaugeClick, GaugeClickAction, GaugeInput, GaugeValue, GaugeValueAttention, SettingSpec,
     event_stream,
 };
+use crate::gauge_registry::{GaugeSpec, GaugeStream};
 use crate::icon::svg_asset;
 use crate::settings;
-use iced::Subscription;
-use iced::futures::StreamExt;
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
@@ -242,10 +240,6 @@ fn brightness_stream() -> impl iced::futures::Stream<Item = crate::gauge::GaugeM
     )
 }
 
-pub fn brightness_subscription() -> Subscription<Message> {
-    Subscription::run(|| brightness_stream().map(Message::Gauge))
-}
-
 pub fn settings() -> &'static [SettingSpec] {
     const SETTINGS: &[SettingSpec] = &[
         SettingSpec {
@@ -258,6 +252,21 @@ pub fn settings() -> &'static [SettingSpec] {
         },
     ];
     SETTINGS
+}
+
+fn stream() -> GaugeStream {
+    Box::new(brightness_stream())
+}
+
+inventory::submit! {
+    GaugeSpec {
+        id: "brightness",
+        label: "Brightness",
+        default_enabled: false,
+        settings,
+        stream,
+        validate: None,
+    }
 }
 
 #[cfg(test)]

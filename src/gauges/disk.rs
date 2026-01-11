@@ -1,14 +1,13 @@
 // Disk usage gauge for a configurable filesystem path.
 // Consumes Settings: grelier.gauge.disk.*.
-use crate::app::Message;
 use crate::gauge::{
     GaugeClick, GaugeClickAction, GaugeInput, GaugeValue, GaugeValueAttention, SettingSpec,
     fixed_interval,
 };
+use crate::gauge_registry::{GaugeSpec, GaugeStream};
 use crate::icon::{QuantityStyle, icon_quantity, svg_asset};
 use crate::settings;
-use iced::futures::StreamExt;
-use iced::{Subscription, mouse};
+use iced::mouse;
 use std::ffi::CString;
 use std::mem::MaybeUninit;
 use std::os::raw::{c_char, c_int, c_ulong};
@@ -174,10 +173,6 @@ fn disk_stream() -> impl iced::futures::Stream<Item = crate::gauge::GaugeModel> 
     )
 }
 
-pub fn disk_subscription() -> Subscription<Message> {
-    Subscription::run(|| disk_stream().map(Message::Gauge))
-}
-
 pub fn settings() -> &'static [SettingSpec] {
     const SETTINGS: &[SettingSpec] = &[
         SettingSpec {
@@ -202,6 +197,21 @@ pub fn settings() -> &'static [SettingSpec] {
         },
     ];
     SETTINGS
+}
+
+fn stream() -> GaugeStream {
+    Box::new(disk_stream())
+}
+
+inventory::submit! {
+    GaugeSpec {
+        id: "disk",
+        label: "Disk",
+        default_enabled: false,
+        settings,
+        stream,
+        validate: None,
+    }
 }
 
 #[cfg(test)]

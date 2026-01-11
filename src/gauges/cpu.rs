@@ -1,14 +1,13 @@
 // CPU utilization gauge with adaptive polling and quantity-style icons.
 // Consumes Settings: grelier.gauge.cpu.*.
-use crate::app::Message;
 use crate::gauge::{
     GaugeClick, GaugeClickAction, GaugeInput, GaugeValue, GaugeValueAttention, SettingSpec,
     fixed_interval,
 };
+use crate::gauge_registry::{GaugeSpec, GaugeStream};
 use crate::icon::{QuantityStyle, icon_quantity, svg_asset};
 use crate::settings;
-use iced::futures::StreamExt;
-use iced::{Subscription, mouse};
+use iced::mouse;
 use std::fs::File;
 use std::io::{BufRead, BufReader};
 use std::sync::{Arc, Mutex};
@@ -247,10 +246,6 @@ fn cpu_stream() -> impl iced::futures::Stream<Item = crate::gauge::GaugeModel> {
     )
 }
 
-pub fn cpu_subscription() -> Subscription<Message> {
-    Subscription::run(|| cpu_stream().map(Message::Gauge))
-}
-
 pub fn settings() -> &'static [SettingSpec] {
     const SETTINGS: &[SettingSpec] = &[
         SettingSpec {
@@ -283,6 +278,21 @@ pub fn settings() -> &'static [SettingSpec] {
         },
     ];
     SETTINGS
+}
+
+fn stream() -> GaugeStream {
+    Box::new(cpu_stream())
+}
+
+inventory::submit! {
+    GaugeSpec {
+        id: "cpu",
+        label: "CPU",
+        default_enabled: false,
+        settings,
+        stream,
+        validate: None,
+    }
 }
 
 #[cfg(test)]

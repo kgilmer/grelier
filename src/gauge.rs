@@ -28,6 +28,7 @@ pub struct GaugeMenuItem {
     pub selected: bool,
 }
 
+/// Static settings metadata for defaults and help output.
 #[derive(Debug, Clone, Copy)]
 pub struct SettingSpec {
     pub key: &'static str,

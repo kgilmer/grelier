@@ -1,11 +1,9 @@
 // Battery gauge driven by udev power_supply events and snapshots.
 // Consumes Settings: grelier.gauge.battery.warning_percent, grelier.gauge.battery.danger_percent.
-use crate::app::Message;
 use crate::gauge::{GaugeModel, GaugeValue, GaugeValueAttention, SettingSpec, event_stream};
+use crate::gauge_registry::{GaugeSpec, GaugeStream};
 use crate::icon::svg_asset;
 use crate::settings;
-use iced::Subscription;
-use iced::futures::StreamExt;
 
 const DEFAULT_WARNING_PERCENT: u8 = 49;
 const DEFAULT_DANGER_PERCENT: u8 = 19;
@@ -249,10 +247,6 @@ fn property_str(dev: &udev::Device, key: &str) -> Option<String> {
         })
 }
 
-pub fn battery_subscription() -> Subscription<Message> {
-    Subscription::run(|| battery_stream().map(Message::Gauge))
-}
-
 pub fn settings() -> &'static [SettingSpec] {
     const SETTINGS: &[SettingSpec] = &[
         SettingSpec {
@@ -265,6 +259,21 @@ pub fn settings() -> &'static [SettingSpec] {
         },
     ];
     SETTINGS
+}
+
+fn stream() -> GaugeStream {
+    Box::new(battery_stream())
+}
+
+inventory::submit! {
+    GaugeSpec {
+        id: "battery",
+        label: "Battery",
+        default_enabled: false,
+        settings,
+        stream,
+        validate: None,
+    }
 }
 
 #[cfg(test)]

@@ -1,14 +1,12 @@
 // PulseAudio input volume gauge with mute/adjust actions and device menu.
 // Consumes Settings: grelier.gauge.audio_in.step_percent.
-use crate::app::Message;
 use crate::gauge::{
     GaugeClick, GaugeClickAction, GaugeMenu, GaugeMenuItem, GaugeValue, GaugeValueAttention,
     MenuSelectAction, SettingSpec, event_stream,
 };
+use crate::gauge_registry::{GaugeSpec, GaugeStream};
 use crate::icon::svg_asset;
 use crate::settings;
-use iced::Subscription;
-use iced::futures::StreamExt;
 use libpulse_binding as pulse;
 use pulse::callbacks::ListResult;
 use pulse::context::subscribe::{Facility, InterestMaskSet};
@@ -459,16 +457,27 @@ fn audio_in_stream() -> impl iced::futures::Stream<Item = crate::gauge::GaugeMod
     )
 }
 
-pub fn audio_in_subscription() -> Subscription<Message> {
-    Subscription::run(|| audio_in_stream().map(Message::Gauge))
-}
-
 pub fn settings() -> &'static [SettingSpec] {
     const SETTINGS: &[SettingSpec] = &[SettingSpec {
         key: "grelier.gauge.audio_in.step_percent",
         default: "5",
     }];
     SETTINGS
+}
+
+fn stream() -> GaugeStream {
+    Box::new(audio_in_stream())
+}
+
+inventory::submit! {
+    GaugeSpec {
+        id: "audio_in",
+        label: "Audio In",
+        default_enabled: false,
+        settings,
+        stream,
+        validate: None,
+    }
 }
 
 #[cfg(test)]

@@ -1,14 +1,13 @@
 // Wi-Fi signal/connection gauge that polls sysfs and /proc.
 // Consumes Settings: grelier.gauge.wifi.*.
-use crate::app::Message;
 use crate::gauge::{
     GaugeClick, GaugeClickAction, GaugeInput, GaugeModel, GaugeValue, GaugeValueAttention,
     SettingSpec, event_stream,
 };
+use crate::gauge_registry::{GaugeSpec, GaugeStream};
 use crate::icon::{QuantityStyle, icon_quantity, svg_asset};
 use crate::settings;
-use iced::futures::StreamExt;
-use iced::{Subscription, mouse};
+use iced::mouse;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, mpsc as sync_mpsc};
@@ -234,10 +233,6 @@ fn wifi_stream() -> impl iced::futures::Stream<Item = GaugeModel> {
     })
 }
 
-pub fn wifi_subscription() -> Subscription<Message> {
-    Subscription::run(|| wifi_stream().map(Message::Gauge))
-}
-
 pub fn settings() -> &'static [SettingSpec] {
     const SETTINGS: &[SettingSpec] = &[
         SettingSpec {
@@ -254,6 +249,21 @@ pub fn settings() -> &'static [SettingSpec] {
         },
     ];
     SETTINGS
+}
+
+fn stream() -> GaugeStream {
+    Box::new(wifi_stream())
+}
+
+inventory::submit! {
+    GaugeSpec {
+        id: "wifi",
+        label: "Wi-Fi",
+        default_enabled: false,
+        settings,
+        stream,
+        validate: None,
+    }
 }
 
 #[cfg(test)]
