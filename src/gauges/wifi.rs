@@ -1,5 +1,5 @@
 // Wi-Fi signal/connection gauge that polls sysfs and /proc.
-// Consumes Settings: grelier.wifi.*.
+// Consumes Settings: grelier.gauge.wifi.*.
 use crate::app::Message;
 use crate::gauge::{
     GaugeClick, GaugeClickAction, GaugeInput, GaugeModel, GaugeValue, GaugeValueAttention,
@@ -188,15 +188,15 @@ fn wifi_gauge(
 
 fn wifi_stream() -> impl iced::futures::Stream<Item = GaugeModel> {
     event_stream("wifi", None, move |mut sender| {
-        let style_value = settings::settings().get_or("grelier.wifi.quantitystyle", "grid");
-        let style = QuantityStyle::parse_setting("grelier.wifi.quantitystyle", &style_value);
-        let mut quality_max =
-            settings::settings().get_parsed_or("grelier.wifi.quality_max", DEFAULT_QUALITY_MAX);
+        let style_value = settings::settings().get_or("grelier.gauge.wifi.quantitystyle", "grid");
+        let style = QuantityStyle::parse_setting("grelier.gauge.wifi.quantitystyle", &style_value);
+        let mut quality_max = settings::settings()
+            .get_parsed_or("grelier.gauge.wifi.quality_max", DEFAULT_QUALITY_MAX);
         if quality_max <= 0.0 {
             quality_max = DEFAULT_QUALITY_MAX;
         }
         let poll_interval_secs = settings::settings().get_parsed_or(
-            "grelier.wifi.poll_interval_secs",
+            "grelier.gauge.wifi.poll_interval_secs",
             DEFAULT_POLL_INTERVAL_SECS,
         );
         let poll_interval = Duration::from_secs(poll_interval_secs);
@@ -210,7 +210,7 @@ fn wifi_stream() -> impl iced::futures::Stream<Item = GaugeModel> {
                     if let Ok(mut style) = state.lock() {
                         *style = style.toggle();
                         settings::settings()
-                            .update("grelier.wifi.quantitystyle", style.as_setting_value());
+                            .update("grelier.gauge.wifi.quantitystyle", style.as_setting_value());
                     }
                     let _ = trigger_tx.send(());
                 }
@@ -241,15 +241,15 @@ pub fn wifi_subscription() -> Subscription<Message> {
 pub fn settings() -> &'static [SettingSpec] {
     const SETTINGS: &[SettingSpec] = &[
         SettingSpec {
-            key: "grelier.wifi.quantitystyle",
+            key: "grelier.gauge.wifi.quantitystyle",
             default: "grid",
         },
         SettingSpec {
-            key: "grelier.wifi.quality_max",
+            key: "grelier.gauge.wifi.quality_max",
             default: "70",
         },
         SettingSpec {
-            key: "grelier.wifi.poll_interval_secs",
+            key: "grelier.gauge.wifi.poll_interval_secs",
             default: "3",
         },
     ];

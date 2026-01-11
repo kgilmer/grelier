@@ -1,5 +1,5 @@
 // Date gauge stream that updates daily with month/day formatting.
-// Consumes Settings: grelier.date.month_format, grelier.date.day_format.
+// Consumes Settings: grelier.gauge.date.month_format, grelier.gauge.date.day_format.
 use chrono::Local;
 use iced::Subscription;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -19,8 +19,9 @@ const DEFAULT_DAY_FORMAT: &str = "%d";
 /// Stream of the current day (day-of-month, zero-padded) published once per day.
 fn day_stream() -> impl iced::futures::Stream<Item = crate::gauge::GaugeModel> {
     let month_format =
-        settings::settings().get_or("grelier.date.month_format", DEFAULT_MONTH_FORMAT);
-    let day_format = settings::settings().get_or("grelier.date.day_format", DEFAULT_DAY_FORMAT);
+        settings::settings().get_or("grelier.gauge.date.month_format", DEFAULT_MONTH_FORMAT);
+    let day_format =
+        settings::settings().get_or("grelier.gauge.date.day_format", DEFAULT_DAY_FORMAT);
     fixed_interval(
         "date",
         Some(svg_asset("calendar-alt.svg")),
@@ -64,11 +65,11 @@ pub fn date_subscription() -> Subscription<Message> {
 pub fn settings() -> &'static [SettingSpec] {
     const SETTINGS: &[SettingSpec] = &[
         SettingSpec {
-            key: "grelier.date.month_format",
+            key: "grelier.gauge.date.month_format",
             default: DEFAULT_MONTH_FORMAT,
         },
         SettingSpec {
-            key: "grelier.date.day_format",
+            key: "grelier.gauge.date.day_format",
             default: DEFAULT_DAY_FORMAT,
         },
     ];

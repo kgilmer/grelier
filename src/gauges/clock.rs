@@ -1,5 +1,5 @@
 // Clock gauge stream with hour format toggling and optional seconds display.
-// Consumes Settings: grelier.clock.hourformat, grelier.clock.showseconds.
+// Consumes Settings: grelier.gauge.clock.hourformat, grelier.gauge.clock.showseconds.
 use chrono::Local;
 use iced::Subscription;
 use iced::mouse;
@@ -38,19 +38,21 @@ impl HourFormat {
 }
 
 fn hour_format_from_setting() -> HourFormat {
-    let value = settings::settings().get_or("grelier.clock.hourformat", "24");
+    let value = settings::settings().get_or("grelier.gauge.clock.hourformat", "24");
     match value.as_str() {
         "24" => HourFormat::TwentyFour,
         "12" => HourFormat::Twelve,
         other => {
-            panic!("Invalid setting 'grelier.clock.hourformat': expected 12 or 24, got '{other}'")
+            panic!(
+                "Invalid setting 'grelier.gauge.clock.hourformat': expected 12 or 24, got '{other}'"
+            )
         }
     }
 }
 
 /// Stream of the current wall-clock hour/minute, formatted on two lines.
 fn seconds_stream() -> impl iced::futures::Stream<Item = crate::gauge::GaugeModel> {
-    let show_seconds = settings::settings().get_bool_or("grelier.clock.showseconds", false);
+    let show_seconds = settings::settings().get_bool_or("grelier.gauge.clock.showseconds", false);
     let format_state = Arc::new(Mutex::new(hour_format_from_setting()));
     let on_click: GaugeClickAction = {
         let format_state = Arc::clone(&format_state);
@@ -112,11 +114,11 @@ pub fn clock_subscription() -> Subscription<Message> {
 pub fn settings() -> &'static [SettingSpec] {
     const SETTINGS: &[SettingSpec] = &[
         SettingSpec {
-            key: "grelier.clock.showseconds",
+            key: "grelier.gauge.clock.showseconds",
             default: "false",
         },
         SettingSpec {
-            key: "grelier.clock.hourformat",
+            key: "grelier.gauge.clock.hourformat",
             default: "24",
         },
     ];

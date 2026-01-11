@@ -1,5 +1,5 @@
 // Battery gauge driven by udev power_supply events and snapshots.
-// Consumes Settings: grelier.battery.warning_percent, grelier.battery.danger_percent.
+// Consumes Settings: grelier.gauge.battery.warning_percent, grelier.gauge.battery.danger_percent.
 use crate::app::Message;
 use crate::gauge::{GaugeModel, GaugeValue, GaugeValueAttention, SettingSpec, event_stream};
 use crate::icon::svg_asset;
@@ -13,10 +13,14 @@ const DEFAULT_DANGER_PERCENT: u8 = 19;
 /// Stream battery information via udev power_supply events.
 fn battery_stream() -> impl iced::futures::Stream<Item = GaugeModel> {
     event_stream("battery", None, |mut sender| {
-        let warning_percent = settings::settings()
-            .get_parsed_or("grelier.battery.warning_percent", DEFAULT_WARNING_PERCENT);
-        let danger_percent = settings::settings()
-            .get_parsed_or("grelier.battery.danger_percent", DEFAULT_DANGER_PERCENT);
+        let warning_percent = settings::settings().get_parsed_or(
+            "grelier.gauge.battery.warning_percent",
+            DEFAULT_WARNING_PERCENT,
+        );
+        let danger_percent = settings::settings().get_parsed_or(
+            "grelier.gauge.battery.danger_percent",
+            DEFAULT_DANGER_PERCENT,
+        );
         // Send current state so the UI shows something before the first event.
         send_snapshot(&mut sender, warning_percent, danger_percent);
 
@@ -252,11 +256,11 @@ pub fn battery_subscription() -> Subscription<Message> {
 pub fn settings() -> &'static [SettingSpec] {
     const SETTINGS: &[SettingSpec] = &[
         SettingSpec {
-            key: "grelier.battery.warning_percent",
+            key: "grelier.gauge.battery.warning_percent",
             default: "49",
         },
         SettingSpec {
-            key: "grelier.battery.danger_percent",
+            key: "grelier.gauge.battery.danger_percent",
             default: "19",
         },
     ];

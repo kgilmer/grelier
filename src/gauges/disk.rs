@@ -1,5 +1,5 @@
 // Disk usage gauge for a configurable filesystem path.
-// Consumes Settings: grelier.disk.*.
+// Consumes Settings: grelier.gauge.disk.*.
 use crate::app::Message;
 use crate::gauge::{
     GaugeClick, GaugeClickAction, GaugeInput, GaugeValue, GaugeValueAttention, SettingSpec,
@@ -119,17 +119,21 @@ struct DiskState {
 }
 
 fn disk_stream() -> impl iced::futures::Stream<Item = crate::gauge::GaugeModel> {
-    let style_value = settings::settings().get_or("grelier.disk.quantitystyle", "grid");
-    let style = QuantityStyle::parse_setting("grelier.disk.quantitystyle", &style_value);
-    let path = settings::settings().get_or("grelier.disk.path", DEFAULT_ROOT_PATH);
+    let style_value = settings::settings().get_or("grelier.gauge.disk.quantitystyle", "grid");
+    let style = QuantityStyle::parse_setting("grelier.gauge.disk.quantitystyle", &style_value);
+    let path = settings::settings().get_or("grelier.gauge.disk.path", DEFAULT_ROOT_PATH);
     let poll_interval_secs = settings::settings().get_parsed_or(
-        "grelier.disk.poll_interval_secs",
+        "grelier.gauge.disk.poll_interval_secs",
         DEFAULT_POLL_INTERVAL_SECS,
     );
-    let warning_threshold = settings::settings()
-        .get_parsed_or("grelier.disk.warning_threshold", DEFAULT_WARNING_THRESHOLD);
-    let danger_threshold = settings::settings()
-        .get_parsed_or("grelier.disk.danger_threshold", DEFAULT_DANGER_THRESHOLD);
+    let warning_threshold = settings::settings().get_parsed_or(
+        "grelier.gauge.disk.warning_threshold",
+        DEFAULT_WARNING_THRESHOLD,
+    );
+    let danger_threshold = settings::settings().get_parsed_or(
+        "grelier.gauge.disk.danger_threshold",
+        DEFAULT_DANGER_THRESHOLD,
+    );
     let state = Arc::new(Mutex::new(DiskState {
         quantity_style: style,
     }));
@@ -141,7 +145,7 @@ fn disk_stream() -> impl iced::futures::Stream<Item = crate::gauge::GaugeModel> 
             {
                 state.quantity_style = state.quantity_style.toggle();
                 settings::settings().update(
-                    "grelier.disk.quantitystyle",
+                    "grelier.gauge.disk.quantitystyle",
                     state.quantity_style.as_setting_value(),
                 );
             }
@@ -177,23 +181,23 @@ pub fn disk_subscription() -> Subscription<Message> {
 pub fn settings() -> &'static [SettingSpec] {
     const SETTINGS: &[SettingSpec] = &[
         SettingSpec {
-            key: "grelier.disk.quantitystyle",
+            key: "grelier.gauge.disk.quantitystyle",
             default: "grid",
         },
         SettingSpec {
-            key: "grelier.disk.path",
+            key: "grelier.gauge.disk.path",
             default: DEFAULT_ROOT_PATH,
         },
         SettingSpec {
-            key: "grelier.disk.poll_interval_secs",
+            key: "grelier.gauge.disk.poll_interval_secs",
             default: "60",
         },
         SettingSpec {
-            key: "grelier.disk.warning_threshold",
+            key: "grelier.gauge.disk.warning_threshold",
             default: "0.85",
         },
         SettingSpec {
-            key: "grelier.disk.danger_threshold",
+            key: "grelier.gauge.disk.danger_threshold",
             default: "0.95",
         },
     ];

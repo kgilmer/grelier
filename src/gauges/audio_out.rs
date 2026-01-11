@@ -1,5 +1,5 @@
 // PulseAudio output volume gauge with mute/adjust actions and device menu.
-// Consumes Settings: grelier.audio_out.step_percent.
+// Consumes Settings: grelier.gauge.audio_out.step_percent.
 use crate::app::Message;
 use crate::gauge::{
     GaugeClick, GaugeClickAction, GaugeMenu, GaugeMenuItem, GaugeValue, GaugeValueAttention,
@@ -285,8 +285,8 @@ fn handle_command(
 
 fn audio_out_stream() -> impl iced::futures::Stream<Item = crate::gauge::GaugeModel> {
     let (command_tx, command_rx) = mpsc::channel::<SoundCommand>();
-    let mut step_percent =
-        settings::settings().get_parsed_or("grelier.audio_out.step_percent", DEFAULT_STEP_PERCENT);
+    let mut step_percent = settings::settings()
+        .get_parsed_or("grelier.gauge.audio_out.step_percent", DEFAULT_STEP_PERCENT);
     if step_percent == 0 {
         step_percent = DEFAULT_STEP_PERCENT;
     }
@@ -455,7 +455,7 @@ pub fn audio_out_subscription() -> Subscription<Message> {
 
 pub fn settings() -> &'static [SettingSpec] {
     const SETTINGS: &[SettingSpec] = &[SettingSpec {
-        key: "grelier.audio_out.step_percent",
+        key: "grelier.gauge.audio_out.step_percent",
         default: "5",
     }];
     SETTINGS

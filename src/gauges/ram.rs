@@ -1,5 +1,5 @@
 // RAM utilization gauge with adaptive polling and optional ZFS ARC accounting.
-// Consumes Settings: grelier.ram.*.
+// Consumes Settings: grelier.gauge.ram.*.
 use crate::app::Message;
 use crate::gauge::{
     GaugeClick, GaugeClickAction, GaugeInput, GaugeValue, GaugeValueAttention, SettingSpec,
@@ -180,20 +180,28 @@ impl RamState {
 }
 
 fn ram_stream() -> impl iced::futures::Stream<Item = crate::gauge::GaugeModel> {
-    let style_value = settings::settings().get_or("grelier.ram.quantitystyle", "grid");
-    let style = QuantityStyle::parse_setting("grelier.ram.quantitystyle", &style_value);
-    let warning_threshold = settings::settings()
-        .get_parsed_or("grelier.ram.warning_threshold", DEFAULT_WARNING_THRESHOLD);
-    let danger_threshold = settings::settings()
-        .get_parsed_or("grelier.ram.danger_threshold", DEFAULT_DANGER_THRESHOLD);
-    let fast_threshold =
-        settings::settings().get_parsed_or("grelier.ram.fast_threshold", DEFAULT_FAST_THRESHOLD);
+    let style_value = settings::settings().get_or("grelier.gauge.ram.quantitystyle", "grid");
+    let style = QuantityStyle::parse_setting("grelier.gauge.ram.quantitystyle", &style_value);
+    let warning_threshold = settings::settings().get_parsed_or(
+        "grelier.gauge.ram.warning_threshold",
+        DEFAULT_WARNING_THRESHOLD,
+    );
+    let danger_threshold = settings::settings().get_parsed_or(
+        "grelier.gauge.ram.danger_threshold",
+        DEFAULT_DANGER_THRESHOLD,
+    );
+    let fast_threshold = settings::settings()
+        .get_parsed_or("grelier.gauge.ram.fast_threshold", DEFAULT_FAST_THRESHOLD);
     let calm_ticks =
-        settings::settings().get_parsed_or("grelier.ram.calm_ticks", DEFAULT_CALM_TICKS);
-    let fast_interval_secs = settings::settings()
-        .get_parsed_or("grelier.ram.fast_interval_secs", DEFAULT_FAST_INTERVAL_SECS);
-    let slow_interval_secs = settings::settings()
-        .get_parsed_or("grelier.ram.slow_interval_secs", DEFAULT_SLOW_INTERVAL_SECS);
+        settings::settings().get_parsed_or("grelier.gauge.ram.calm_ticks", DEFAULT_CALM_TICKS);
+    let fast_interval_secs = settings::settings().get_parsed_or(
+        "grelier.gauge.ram.fast_interval_secs",
+        DEFAULT_FAST_INTERVAL_SECS,
+    );
+    let slow_interval_secs = settings::settings().get_parsed_or(
+        "grelier.gauge.ram.slow_interval_secs",
+        DEFAULT_SLOW_INTERVAL_SECS,
+    );
     let state = Arc::new(Mutex::new(RamState {
         quantity_style: style,
         fast_threshold,
@@ -213,7 +221,7 @@ fn ram_stream() -> impl iced::futures::Stream<Item = crate::gauge::GaugeModel> {
             {
                 state.quantity_style = state.quantity_style.toggle();
                 settings::settings().update(
-                    "grelier.ram.quantitystyle",
+                    "grelier.gauge.ram.quantitystyle",
                     state.quantity_style.as_setting_value(),
                 );
             }
@@ -260,31 +268,31 @@ pub fn ram_subscription() -> Subscription<Message> {
 pub fn settings() -> &'static [SettingSpec] {
     const SETTINGS: &[SettingSpec] = &[
         SettingSpec {
-            key: "grelier.ram.quantitystyle",
+            key: "grelier.gauge.ram.quantitystyle",
             default: "grid",
         },
         SettingSpec {
-            key: "grelier.ram.warning_threshold",
+            key: "grelier.gauge.ram.warning_threshold",
             default: "0.85",
         },
         SettingSpec {
-            key: "grelier.ram.danger_threshold",
+            key: "grelier.gauge.ram.danger_threshold",
             default: "0.95",
         },
         SettingSpec {
-            key: "grelier.ram.fast_threshold",
+            key: "grelier.gauge.ram.fast_threshold",
             default: "0.70",
         },
         SettingSpec {
-            key: "grelier.ram.calm_ticks",
+            key: "grelier.gauge.ram.calm_ticks",
             default: "4",
         },
         SettingSpec {
-            key: "grelier.ram.fast_interval_secs",
+            key: "grelier.gauge.ram.fast_interval_secs",
             default: "1",
         },
         SettingSpec {
-            key: "grelier.ram.slow_interval_secs",
+            key: "grelier.gauge.ram.slow_interval_secs",
             default: "4",
         },
     ];

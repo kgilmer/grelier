@@ -1,5 +1,5 @@
 // Test gauge that cycles quantity icons and toggles style/attention on clicks.
-// Consumes Settings: grelier.test_gauge.quantitystyle.
+// Consumes Settings: grelier.gauge.test_gauge.quantitystyle.
 use iced::{Subscription, mouse};
 use std::sync::Mutex;
 use std::time::Duration;
@@ -113,8 +113,9 @@ impl QuantityState {
 
 /// Cycles over pie-[0-8].svg, bouncing when hitting the ends.
 fn test_gauge_stream() -> impl iced::futures::Stream<Item = crate::gauge::GaugeModel> {
-    let style_value = settings::settings().get_or("grelier.test_gauge.quantitystyle", "pie");
-    let style = QuantityStyle::parse_setting("grelier.test_gauge.quantitystyle", &style_value);
+    let style_value = settings::settings().get_or("grelier.gauge.test_gauge.quantitystyle", "pie");
+    let style =
+        QuantityStyle::parse_setting("grelier.gauge.test_gauge.quantitystyle", &style_value);
     let state = Arc::new(Mutex::new(QuantityState::new(style)));
     let on_click: GaugeClickAction = {
         let state = Arc::clone(&state);
@@ -131,7 +132,7 @@ fn test_gauge_stream() -> impl iced::futures::Stream<Item = crate::gauge::GaugeM
                             QuantityMode::Pie => QuantityStyle::Pie,
                         };
                         settings::settings().update(
-                            "grelier.test_gauge.quantitystyle",
+                            "grelier.gauge.test_gauge.quantitystyle",
                             style_value.as_setting_value(),
                         );
                     }
@@ -166,7 +167,7 @@ pub fn test_gauge_subscription() -> Subscription<Message> {
 
 pub fn settings() -> &'static [SettingSpec] {
     const SETTINGS: &[SettingSpec] = &[SettingSpec {
-        key: "grelier.test_gauge.quantitystyle",
+        key: "grelier.gauge.test_gauge.quantitystyle",
         default: "pie",
     }];
     SETTINGS

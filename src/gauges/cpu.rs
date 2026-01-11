@@ -1,5 +1,5 @@
 // CPU utilization gauge with adaptive polling and quantity-style icons.
-// Consumes Settings: grelier.cpu.*.
+// Consumes Settings: grelier.gauge.cpu.*.
 use crate::app::Message;
 use crate::gauge::{
     GaugeClick, GaugeClickAction, GaugeInput, GaugeValue, GaugeValueAttention, SettingSpec,
@@ -137,20 +137,28 @@ fn cpu_value(
 }
 
 fn cpu_stream() -> impl iced::futures::Stream<Item = crate::gauge::GaugeModel> {
-    let style_value = settings::settings().get_or("grelier.cpu.quantitystyle", "grid");
-    let style = QuantityStyle::parse_setting("grelier.cpu.quantitystyle", &style_value);
-    let warning_threshold = settings::settings()
-        .get_parsed_or("grelier.cpu.warning_threshold", DEFAULT_WARNING_THRESHOLD);
-    let danger_threshold = settings::settings()
-        .get_parsed_or("grelier.cpu.danger_threshold", DEFAULT_DANGER_THRESHOLD);
-    let fast_threshold =
-        settings::settings().get_parsed_or("grelier.cpu.fast_threshold", DEFAULT_FAST_THRESHOLD);
+    let style_value = settings::settings().get_or("grelier.gauge.cpu.quantitystyle", "grid");
+    let style = QuantityStyle::parse_setting("grelier.gauge.cpu.quantitystyle", &style_value);
+    let warning_threshold = settings::settings().get_parsed_or(
+        "grelier.gauge.cpu.warning_threshold",
+        DEFAULT_WARNING_THRESHOLD,
+    );
+    let danger_threshold = settings::settings().get_parsed_or(
+        "grelier.gauge.cpu.danger_threshold",
+        DEFAULT_DANGER_THRESHOLD,
+    );
+    let fast_threshold = settings::settings()
+        .get_parsed_or("grelier.gauge.cpu.fast_threshold", DEFAULT_FAST_THRESHOLD);
     let calm_ticks =
-        settings::settings().get_parsed_or("grelier.cpu.calm_ticks", DEFAULT_CALM_TICKS);
-    let fast_interval_secs = settings::settings()
-        .get_parsed_or("grelier.cpu.fast_interval_secs", DEFAULT_FAST_INTERVAL_SECS);
-    let slow_interval_secs = settings::settings()
-        .get_parsed_or("grelier.cpu.slow_interval_secs", DEFAULT_SLOW_INTERVAL_SECS);
+        settings::settings().get_parsed_or("grelier.gauge.cpu.calm_ticks", DEFAULT_CALM_TICKS);
+    let fast_interval_secs = settings::settings().get_parsed_or(
+        "grelier.gauge.cpu.fast_interval_secs",
+        DEFAULT_FAST_INTERVAL_SECS,
+    );
+    let slow_interval_secs = settings::settings().get_parsed_or(
+        "grelier.gauge.cpu.slow_interval_secs",
+        DEFAULT_SLOW_INTERVAL_SECS,
+    );
     let state = Arc::new(Mutex::new(CpuState {
         quantity_style: style,
         fast_threshold,
@@ -172,7 +180,7 @@ fn cpu_stream() -> impl iced::futures::Stream<Item = crate::gauge::GaugeModel> {
             {
                 state.quantity_style = state.quantity_style.toggle();
                 settings::settings().update(
-                    "grelier.cpu.quantitystyle",
+                    "grelier.gauge.cpu.quantitystyle",
                     state.quantity_style.as_setting_value(),
                 );
             }
@@ -246,31 +254,31 @@ pub fn cpu_subscription() -> Subscription<Message> {
 pub fn settings() -> &'static [SettingSpec] {
     const SETTINGS: &[SettingSpec] = &[
         SettingSpec {
-            key: "grelier.cpu.quantitystyle",
+            key: "grelier.gauge.cpu.quantitystyle",
             default: "grid",
         },
         SettingSpec {
-            key: "grelier.cpu.warning_threshold",
+            key: "grelier.gauge.cpu.warning_threshold",
             default: "0.75",
         },
         SettingSpec {
-            key: "grelier.cpu.danger_threshold",
+            key: "grelier.gauge.cpu.danger_threshold",
             default: "0.90",
         },
         SettingSpec {
-            key: "grelier.cpu.fast_threshold",
+            key: "grelier.gauge.cpu.fast_threshold",
             default: "0.50",
         },
         SettingSpec {
-            key: "grelier.cpu.calm_ticks",
+            key: "grelier.gauge.cpu.calm_ticks",
             default: "4",
         },
         SettingSpec {
-            key: "grelier.cpu.fast_interval_secs",
+            key: "grelier.gauge.cpu.fast_interval_secs",
             default: "1",
         },
         SettingSpec {
-            key: "grelier.cpu.slow_interval_secs",
+            key: "grelier.gauge.cpu.slow_interval_secs",
             default: "4",
         },
     ];

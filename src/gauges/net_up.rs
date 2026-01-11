@@ -1,5 +1,5 @@
 // Upload rate gauge backed by the shared network sampler.
-// Consumes Settings: grelier.net.* (via net_common).
+// Consumes Settings: grelier.gauge.net.* (via net_common).
 use crate::app::Message;
 use crate::gauge::{GaugeValue, GaugeValueAttention, SettingSpec, fixed_interval};
 use crate::gauges::net_common::{
@@ -69,43 +69,43 @@ pub fn net_up_subscription() -> Subscription<Message> {
 pub fn settings() -> &'static [SettingSpec] {
     const SETTINGS: &[SettingSpec] = &[
         SettingSpec {
-            key: "grelier.net.idle_threshold_bps",
+            key: "grelier.gauge.net.idle_threshold_bps",
             default: "10240",
         },
         SettingSpec {
-            key: "grelier.net.fast_interval_secs",
+            key: "grelier.gauge.net.fast_interval_secs",
             default: "1",
         },
         SettingSpec {
-            key: "grelier.net.slow_interval_secs",
+            key: "grelier.gauge.net.slow_interval_secs",
             default: "3",
         },
         SettingSpec {
-            key: "grelier.net.calm_ticks",
+            key: "grelier.gauge.net.calm_ticks",
             default: "4",
         },
         SettingSpec {
-            key: "grelier.net.iface_cache_ttl_secs",
+            key: "grelier.gauge.net.iface_cache_ttl_secs",
             default: "10",
         },
         SettingSpec {
-            key: "grelier.net.iface_ttl_secs",
+            key: "grelier.gauge.net.iface_ttl_secs",
             default: "5",
         },
         SettingSpec {
-            key: "grelier.net.sampler_min_interval_ms",
+            key: "grelier.gauge.net.sampler_min_interval_ms",
             default: "900",
         },
         SettingSpec {
-            key: "grelier.net.sys_class_net_path",
+            key: "grelier.gauge.net.sys_class_net_path",
             default: "/sys/class/net",
         },
         SettingSpec {
-            key: "grelier.net.proc_net_route_path",
+            key: "grelier.gauge.net.proc_net_route_path",
             default: "/proc/net/route",
         },
         SettingSpec {
-            key: "grelier.net.proc_net_dev_path",
+            key: "grelier.gauge.net.proc_net_dev_path",
             default: "/proc/net/dev",
         },
     ];

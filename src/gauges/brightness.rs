@@ -1,5 +1,5 @@
 // Backlight brightness gauge with scroll adjustments via sysfs.
-// Consumes Settings: grelier.brightness.step_percent, grelier.brightness.refresh_interval_secs.
+// Consumes Settings: grelier.gauge.brightness.step_percent, grelier.gauge.brightness.refresh_interval_secs.
 use crate::app::Message;
 use crate::gauge::{
     GaugeClick, GaugeClickAction, GaugeInput, GaugeValue, GaugeValueAttention, SettingSpec,
@@ -122,13 +122,15 @@ enum BrightnessCommand {
 
 fn brightness_stream() -> impl iced::futures::Stream<Item = crate::gauge::GaugeModel> {
     let (command_tx, command_rx) = mpsc::channel::<BrightnessCommand>();
-    let mut step_percent =
-        settings::settings().get_parsed_or("grelier.brightness.step_percent", DEFAULT_STEP_PERCENT);
+    let mut step_percent = settings::settings().get_parsed_or(
+        "grelier.gauge.brightness.step_percent",
+        DEFAULT_STEP_PERCENT,
+    );
     if step_percent == 0 {
         step_percent = DEFAULT_STEP_PERCENT;
     }
     let refresh_interval_secs = settings::settings().get_parsed_or(
-        "grelier.brightness.refresh_interval_secs",
+        "grelier.gauge.brightness.refresh_interval_secs",
         DEFAULT_REFRESH_INTERVAL_SECS,
     );
 
@@ -247,11 +249,11 @@ pub fn brightness_subscription() -> Subscription<Message> {
 pub fn settings() -> &'static [SettingSpec] {
     const SETTINGS: &[SettingSpec] = &[
         SettingSpec {
-            key: "grelier.brightness.step_percent",
+            key: "grelier.gauge.brightness.step_percent",
             default: "5",
         },
         SettingSpec {
-            key: "grelier.brightness.refresh_interval_secs",
+            key: "grelier.gauge.brightness.refresh_interval_secs",
             default: "2",
         },
     ];

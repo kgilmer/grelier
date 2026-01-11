@@ -1,5 +1,5 @@
 // Shared network sampling, formatting, and interval logic for net gauges.
-// Consumes Settings: grelier.net.*.
+// Consumes Settings: grelier.gauge.net.*.
 use std::fs;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex, OnceLock};
@@ -92,12 +92,12 @@ impl Default for NetIntervalConfig {
 
 pub fn net_interval_config_from_settings() -> NetIntervalConfig {
     let idle_threshold_bps =
-        settings::settings().get_parsed_or("grelier.net.idle_threshold_bps", 10_240.0);
+        settings::settings().get_parsed_or("grelier.gauge.net.idle_threshold_bps", 10_240.0);
     let fast_interval_secs =
-        settings::settings().get_parsed_or("grelier.net.fast_interval_secs", 1u64);
+        settings::settings().get_parsed_or("grelier.gauge.net.fast_interval_secs", 1u64);
     let slow_interval_secs =
-        settings::settings().get_parsed_or("grelier.net.slow_interval_secs", 3u64);
-    let calm_ticks = settings::settings().get_parsed_or("grelier.net.calm_ticks", 4u8);
+        settings::settings().get_parsed_or("grelier.gauge.net.slow_interval_secs", 3u64);
+    let calm_ticks = settings::settings().get_parsed_or("grelier.gauge.net.calm_ticks", 4u8);
 
     NetIntervalConfig {
         idle_threshold_bps,
@@ -139,11 +139,11 @@ impl NetSamplerConfig {
 
 pub fn sampler_config_from_settings() -> NetSamplerConfig {
     let min_interval_ms = settings::settings().get_parsed_or(
-        "grelier.net.sampler_min_interval_ms",
+        "grelier.gauge.net.sampler_min_interval_ms",
         DEFAULT_SAMPLER_MIN_INTERVAL_MS,
     );
-    let iface_ttl_secs =
-        settings::settings().get_parsed_or("grelier.net.iface_ttl_secs", DEFAULT_IFACE_TTL_SECS);
+    let iface_ttl_secs = settings::settings()
+        .get_parsed_or("grelier.gauge.net.iface_ttl_secs", DEFAULT_IFACE_TTL_SECS);
 
     NetSamplerConfig {
         min_interval: Duration::from_millis(min_interval_ms),
@@ -445,29 +445,31 @@ fn interface_is_up(iface: &str) -> bool {
 
 fn iface_cache_ttl() -> Duration {
     let ttl_secs = settings::settings().get_parsed_or(
-        "grelier.net.iface_cache_ttl_secs",
+        "grelier.gauge.net.iface_cache_ttl_secs",
         DEFAULT_IFACE_CACHE_TTL_SECS,
     );
     Duration::from_secs(ttl_secs)
 }
 
 fn sys_class_net_path() -> PathBuf {
-    PathBuf::from(
-        settings::settings().get_or("grelier.net.sys_class_net_path", DEFAULT_SYS_CLASS_NET_PATH),
-    )
+    PathBuf::from(settings::settings().get_or(
+        "grelier.gauge.net.sys_class_net_path",
+        DEFAULT_SYS_CLASS_NET_PATH,
+    ))
 }
 
 fn proc_net_route_path() -> PathBuf {
     PathBuf::from(settings::settings().get_or(
-        "grelier.net.proc_net_route_path",
+        "grelier.gauge.net.proc_net_route_path",
         DEFAULT_PROC_NET_ROUTE_PATH,
     ))
 }
 
 fn proc_net_dev_path() -> PathBuf {
-    PathBuf::from(
-        settings::settings().get_or("grelier.net.proc_net_dev_path", DEFAULT_PROC_NET_DEV_PATH),
-    )
+    PathBuf::from(settings::settings().get_or(
+        "grelier.gauge.net.proc_net_dev_path",
+        DEFAULT_PROC_NET_DEV_PATH,
+    ))
 }
 
 #[cfg(test)]
