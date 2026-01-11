@@ -40,6 +40,9 @@ impl SettingsStorage {
         };
         let reader = BufReader::new(file);
         let mut map = HashMap::new();
+        let mut pending = String::new();
+        let mut pending_line = 0usize;
+        let mut continuation = false;
 
         for (index, line) in reader.lines().enumerate() {
             let line = line.map_err(|err| {
@@ -48,9 +51,40 @@ impl SettingsStorage {
                     self.path.display()
                 )
             })?;
-            if let Some((key, value)) = parse_line(&line, index + 1)? {
+            let line_number = index + 1;
+            if !continuation && pending.is_empty() {
+                let trimmed = line.trim();
+                if trimmed.is_empty() || trimmed.starts_with('!') || trimmed.starts_with('#') {
+                    continue;
+                }
+                pending_line = line_number;
+            } else if pending.is_empty() {
+                pending_line = line_number;
+            }
+
+            let mut fragment = line;
+            if continuation {
+                fragment = fragment.trim_start().to_string();
+            }
+
+            let (segment, has_continuation) = split_continuation(&fragment);
+            pending.push_str(&segment);
+            continuation = has_continuation;
+
+            if continuation {
+                continue;
+            }
+
+            if let Some((key, value)) = parse_line(&pending, pending_line)? {
                 map.insert(key, value);
             }
+            pending.clear();
+        }
+
+        if continuation {
+            return Err(format!(
+                "line {pending_line}: trailing line continuation without content"
+            ));
         }
 
         Ok(map)
@@ -107,7 +141,86 @@ fn parse_line(line: &str, line_number: usize) -> Result<Option<(String, String)>
         return Err(format!("line {line_number}: empty key"));
     }
 
-    Ok(Some((key.to_string(), value.to_string())))
+    let value = unescape_value(value);
+
+    Ok(Some((key.to_string(), value)))
+}
+
+fn split_continuation(line: &str) -> (String, bool) {
+    let trimmed = line.trim_end();
+    let mut trailing_backslashes = 0usize;
+    for ch in trimmed.chars().rev() {
+        if ch == '\\' {
+            trailing_backslashes += 1;
+        } else {
+            break;
+        }
+    }
+
+    if trailing_backslashes % 2 == 1 {
+        let cutoff = trimmed.len() - 1;
+        (trimmed[..cutoff].to_string(), true)
+    } else {
+        (line.to_string(), false)
+    }
+}
+
+fn unescape_value(value: &str) -> String {
+    let mut output = String::new();
+    let mut chars = value.chars().peekable();
+
+    while let Some(ch) = chars.next() {
+        if ch != '\\' {
+            output.push(ch);
+            continue;
+        }
+
+        match chars.next() {
+            Some('n') => output.push('\n'),
+            Some('t') => output.push('\t'),
+            Some('r') => output.push('\r'),
+            Some('b') => output.push('\x08'),
+            Some('f') => output.push('\x0c'),
+            Some('\\') => output.push('\\'),
+            Some('x') => {
+                let mut digits = String::new();
+                for _ in 0..2 {
+                    if let Some(next) = chars.peek().copied() {
+                        if next.is_ascii_hexdigit() {
+                            digits.push(next);
+                            chars.next();
+                        } else {
+                            break;
+                        }
+                    }
+                }
+                if digits.is_empty() {
+                    output.push('x');
+                } else if let Ok(value) = u8::from_str_radix(&digits, 16) {
+                    output.push(value as char);
+                }
+            }
+            Some(c @ '0'..='7') => {
+                let mut digits = String::new();
+                digits.push(c);
+                for _ in 0..2 {
+                    if let Some(next @ '0'..='7') = chars.peek().copied() {
+                        digits.push(next);
+                        chars.next();
+                    } else {
+                        break;
+                    }
+                }
+                if let Ok(value) = u8::from_str_radix(&digits, 8) {
+                    output.push(value as char);
+                }
+            }
+            Some(other) => output.push(other),
+            None => output.push('\\'),
+        }
+    }
+
+    output
 }
 
 #[cfg(test)]
@@ -163,6 +276,33 @@ mod tests {
         let map = storage.load().expect("load parsed settings");
         assert_eq!(map.get("key.one"), Some(&"value".to_string()));
         assert_eq!(map.get("key.two"), Some(&"other".to_string()));
+
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn load_parses_line_continuations() {
+        let (storage, dir) = temp_storage("continuation");
+        let data = "key.one: hello\\\n  world\nkey.two: stay\n";
+        fs::write(&storage.path, data).expect("write settings storage");
+
+        let map = storage.load().expect("load continued settings");
+        assert_eq!(map.get("key.one"), Some(&"helloworld".to_string()));
+        assert_eq!(map.get("key.two"), Some(&"stay".to_string()));
+
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn load_unescapes_values() {
+        let (storage, dir) = temp_storage("unescape");
+        let data = "key.one: line\\nwrap\nkey.two: tab\\tvalue\nkey.three: \\101\n";
+        fs::write(&storage.path, data).expect("write settings storage");
+
+        let map = storage.load().expect("load escaped settings");
+        assert_eq!(map.get("key.one"), Some(&"line\nwrap".to_string()));
+        assert_eq!(map.get("key.two"), Some(&"tab\tvalue".to_string()));
+        assert_eq!(map.get("key.three"), Some(&"A".to_string()));
 
         let _ = fs::remove_dir_all(dir);
     }
