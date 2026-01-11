@@ -7,6 +7,29 @@ use iced::{
 };
 
 pub const DEFAULT_THEME: Theme = Theme::Nord;
+pub const VALID_THEME_NAMES: &[&str] = &[
+    "CatppuccinFrappe",
+    "CatppuccinLatte",
+    "CatppuccinMacchiato",
+    "CatppuccinMocha",
+    "Dark",
+    "Dracula",
+    "Ferra",
+    "GruvboxDark",
+    "GruvboxLight",
+    "KanagawaDragon",
+    "KanagawaLotus",
+    "KanagawaWave",
+    "Light",
+    "Moonfly",
+    "Nightfly",
+    "Nord",
+    "Oxocarbon",
+    "TokyoNight",
+    "TokyoNightLight",
+    "TokyoNightStorm",
+    "AyuMirage",
+];
 
 pub fn parse_them(name: &str) -> Option<Theme> {
     match name {

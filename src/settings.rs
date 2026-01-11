@@ -3,6 +3,7 @@ use std::collections::HashMap;
 use std::str::FromStr;
 use std::sync::{OnceLock, RwLock};
 
+use crate::gauge::SettingSpec;
 use crate::settings_storage::SettingsStorage;
 
 #[derive(Debug)]
@@ -63,6 +64,20 @@ impl Settings {
             return;
         }
         map.insert(key.to_string(), value.to_string());
+        let storage = self.storage.clone();
+        let snapshot = map.clone();
+        drop(map);
+        if let Err(err) = storage.save(&snapshot) {
+            eprintln!("Failed to save settings storage: {err}");
+        }
+    }
+
+    pub fn ensure_defaults(&self, specs: &[SettingSpec]) {
+        let mut map = self.map.write().expect("settings write lock poisoned");
+        for spec in specs {
+            map.entry(spec.key.to_string())
+                .or_insert_with(|| spec.default.to_string());
+        }
         let storage = self.storage.clone();
         let snapshot = map.clone();
         drop(map);

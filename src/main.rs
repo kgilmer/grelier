@@ -155,6 +155,13 @@ fn main() -> Result<(), iced_layershell::Error> {
         }
     }
 
+    let mut all_setting_specs = Vec::new();
+    all_setting_specs.extend_from_slice(BASE_SETTING_SPECS);
+    for gauge in KNOWN_GAUGES {
+        all_setting_specs.extend_from_slice(gauge_settings(gauge));
+    }
+    settings_store.ensure_defaults(&all_setting_specs);
+
     let gauges_setting = settings_store.get_or("grelier.gauges", DEFAULT_GAUGES);
     let gauges: Vec<String> = gauges_setting
         .split(',')
@@ -190,18 +197,10 @@ fn main() -> Result<(), iced_layershell::Error> {
     }
 
     let mut known_settings = std::collections::HashSet::new();
-    for spec in BASE_SETTING_SPECS {
+    for spec in &all_setting_specs {
         if !known_settings.insert(spec.key) {
             eprintln!("Duplicate setting key '{}'", spec.key);
             std::process::exit(1);
-        }
-    }
-    for gauge in &gauges {
-        for spec in gauge_settings(gauge.as_str()) {
-            if !known_settings.insert(spec.key) {
-                eprintln!("Duplicate setting key '{}'", spec.key);
-                std::process::exit(1);
-            }
         }
     }
 
@@ -236,11 +235,19 @@ fn main() -> Result<(), iced_layershell::Error> {
         ..LayerShellAppSettings::default()
     };
 
-    let theme = settings_store
-        .get("grelier.theme")
-        .as_deref()
-        .and_then(theme::parse_them)
-        .unwrap_or(theme::DEFAULT_THEME);
+    let theme = match settings_store.get("grelier.theme") {
+        Some(name) => match theme::parse_them(&name) {
+            Some(theme) => theme,
+            None => {
+                eprintln!(
+                    "Unknown theme '{name}'. Valid themes: {}",
+                    theme::VALID_THEME_NAMES.join(", ")
+                );
+                std::process::exit(1);
+            }
+        },
+        None => theme::DEFAULT_THEME,
+    };
 
     let gauge_order = gauges.clone();
 
@@ -385,6 +392,7 @@ fn update_gauge(gauges: &mut Vec<GaugeModel>, new: GaugeModel) {
 
 #[cfg(test)]
 mod tests {
+    use crate::settings_storage::SettingsStorage;
     use crate::app::GaugeMenuWindow;
     use crate::gauge::{GaugeClickTarget, GaugeMenu, GaugeValue, GaugeValueAttention};
     use std::sync::Arc;
@@ -392,6 +400,34 @@ mod tests {
     use std::sync::atomic::{AtomicBool, Ordering};
 
     use super::*;
+
+    fn temp_storage_path(name: &str) -> (SettingsStorage, std::path::PathBuf) {
+        let mut path = std::env::temp_dir();
+        path.push(format!("grelier_main_settings_test_{}", name));
+        path.push("Settings.xresources");
+        (SettingsStorage::new(path.clone()), path)
+    }
+
+    #[test]
+    fn command_line_overrides_apply_before_settings_persist() {
+        let (storage, path) = temp_storage_path("overrides_before_save");
+        let settings_store = settings::Settings::new(storage.clone());
+
+        settings_store.update("grelier.theme", "Light");
+
+        let mut all_setting_specs = Vec::new();
+        all_setting_specs.extend_from_slice(BASE_SETTING_SPECS);
+        all_setting_specs.extend_from_slice(gauge_settings("clock"));
+        settings_store.ensure_defaults(&all_setting_specs);
+
+        let contents = std::fs::read_to_string(&path).expect("read settings storage");
+        assert!(
+            contents.contains("grelier.theme: Light"),
+            "expected override to persist before defaults"
+        );
+
+        let _ = std::fs::remove_file(path);
+    }
 
     #[test]
     fn update_gauge_replaces_by_id() {
