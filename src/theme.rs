@@ -31,6 +31,12 @@ pub const VALID_THEME_NAMES: &[&str] = &[
     "AyuMirage",
 ];
 
+pub fn list_themes() {
+    for name in VALID_THEME_NAMES {
+        println!("{name}");
+    }
+}
+
 pub fn parse_them(name: &str) -> Option<Theme> {
     match name {
         "CatppuccinFrappe" => Some(Theme::CatppuccinFrappe),

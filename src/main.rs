@@ -164,6 +164,10 @@ struct Args {
     #[argh(option)]
     settings: Option<String>,
 
+    /// list available themes and exit
+    #[argh(switch)]
+    list_themes: bool,
+
     /// list settings for the selected gauges and exit
     #[argh(switch)]
     list_settings: bool,
@@ -186,6 +190,11 @@ fn app_subscription(_state: &BarState, gauges: &[String]) -> Subscription<Messag
 
 fn main() -> Result<(), iced_layershell::Error> {
     let args: Args = argh::from_env();
+
+    if args.list_themes {
+        theme::list_themes();
+        return Ok(());
+    }
 
     let default_gauges = gauge_registry::default_gauges();
     let base_setting_specs = base_setting_specs(default_gauges);

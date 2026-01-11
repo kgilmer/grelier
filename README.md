@@ -17,84 +17,172 @@ This project is in active development and should not be considered stable.
 ## Usage
 
 ```
-Usage: grelier [--gauges <gauges>] [--orientation <orientation>] [--theme <theme>] [--settings <settings>] [--list-settings]
+Usage: grelier [--settings <settings>] [--list-themes] [--list-settings]
 
 Workspace + gauges display
 
 Options:
-  --gauges          clock, date, battery, cpu, disk, ram, net_up, net_down,
-                    audio_out, audio_in, brightness, wifi
-  --orientation     orientation of the bar (left or right)
-  --theme           theme name:
-                    CatppuccinFrappe,CatppuccinLatte,CatppuccinMacchiato,CatppuccinMocha,Dark,Dracula,Ferra,GruvboxDark,GruvboxLight,KanagawaDragon,KanagawaLotus,KanagawaWave,Light,Moonfly,Nightfly,Nord,Oxocarbon,TokyoNight,TokyoNightLight,TokyoNightStorm,AyuMirage
   --settings        comma-separated settings overrides (key=value,key2=value2)
+  --list-themes     list available themes and exit
   --list-settings   list settings for the selected gauges and exit
   --help, help      display usage information
 ```
 
+### Bar Settings
+
+| Setting | Default | Description |
+| --- | --- | --- |
+| `grelier.gauges` | `clock,date` | Comma-separated list of gauges to display. |
+| `grelier.orientation` | `left` | Bar placement on the screen. |
+| `grelier.theme` | `Nord` | Theme name to load. |
+| `grelier.bar.width` | `28` | Bar width in columns. |
+| `grelier.bar.border_blend` | `true` | Blend border colors with the bar background. |
+| `grelier.bar.border_line_width` | `1.0` | Border line width. |
+| `grelier.bar.border_column_width` | `3.0` | Border column width. |
+| `grelier.bar.border_mix_1` | `0.2` | Border color mix level 1. |
+| `grelier.bar.border_mix_2` | `0.6` | Border color mix level 2. |
+| `grelier.bar.border_mix_3` | `1.0` | Border color mix level 3. |
+| `grelier.bar.border_alpha_1` | `0.9` | Border alpha level 1. |
+| `grelier.bar.border_alpha_2` | `0.7` | Border alpha level 2. |
+| `grelier.bar.border_alpha_3` | `0.9` | Border alpha level 3. |
+
 ## Gauges
 
 ### `audio_in`
-- Purpose: Input volume control with mute toggle and device menu.
-- Monitors/Measures: Default PulseAudio source volume and mute state.
-- Settings: `grelier.audio_in.step_percent` (default `5`).
+Input volume control with mute toggle and device menu. Monitors the default PulseAudio source volume and mute state.
+
+| Setting | Default | Description |
+| --- | --- | --- |
+| `grelier.audio_in.step_percent` | `5` | Scroll step size for volume changes (percent). |
 
 ### `audio_out`
-- Purpose: Output volume control with mute toggle and device menu.
-- Monitors/Measures: Default PulseAudio sink volume and mute state.
-- Settings: `grelier.audio_out.step_percent` (default `5`).
+Output volume control with mute toggle and device menu. Monitors the default PulseAudio sink volume and mute state.
+
+| Setting | Default | Description |
+| --- | --- | --- |
+| `grelier.audio_out.step_percent` | `5` | Scroll step size for volume changes (percent). |
 
 ### `battery`
-- Purpose: Battery status and charging indicator.
-- Monitors/Measures: Battery capacity and charging state from udev power_supply.
-- Settings: `grelier.battery.warning_percent` (default `49`), `grelier.battery.danger_percent` (default `19`).
+Battery status and charging indicator. Monitors battery capacity and charging state from udev `power_supply`.
+
+| Setting | Default | Description |
+| --- | --- | --- |
+| `grelier.battery.warning_percent` | `49` | Low-battery warning threshold (percent). |
+| `grelier.battery.danger_percent` | `19` | Critical-battery threshold (percent). |
 
 ### `brightness`
-- Purpose: Backlight brightness indicator with scroll-based adjustment.
-- Monitors/Measures: Backlight brightness percent via `/sys/class/backlight`.
-- Settings: `grelier.brightness.step_percent` (default `5`), `grelier.brightness.refresh_interval_secs` (default `2`).
+Backlight brightness indicator with scroll-based adjustment. Monitors backlight brightness via `/sys/class/backlight`.
+
+| Setting | Default | Description |
+| --- | --- | --- |
+| `grelier.brightness.step_percent` | `5` | Scroll step size for brightness changes (percent). |
+| `grelier.brightness.refresh_interval_secs` | `2` | Refresh interval in seconds. |
 
 ### `clock`
-- Purpose: Wall-clock time readout.
-- Monitors/Measures: Local system time (hour/minute, optional seconds).
-- Settings: `grelier.clock.showseconds` (default `false`), `grelier.clock.hourformat` (default `24`).
+Wall-clock time readout. Uses local system time (hour/minute, optional seconds).
+
+| Setting | Default | Description |
+| --- | --- | --- |
+| `grelier.clock.showseconds` | `false` | Show seconds in the time display. |
+| `grelier.clock.hourformat` | `24` | Hour format (`12` or `24`). |
 
 ### `cpu`
-- Purpose: CPU utilization indicator with adaptive polling.
-- Monitors/Measures: Aggregate CPU usage from `/proc/stat`.
-- Settings: `grelier.cpu.quantitystyle` (default `grid`), `grelier.cpu.warning_threshold` (default `0.75`), `grelier.cpu.danger_threshold` (default `0.90`), `grelier.cpu.fast_threshold` (default `0.50`), `grelier.cpu.calm_ticks` (default `4`), `grelier.cpu.fast_interval_secs` (default `1`), `grelier.cpu.slow_interval_secs` (default `4`).
+CPU utilization indicator with adaptive polling. Uses aggregate CPU usage from `/proc/stat`.
+
+| Setting | Default | Description |
+| --- | --- | --- |
+| `grelier.cpu.quantitystyle` | `grid` | Quantity icon style. |
+| `grelier.cpu.warning_threshold` | `0.75` | Warning threshold for usage. |
+| `grelier.cpu.danger_threshold` | `0.90` | Danger threshold for usage. |
+| `grelier.cpu.fast_threshold` | `0.50` | Usage level to switch to fast polling. |
+| `grelier.cpu.calm_ticks` | `4` | Calm ticks before returning to slow polling. |
+| `grelier.cpu.fast_interval_secs` | `1` | Fast polling interval in seconds. |
+| `grelier.cpu.slow_interval_secs` | `4` | Slow polling interval in seconds. |
 
 ### `date`
-- Purpose: Calendar date readout.
-- Monitors/Measures: Local system date (month/day).
-- Settings: `grelier.date.month_format` (default `%m`), `grelier.date.day_format` (default `%d`).
+Calendar date readout. Uses the local system date (month/day).
+
+| Setting | Default | Description |
+| --- | --- | --- |
+| `grelier.date.month_format` | `%m` | `strftime` month format. |
+| `grelier.date.day_format` | `%d` | `strftime` day format. |
 
 ### `disk`
-- Purpose: Disk usage indicator for a filesystem path.
-- Monitors/Measures: Used/total space for the configured path.
-- Settings: `grelier.disk.quantitystyle` (default `grid`), `grelier.disk.path` (default `/`), `grelier.disk.poll_interval_secs` (default `60`), `grelier.disk.warning_threshold` (default `0.85`), `grelier.disk.danger_threshold` (default `0.95`).
+Disk usage indicator for a filesystem path. Monitors used/total space for the configured path.
+
+| Setting | Default | Description |
+| --- | --- | --- |
+| `grelier.disk.quantitystyle` | `grid` | Quantity icon style. |
+| `grelier.disk.path` | `/` | Filesystem path to measure. |
+| `grelier.disk.poll_interval_secs` | `60` | Poll interval in seconds. |
+| `grelier.disk.warning_threshold` | `0.85` | Warning threshold for usage. |
+| `grelier.disk.danger_threshold` | `0.95` | Danger threshold for usage. |
 
 ### `net_down`
-- Purpose: Download throughput indicator.
-- Monitors/Measures: Active interface receive rate from `/proc/net/dev`.
-- Settings: Shared `grelier.net.*` settings (see `net_up`).
+Download throughput indicator. Monitors active interface receive rate from `/proc/net/dev`.
+
+| Setting | Default | Description |
+| --- | --- | --- |
+| `grelier.net.idle_threshold_bps` | `10240` | Below this rate, show idle state. |
+| `grelier.net.fast_interval_secs` | `1` | Fast polling interval in seconds. |
+| `grelier.net.slow_interval_secs` | `3` | Slow polling interval in seconds. |
+| `grelier.net.calm_ticks` | `4` | Calm ticks before returning to slow polling. |
+| `grelier.net.iface_cache_ttl_secs` | `10` | Interface cache TTL in seconds. |
+| `grelier.net.iface_ttl_secs` | `5` | Interface selection TTL in seconds. |
+| `grelier.net.sampler_min_interval_ms` | `900` | Minimum sampler interval in milliseconds. |
+| `grelier.net.sys_class_net_path` | `/sys/class/net` | Path to network interface sysfs. |
+| `grelier.net.proc_net_route_path` | `/proc/net/route` | Path to routing table data. |
+| `grelier.net.proc_net_dev_path` | `/proc/net/dev` | Path to interface counters. |
 
 ### `net_up`
-- Purpose: Upload throughput indicator.
-- Monitors/Measures: Active interface transmit rate from `/proc/net/dev`.
-- Settings: `grelier.net.idle_threshold_bps` (default `10240`), `grelier.net.fast_interval_secs` (default `1`), `grelier.net.slow_interval_secs` (default `3`), `grelier.net.calm_ticks` (default `4`), `grelier.net.iface_cache_ttl_secs` (default `10`), `grelier.net.iface_ttl_secs` (default `5`), `grelier.net.sampler_min_interval_ms` (default `900`), `grelier.net.sys_class_net_path` (default `/sys/class/net`), `grelier.net.proc_net_route_path` (default `/proc/net/route`), `grelier.net.proc_net_dev_path` (default `/proc/net/dev`).
+Upload throughput indicator. Monitors active interface transmit rate from `/proc/net/dev`.
+
+| Setting | Default | Description |
+| --- | --- | --- |
+| `grelier.net.idle_threshold_bps` | `10240` | Below this rate, show idle state. |
+| `grelier.net.fast_interval_secs` | `1` | Fast polling interval in seconds. |
+| `grelier.net.slow_interval_secs` | `3` | Slow polling interval in seconds. |
+| `grelier.net.calm_ticks` | `4` | Calm ticks before returning to slow polling. |
+| `grelier.net.iface_cache_ttl_secs` | `10` | Interface cache TTL in seconds. |
+| `grelier.net.iface_ttl_secs` | `5` | Interface selection TTL in seconds. |
+| `grelier.net.sampler_min_interval_ms` | `900` | Minimum sampler interval in milliseconds. |
+| `grelier.net.sys_class_net_path` | `/sys/class/net` | Path to network interface sysfs. |
+| `grelier.net.proc_net_route_path` | `/proc/net/route` | Path to routing table data. |
+| `grelier.net.proc_net_dev_path` | `/proc/net/dev` | Path to interface counters. |
 
 ### `ram`
-- Purpose: Memory utilization indicator with adaptive polling.
-- Monitors/Measures: System RAM usage from `/proc/meminfo` (including shrinkable ZFS ARC).
-- Settings: `grelier.ram.quantitystyle` (default `grid`), `grelier.ram.warning_threshold` (default `0.85`), `grelier.ram.danger_threshold` (default `0.95`), `grelier.ram.fast_threshold` (default `0.70`), `grelier.ram.calm_ticks` (default `4`), `grelier.ram.fast_interval_secs` (default `1`), `grelier.ram.slow_interval_secs` (default `4`).
+Memory utilization indicator with adaptive polling. Uses system RAM usage from `/proc/meminfo` (including shrinkable ZFS ARC).
+
+| Setting | Default | Description |
+| --- | --- | --- |
+| `grelier.ram.quantitystyle` | `grid` | Quantity icon style. |
+| `grelier.ram.warning_threshold` | `0.85` | Warning threshold for usage. |
+| `grelier.ram.danger_threshold` | `0.95` | Danger threshold for usage. |
+| `grelier.ram.fast_threshold` | `0.70` | Usage level to switch to fast polling. |
+| `grelier.ram.calm_ticks` | `4` | Calm ticks before returning to slow polling. |
+| `grelier.ram.fast_interval_secs` | `1` | Fast polling interval in seconds. |
+| `grelier.ram.slow_interval_secs` | `4` | Slow polling interval in seconds. |
 
 ### `wifi`
-- Purpose: Wi-Fi link status and signal indicator.
-- Monitors/Measures: Wi-Fi interface connection state and link quality from `/sys/class/net` and `/proc/net/wireless`.
-- Settings: `grelier.wifi.quantitystyle` (default `grid`), `grelier.wifi.quality_max` (default `70`), `grelier.wifi.poll_interval_secs` (default `3`).
+Wi-Fi link status and signal indicator. Monitors connection state and link quality from `/sys/class/net` and `/proc/net/wireless`.
+
+| Setting | Default | Description |
+| --- | --- | --- |
+| `grelier.wifi.quantitystyle` | `grid` | Quantity icon style. |
+| `grelier.wifi.quality_max` | `70` | Maximum quality value used for scaling. |
+| `grelier.wifi.poll_interval_secs` | `3` | Poll interval in seconds. |
 
 ### `test_gauge`
-- Purpose: Internal gauge for cycling quantity icons and attention states.
-- Monitors/Measures: Synthetic values (no system monitoring).
-- Settings: `grelier.test_gauge.quantitystyle` (default `pie`).
+Internal gauge for cycling quantity icons and attention states. Uses synthetic values (no system monitoring).
+
+| Setting | Default | Description |
+| --- | --- | --- |
+| `grelier.test_gauge.quantitystyle` | `pie` | Quantity icon style. |
+
+## Build and Run
+
+```shell
+cargo build --release
+./target/release/grelier &
+cat ~/.config/grelier/Settings.xresources
+```
