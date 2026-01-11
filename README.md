@@ -6,6 +6,10 @@ A desktop bar for Linux
 
 This program displays a fixed bar on the left-hand side of the screen.  It shows a list of all workspaces at the top and a user-configurable set of gauges at the bottom.  A gauge is something that displays system information or provides some action to change system state.  The program can take configuration parameters from CLI arguments or use Xresource-style key-value pairs specified in `$HOME/.config/grelier/Settings.xresources`.
 
+## Configuration
+
+Grelier reads from `$HOME/.config/grelier/Settings.xresources` on start for it's configuration.  Any configuration changes made interactively are immediately saved back to this file.  The file is regenerated each time, so any manual edits will be destroyed.  `grelier --list-settings` can be used to see all supported settings.
+
 ## Status
 
 This project is in active development and should not be considered stable.
