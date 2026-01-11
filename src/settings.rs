@@ -63,7 +63,6 @@ impl Settings {
             return;
         }
         map.insert(key.to_string(), value.to_string());
-        println!("Updated setting '{key}': {value}");
         let storage = self.storage.clone();
         let snapshot = map.clone();
         drop(map);

@@ -113,6 +113,8 @@ pub struct BarState {
     pub workspaces: Vec<WorkspaceInfo>,
     pub gauges: Vec<GaugeModel>,
     pub gauge_order: Vec<String>,
+    pub current_workspace: Option<String>,
+    pub previous_workspace: Option<String>,
     pub menu_windows: HashMap<window::Id, GaugeMenuWindow>,
     pub last_cursor: Option<iced::Point>,
     pub closing_menus: HashSet<window::Id>,
@@ -206,6 +208,41 @@ impl BarState {
         Some((p.y - offset).round() as i32)
     }
 
+    pub fn update_workspace_focus(&mut self, workspaces: &[WorkspaceInfo]) {
+        let workspace_count = workspaces.len();
+
+        // Drop the previous reference if it no longer exists or there's nothing to highlight.
+        if workspace_count <= 1
+            || self
+                .previous_workspace
+                .as_ref()
+                .is_some_and(|prev| !workspaces.iter().any(|ws| ws.name == *prev))
+        {
+            self.previous_workspace = None;
+        }
+
+        let focused_workspace = workspaces
+            .iter()
+            .find(|ws| ws.focused)
+            .map(|ws| ws.name.clone());
+
+        match focused_workspace {
+            Some(ref focused) if Some(focused.as_str()) != self.current_workspace.as_deref() => {
+                if workspace_count > 1 {
+                    if let Some(current) = self.current_workspace.take() {
+                        self.previous_workspace = Some(current);
+                    }
+                } else {
+                    self.previous_workspace = None;
+                }
+
+                self.current_workspace = Some(focused.clone());
+            }
+            Some(_) => {}
+            None => self.current_workspace = None,
+        }
+    }
+
     fn ordered_gauges(&self) -> Vec<&GaugeModel> {
         let order_index: HashMap<_, _> = self
             .gauge_order
@@ -271,6 +308,9 @@ impl BarState {
             return container(Space::new()).into();
         }
 
+        let previous_workspace = self.previous_workspace.as_deref();
+        let highlight_previous = previous_workspace.is_some() && self.workspaces.len() > 1;
+
         let workspaces = self.workspaces.iter().fold(
             Column::new()
                 .padding([workspace_padding_y, workspace_padding_x])
@@ -279,6 +319,9 @@ impl BarState {
                 let ws_name = ws.name.clone();
                 let ws_num = ws.num;
                 let (focus_level, urgent_level) = workspace_levels(ws);
+                let is_previous = highlight_previous
+                    && !ws.focused
+                    && previous_workspace == Some(ws.name.as_str());
 
                 let animated_workspace =
                     AnimationBuilder::new((focus_level, urgent_level), move |(focus, urgent)| {
@@ -301,7 +344,11 @@ impl BarState {
                                 let is_inactive = focus <= 0.0 && urgent <= 0.0;
 
                                 let background_color = if is_inactive {
-                                    palette.background.stronger.color
+                                    if is_previous {
+                                        palette.primary.weak.color
+                                    } else {
+                                        palette.background.stronger.color
+                                    }
                                 } else {
                                     workspace_color(
                                         focus,
@@ -311,7 +358,9 @@ impl BarState {
                                         palette.danger.base.color,
                                     )
                                 };
-                                let text_color = {
+                                let text_color = if is_previous {
+                                    palette.background.base.color
+                                } else {
                                     let emphasis = focus.max(urgent);
                                     lerp_color(
                                         theme.palette().text,
@@ -571,6 +620,28 @@ mod tests {
         }
     }
 
+    fn workspace(num: i32, focused: bool) -> WorkspaceInfo {
+        WorkspaceInfo {
+            id: num as i64,
+            num,
+            name: num.to_string(),
+            layout: String::new(),
+            visible: focused,
+            focused,
+            urgent: false,
+            representation: None,
+            orientation: String::new(),
+            rect: crate::sway_workspace::Rect {
+                x: 0,
+                y: 0,
+                width: 0,
+                height: 0,
+            },
+            output: String::new(),
+            focus: Vec::new(),
+        }
+    }
+
     #[test]
     fn orders_gauges_by_config_then_appends_rest() {
         let state = BarState {
@@ -582,5 +653,58 @@ mod tests {
         let ordered_ids: Vec<_> = state.ordered_gauges().into_iter().map(|g| g.id).collect();
 
         assert_eq!(ordered_ids, vec!["ram", "cpu", "disk"]);
+    }
+
+    #[test]
+    fn tracks_previous_workspace_when_focus_changes() {
+        let mut state = BarState::default();
+
+        state.update_workspace_focus(&[workspace(1, true)]);
+        assert_eq!(
+            state.current_workspace.as_deref(),
+            Some("1"),
+            "initial focus should be recorded"
+        );
+        assert!(
+            state.previous_workspace.is_none(),
+            "no previous on first focus"
+        );
+
+        state.update_workspace_focus(&[workspace(1, false), workspace(2, true)]);
+        assert_eq!(
+            state.previous_workspace.as_deref(),
+            Some("1"),
+            "prior workspace should be tracked"
+        );
+        assert_eq!(
+            state.current_workspace.as_deref(),
+            Some("2"),
+            "new focus should replace current"
+        );
+    }
+
+    #[test]
+    fn clears_previous_when_unavailable_or_single_workspace() {
+        let mut state = BarState::default();
+
+        state.update_workspace_focus(&[workspace(1, true), workspace(2, false)]);
+        state.update_workspace_focus(&[workspace(1, false), workspace(2, true)]);
+        assert_eq!(
+            state.previous_workspace.as_deref(),
+            Some("1"),
+            "previous workspace should be set when multiple exist"
+        );
+
+        state.update_workspace_focus(&[workspace(2, true)]);
+        assert!(
+            state.previous_workspace.is_none(),
+            "previous should clear when only one workspace remains"
+        );
+
+        state.update_workspace_focus(&[workspace(3, true)]);
+        assert!(
+            state.previous_workspace.is_none(),
+            "previous remains cleared without a prior focus to track"
+        );
     }
 }

@@ -43,21 +43,28 @@ use crate::gauges::{
     test_gauge, wifi,
 };
 
+const DEFAULT_GAUGES: &str = "clock,date";
+const DEFAULT_ORIENTATION: &str = "left";
+const DEFAULT_THEME: &str = "Nord";
+
+const BASE_SETTING_SPECS: &[SettingSpec] = &[
+    SettingSpec {
+        key: "grelier.gauges",
+        default: DEFAULT_GAUGES,
+    },
+    SettingSpec {
+        key: "grelier.orientation",
+        default: DEFAULT_ORIENTATION,
+    },
+    SettingSpec {
+        key: "grelier.theme",
+        default: DEFAULT_THEME,
+    },
+];
+
 #[derive(FromArgs, Debug)]
 /// Workspace + gauges display
 struct Args {
-    /// clock, date, battery, cpu, disk, ram, net_up, net_down, audio_out, audio_in, brightness, wifi
-    #[argh(option, default = "\"clock,date\".to_string()")]
-    gauges: String,
-
-    /// orientation of the bar (left or right)
-    #[argh(option, default = "Orientation::Left")]
-    orientation: Orientation,
-
-    /// theme name: CatppuccinFrappe,CatppuccinLatte,CatppuccinMacchiato,CatppuccinMocha,Dark,Dracula,Ferra,GruvboxDark,GruvboxLight,KanagawaDragon,KanagawaLotus,KanagawaWave,Light,Moonfly,Nightfly,Nord,Oxocarbon,TokyoNight,TokyoNightLight,TokyoNightStorm,AyuMirage
-    #[argh(option)]
-    theme: Option<String>,
-
     /// comma-separated settings overrides (key=value,key2=value2)
     #[argh(option)]
     settings: Option<String>,
@@ -131,8 +138,25 @@ fn main() -> Result<(), iced_layershell::Error> {
         "test_gauge",
     ];
 
-    let gauges: Vec<String> = args
-        .gauges
+    let storage =
+        settings_storage::SettingsStorage::new(settings_storage::SettingsStorage::default_path());
+    let settings_store = settings::init_settings(settings::Settings::new(storage));
+
+    if let Some(arg) = args.settings.as_deref() {
+        let overrides = match settings::parse_settings_arg(arg) {
+            Ok(map) => map,
+            Err(err) => {
+                eprintln!("Invalid settings: {err}");
+                std::process::exit(1);
+            }
+        };
+        for (key, value) in overrides {
+            settings_store.update(&key, &value);
+        }
+    }
+
+    let gauges_setting = settings_store.get_or("grelier.gauges", DEFAULT_GAUGES);
+    let gauges: Vec<String> = gauges_setting
         .split(',')
         .map(str::trim)
         .filter(|s| !s.is_empty())
@@ -150,8 +174,12 @@ fn main() -> Result<(), iced_layershell::Error> {
     }
 
     if args.list_settings {
-        for gauge in &gauges {
-            let specs = gauge_settings(gauge.as_str());
+        for spec in BASE_SETTING_SPECS {
+            println!("{}: {}", spec.key, spec.default);
+        }
+
+        for gauge in KNOWN_GAUGES {
+            let specs = gauge_settings(gauge);
 
             for spec in specs {
                 println!("{}:{}", spec.key, spec.default);
@@ -161,9 +189,13 @@ fn main() -> Result<(), iced_layershell::Error> {
         return Ok(());
     }
 
-    let storage =
-        settings_storage::SettingsStorage::new(settings_storage::SettingsStorage::default_path());
     let mut known_settings = std::collections::HashSet::new();
+    for spec in BASE_SETTING_SPECS {
+        if !known_settings.insert(spec.key) {
+            eprintln!("Duplicate setting key '{}'", spec.key);
+            std::process::exit(1);
+        }
+    }
     for gauge in &gauges {
         for spec in gauge_settings(gauge.as_str()) {
             if !known_settings.insert(spec.key) {
@@ -173,24 +205,17 @@ fn main() -> Result<(), iced_layershell::Error> {
         }
     }
 
-    let settings = settings::init_settings(settings::Settings::new(storage));
+    let bar_width = settings_store.get_parsed_or("grelier.bar.width", 28u32);
 
-    if let Some(arg) = args.settings.as_deref() {
-        let overrides = match settings::parse_settings_arg(arg) {
-            Ok(map) => map,
-            Err(err) => {
-                eprintln!("Invalid settings: {err}");
-                std::process::exit(1);
-            }
-        };
-        for (key, value) in overrides {
-            settings.update(&key, &value);
-        }
-    }
+    let orientation_setting = settings_store
+        .get_or("grelier.orientation", DEFAULT_ORIENTATION)
+        .parse::<Orientation>()
+        .unwrap_or_else(|err| {
+            eprintln!("{err}");
+            std::process::exit(1);
+        });
 
-    let bar_width = settings::settings().get_parsed_or("grelier.bar.width", 28u32);
-
-    let anchor = match args.orientation {
+    let anchor = match orientation_setting {
         Orientation::Left => Anchor::Left,
         Orientation::Right => Anchor::Right,
     };
@@ -211,8 +236,8 @@ fn main() -> Result<(), iced_layershell::Error> {
         ..LayerShellAppSettings::default()
     };
 
-    let theme = args
-        .theme
+    let theme = settings_store
+        .get("grelier.theme")
         .as_deref()
         .and_then(theme::parse_them)
         .unwrap_or(theme::DEFAULT_THEME);
@@ -239,7 +264,10 @@ fn main() -> Result<(), iced_layershell::Error> {
 
 fn update(state: &mut BarState, message: Message) -> Task<Message> {
     match message {
-        Message::Workspaces(ws) => state.workspaces = ws,
+        Message::Workspaces(ws) => {
+            state.update_workspace_focus(&ws);
+            state.workspaces = ws;
+        }
         Message::WorkspaceClicked(name) => {
             if !state.menu_windows.is_empty() {
                 return state.close_menus();
