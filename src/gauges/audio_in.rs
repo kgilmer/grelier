@@ -350,6 +350,7 @@ fn audio_in_stream() -> impl iced::futures::Stream<Item = crate::gauge::GaugeMod
                         attention,
                         on_click: Some(on_click.clone()),
                         menu,
+                        info: None,
                     });
                 };
 

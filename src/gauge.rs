@@ -7,6 +7,8 @@ use std::sync::{Arc, mpsc as sync_mpsc};
 use std::thread;
 use std::time::Duration;
 
+use crate::info_dialog::InfoDialog;
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum GaugeValueAttention {
     #[default]
@@ -54,6 +56,7 @@ pub struct GaugeModel {
     pub attention: GaugeValueAttention,
     pub on_click: Option<GaugeClickAction>,
     pub menu: Option<GaugeMenu>,
+    pub info: Option<InfoDialog>,
 }
 
 impl fmt::Debug for GaugeModel {
@@ -69,6 +72,14 @@ impl fmt::Debug for GaugeModel {
                     .menu
                     .as_ref()
                     .map(|menu| menu.title.clone())
+                    .unwrap_or_else(|| "<none>".to_string()),
+            )
+            .field(
+                "info",
+                &self
+                    .info
+                    .as_ref()
+                    .map(|dialog| dialog.title.clone())
                     .unwrap_or_else(|| "<none>".to_string()),
             )
             .finish_non_exhaustive()
@@ -134,6 +145,7 @@ pub fn fixed_interval(
                     attention,
                     on_click: on_click.clone(),
                     menu: None,
+                    info: None,
                 });
             }
 

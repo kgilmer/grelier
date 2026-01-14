@@ -55,6 +55,7 @@ fn battery_stream() -> impl iced::futures::Stream<Item = GaugeModel> {
                     attention,
                     on_click: None,
                     menu: None,
+                    info: None,
                 });
             }
         }
@@ -107,6 +108,7 @@ fn send_snapshot(
                 attention,
                 on_click: None,
                 menu: None,
+                info: None,
             });
         }
     }
@@ -119,6 +121,7 @@ fn send_snapshot(
             attention: GaugeValueAttention::Danger,
             on_click: None,
             menu: None,
+            info: None,
         });
     }
 }
