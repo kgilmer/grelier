@@ -15,6 +15,7 @@ mod gauges {
     pub mod net_down;
     pub mod net_up;
     pub mod ram;
+    #[cfg(debug_assertions)]
     pub mod test_gauge;
     pub mod wifi;
 }

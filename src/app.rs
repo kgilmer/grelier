@@ -1,5 +1,5 @@
 // Bar application state, update handling, and view composition for workspaces and gauges.
-// Consumes Settings: grelier.bar.width, grelier.bar.border_*, grelier.app.*.
+// Consumes Settings: grelier.bar.width, grelier.bar.border_*, grelier.app.*, grelier.ws.*.
 use std::collections::{HashMap, HashSet};
 use std::convert::TryInto;
 
@@ -258,40 +258,35 @@ impl BarState {
     }
 
     pub fn view<'a>(&'a self, window: window::Id) -> Element<'a, Message> {
-        let workspace_padding_x =
-            settings::settings().get_parsed_or("grelier.app.workspace_padding_x", 4u16);
-        let workspace_padding_y =
-            settings::settings().get_parsed_or("grelier.app.workspace_padding_y", 2u16);
-        let workspace_spacing =
-            settings::settings().get_parsed_or("grelier.app.workspace_spacing", 2u32);
+        let settings = settings::settings();
+        let workspace_padding_x = settings.get_parsed_or("grelier.app.workspace_padding_x", 4u16);
+        let workspace_padding_y = settings.get_parsed_or("grelier.app.workspace_padding_y", 2u16);
+        let workspace_spacing = settings.get_parsed_or("grelier.ws.spacing", 2u32);
         let workspace_button_padding_x =
-            settings::settings().get_parsed_or("grelier.app.workspace_button_padding_x", 4u16);
+            settings.get_parsed_or("grelier.app.workspace_button_padding_x", 4u16);
         let workspace_button_padding_y =
-            settings::settings().get_parsed_or("grelier.app.workspace_button_padding_y", 4u16);
-        let workspace_corner_radius =
-            settings::settings().get_parsed_or("grelier.app.workspace_corner_radius", 5.0);
-        let gauge_padding_x =
-            settings::settings().get_parsed_or("grelier.app.gauge_padding_x", 2u16);
-        let gauge_padding_y =
-            settings::settings().get_parsed_or("grelier.app.gauge_padding_y", 2u16);
-        let gauge_spacing = settings::settings().get_parsed_or("grelier.app.gauge_spacing", 18u32);
-        let gauge_icon_size =
-            settings::settings().get_parsed_or("grelier.app.gauge_icon_size", 17.0);
+            settings.get_parsed_or("grelier.app.workspace_button_padding_y", 4u16);
+        let workspace_corner_radius = settings.get_parsed_or("grelier.ws.corner_radius", 5.0_f32);
+        let workspace_transitions = settings.get_bool_or("grelier.ws.transitions", true);
+        let gauge_padding_x = settings.get_parsed_or("grelier.app.gauge_padding_x", 2u16);
+        let gauge_padding_y = settings.get_parsed_or("grelier.app.gauge_padding_y", 2u16);
+        let gauge_spacing = settings
+            .get_parsed("grelier.gauge.spacing")
+            .unwrap_or_else(|| settings.get_parsed_or("grelier.app.gauge_spacing", 18u32));
+        let gauge_icon_size = settings.get_parsed_or("grelier.app.gauge_icon_size", 17.0);
         let gauge_value_icon_size =
-            settings::settings().get_parsed_or("grelier.app.gauge_value_icon_size", 20.0);
+            settings.get_parsed_or("grelier.app.gauge_value_icon_size", 20.0);
         let gauge_icon_value_spacing =
-            settings::settings().get_parsed_or("grelier.app.gauge_icon_value_spacing", 3.0);
-        let border_blend = settings::settings().get_bool_or("grelier.bar.border_blend", true);
-        let border_line_width =
-            settings::settings().get_parsed_or("grelier.bar.border_line_width", 1.0);
-        let border_column_width =
-            settings::settings().get_parsed_or("grelier.bar.border_column_width", 3.0);
-        let border_mix_1 = settings::settings().get_parsed_or("grelier.bar.border_mix_1", 0.2);
-        let border_mix_2 = settings::settings().get_parsed_or("grelier.bar.border_mix_2", 0.6);
-        let border_mix_3 = settings::settings().get_parsed_or("grelier.bar.border_mix_3", 1.0);
-        let border_alpha_1 = settings::settings().get_parsed_or("grelier.bar.border_alpha_1", 0.9);
-        let border_alpha_2 = settings::settings().get_parsed_or("grelier.bar.border_alpha_2", 0.7);
-        let border_alpha_3 = settings::settings().get_parsed_or("grelier.bar.border_alpha_3", 0.9);
+            settings.get_parsed_or("grelier.app.gauge_icon_value_spacing", 3.0);
+        let border_blend = settings.get_bool_or("grelier.bar.border_blend", true);
+        let border_line_width = settings.get_parsed_or("grelier.bar.border_line_width", 1.0);
+        let border_column_width = settings.get_parsed_or("grelier.bar.border_column_width", 3.0);
+        let border_mix_1 = settings.get_parsed_or("grelier.bar.border_mix_1", 0.2);
+        let border_mix_2 = settings.get_parsed_or("grelier.bar.border_mix_2", 0.6);
+        let border_mix_3 = settings.get_parsed_or("grelier.bar.border_mix_3", 1.0);
+        let border_alpha_1 = settings.get_parsed_or("grelier.bar.border_alpha_1", 0.9);
+        let border_alpha_2 = settings.get_parsed_or("grelier.bar.border_alpha_2", 0.7);
+        let border_alpha_3 = settings.get_parsed_or("grelier.bar.border_alpha_3", 0.9);
 
         if let Some(menu_window) = self.menu_windows.get(&window) {
             let gauge_id = menu_window.gauge_id.clone();
@@ -323,76 +318,84 @@ impl BarState {
                     && !ws.focused
                     && previous_workspace == Some(ws.name.as_str());
 
-                let animated_workspace =
-                    AnimationBuilder::new((focus_level, urgent_level), move |(focus, urgent)| {
-                        let name = ws_name.clone();
-                        let mut label = Text::new(ws_num.to_string())
-                            .width(Length::Fill)
-                            .align_x(text::Alignment::Center);
-                        if focus > 0.0 {
-                            label = label.font(Font {
-                                weight: Weight::Bold,
-                                ..Font::DEFAULT
-                            });
-                        }
+                let build_workspace = move |focus: f32, urgent: f32| -> Element<'_, Message> {
+                    let name = ws_name.clone();
+                    let mut label = Text::new(ws_num.to_string())
+                        .width(Length::Fill)
+                        .align_x(text::Alignment::Center);
+                    if focus > 0.0 {
+                        label = label.font(Font {
+                            weight: Weight::Bold,
+                            ..Font::DEFAULT
+                        });
+                    }
 
-                        let content = container(label)
-                            .padding([workspace_button_padding_y, workspace_button_padding_x])
-                            .width(Length::Fill)
-                            .style(move |theme: &Theme| {
-                                let palette = theme.extended_palette();
-                                let is_inactive = focus <= 0.0 && urgent <= 0.0;
+                    let content = container(label)
+                        .padding([workspace_button_padding_y, workspace_button_padding_x])
+                        .width(Length::Fill)
+                        .style(move |theme: &Theme| {
+                            let palette = theme.extended_palette();
+                            let is_inactive = focus <= 0.0 && urgent <= 0.0;
 
-                                let background_color = if is_inactive {
-                                    if is_previous {
-                                        palette.primary.weak.color
-                                    } else {
-                                        palette.background.stronger.color
-                                    }
+                            let background_color = if is_inactive {
+                                if is_previous {
+                                    palette.primary.weak.color
                                 } else {
-                                    workspace_color(
-                                        focus,
-                                        urgent,
-                                        palette.background.base.color,
-                                        palette.primary.base.color,
-                                        palette.danger.base.color,
-                                    )
-                                };
-                                let text_color = if is_previous {
-                                    palette.background.base.color
-                                } else {
-                                    let emphasis = focus.max(urgent);
-                                    lerp_color(
-                                        theme.palette().text,
-                                        palette.background.base.color,
-                                        emphasis,
-                                    )
-                                };
-                                let border = Border::default()
-                                    .rounded(border::Radius::new(workspace_corner_radius));
-
-                                container::Style {
-                                    background: Some(background_color.into()),
-                                    border,
-                                    text_color: Some(text_color),
-                                    ..container::Style::default()
+                                    palette.background.stronger.color
                                 }
-                            });
+                            } else {
+                                workspace_color(
+                                    focus,
+                                    urgent,
+                                    palette.background.base.color,
+                                    palette.primary.base.color,
+                                    palette.danger.base.color,
+                                )
+                            };
+                            let text_color = if is_previous {
+                                palette.background.base.color
+                            } else {
+                                let emphasis = focus.max(urgent);
+                                lerp_color(
+                                    theme.palette().text,
+                                    palette.background.base.color,
+                                    emphasis,
+                                )
+                            };
+                            let border = Border::default()
+                                .rounded(border::Radius::new(workspace_corner_radius));
 
-                        button(content)
-                            .style(|theme: &Theme, _status| button::Style {
-                                background: None,
-                                text_color: theme.palette().text,
-                                ..button::Style::default()
-                            })
-                            .padding(0)
-                            .width(Length::Fill)
-                            .on_press(Message::WorkspaceClicked(name))
-                            .into()
+                            container::Style {
+                                background: Some(background_color.into()),
+                                border,
+                                text_color: Some(text_color),
+                                ..container::Style::default()
+                            }
+                        });
+
+                    button(content)
+                        .style(|theme: &Theme, _status| button::Style {
+                            background: None,
+                            text_color: theme.palette().text,
+                            ..button::Style::default()
+                        })
+                        .padding(0)
+                        .width(Length::Fill)
+                        .on_press(Message::WorkspaceClicked(name))
+                        .into()
+                };
+
+                let workspace: Element<'_, Message> = if workspace_transitions {
+                    AnimationBuilder::new((focus_level, urgent_level), move |(focus, urgent)| {
+                        build_workspace(focus, urgent)
                     })
-                    .animation(Easing::EASE_IN_OUT.very_quick());
+                    .animation(Easing::EASE_IN_OUT.very_quick())
+                    .into()
+                } else {
+                    build_workspace(focus_level, urgent_level)
+                };
 
-                col.push(animated_workspace)
+                col.push(workspace)
             },
         );
 

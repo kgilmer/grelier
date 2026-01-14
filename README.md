@@ -10,6 +10,16 @@ This program displays a fixed bar on the left-hand side of the screen.  It shows
 
 Grelier reads from `$HOME/.config/grelier/Settings.xresources` on start for it's configuration.  Any configuration changes made interactively are immediately saved back to this file.  The file is regenerated each time, so any manual edits will be destroyed.  `grelier --list-settings` can be used to see all supported settings.
 
+### Workspace styling
+
+- `grelier.ws.corner_radius` (default `5.0`): Sets the roundness of workspace indicators.
+- `grelier.ws.spacing` (default `2`): Controls the space between workspace indicators.
+- `grelier.ws.transitions` (default `true`): Enables the focus/urgent transition animation.
+
+### Gauge layout
+
+- `grelier.gauge.spacing` (default `18`): Sets the vertical space between gauges.
+
 ## Status
 
 This project is in active development and should not be considered stable.
