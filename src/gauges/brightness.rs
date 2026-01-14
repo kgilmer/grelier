@@ -166,6 +166,7 @@ fn brightness_stream() -> impl iced::futures::Stream<Item = crate::gauge::GaugeM
                     attention,
                     on_click: Some(on_click.clone()),
                     menu: None,
+                    info: None,
                 });
             };
 

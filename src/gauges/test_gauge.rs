@@ -1,5 +1,6 @@
 // Test gauge that cycles quantity icons and toggles style/attention on clicks.
 // Consumes Settings: grelier.gauge.test_gauge.quantitystyle.
+use iced::futures::StreamExt;
 use iced::mouse;
 use std::sync::Mutex;
 use std::time::Duration;
@@ -9,6 +10,7 @@ use crate::gauge::{
 };
 use crate::gauge_registry::{GaugeSpec, GaugeStream};
 use crate::icon::{QuantityStyle, icon_quantity};
+use crate::info_dialog::InfoDialog;
 use crate::settings;
 use std::sync::Arc;
 
@@ -116,6 +118,14 @@ fn test_gauge_stream() -> impl iced::futures::Stream<Item = crate::gauge::GaugeM
     let style =
         QuantityStyle::parse_setting("grelier.gauge.test_gauge.quantitystyle", &style_value);
     let state = Arc::new(Mutex::new(QuantityState::new(style)));
+    let info_dialog = InfoDialog {
+        title: "Test Gauge Info".to_string(),
+        lines: vec![
+            "Lorem ipsum dolor sit amet, consectetur adipiscing elit.".to_string(),
+            "Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua.".to_string(),
+            "Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat.".to_string(),
+        ],
+    };
     let on_click: GaugeClickAction = {
         let state = Arc::clone(&state);
         Arc::new(move |click: GaugeClick| {
@@ -158,6 +168,13 @@ fn test_gauge_stream() -> impl iced::futures::Stream<Item = crate::gauge::GaugeM
         },
         Some(on_click),
     )
+    .map({
+        let info_dialog = info_dialog.clone();
+        move |mut model| {
+            model.info = Some(info_dialog.clone());
+            model
+        }
+    })
 }
 
 pub fn settings() -> &'static [SettingSpec] {
@@ -187,6 +204,22 @@ inventory::submit! {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use iced::futures::executor::block_on;
+    use std::sync::Once;
+
+    use crate::settings_storage::SettingsStorage;
+
+    fn init_settings_once() {
+        static INIT: Once = Once::new();
+        INIT.call_once(|| {
+            let mut path = std::env::temp_dir();
+            path.push("grelier_test_gauge_settings");
+            path.push("Settings.xresources");
+            let storage = SettingsStorage::new(path);
+            let settings = crate::settings::Settings::new(storage);
+            let _ = crate::settings::init_settings(settings);
+        });
+    }
 
     #[test]
     fn pie_sequence_bounces() {
@@ -231,5 +264,16 @@ mod tests {
         assert!(matches!(state.mode, QuantityMode::Pie));
         state.cycle_mode();
         assert!(matches!(state.mode, QuantityMode::Grid));
+    }
+
+    #[test]
+    fn info_dialog_attached_to_stream() {
+        init_settings_once();
+        let mut stream = test_gauge_stream();
+        let first = block_on(stream.next()).expect("gauge model");
+        let info = first.info.expect("info dialog should be set");
+
+        assert_eq!(info.title, "Test Gauge Info");
+        assert_eq!(info.lines.len(), 3);
     }
 }

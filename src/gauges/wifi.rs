@@ -182,6 +182,7 @@ fn wifi_gauge(
         attention,
         on_click,
         menu: None,
+        info: None,
     }
 }
 

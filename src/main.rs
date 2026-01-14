@@ -22,6 +22,7 @@ mod gauges {
 mod gauge;
 mod gauge_registry;
 mod icon;
+mod info_dialog;
 mod menu_dialog;
 mod settings;
 mod settings_storage;
@@ -343,8 +344,8 @@ fn update(state: &mut BarState, message: Message) -> Task<Message> {
             state.workspaces = ws;
         }
         Message::WorkspaceClicked(name) => {
-            if !state.menu_windows.is_empty() {
-                return state.close_menus();
+            if !state.dialog_windows.is_empty() {
+                return state.close_dialogs();
             }
             if let Err(err) = sway_workspace::focus_workspace(&name) {
                 eprintln!("Failed to focus workspace \"{name}\": {err}");
@@ -354,33 +355,63 @@ fn update(state: &mut BarState, message: Message) -> Task<Message> {
             state.last_cursor = Some(position);
         }
         Message::BackgroundClicked => {
-            if !state.menu_windows.is_empty() {
-                return state.close_menus();
+            if !state.dialog_windows.is_empty() {
+                return state.close_dialogs();
+            }
+        }
+        Message::IcedEvent(iced::Event::Keyboard(
+            iced::keyboard::Event::KeyPressed {
+                key: iced::keyboard::Key::Named(iced::keyboard::key::Named::Escape),
+                ..
+            },
+        )) => {
+            if !state.dialog_windows.is_empty() {
+                return state.close_dialogs();
             }
         }
         Message::Gauge(gauge) => {
             update_gauge(&mut state.gauges, gauge);
         }
         Message::GaugeClicked { id, target, input } => {
-            let close_menus_task = if state.menu_windows.is_empty() {
+            // If any dialog is open, any click just dismisses it.
+            if !state.dialog_windows.is_empty() {
+                return state.close_dialogs();
+            }
+
+            let close_dialogs_task = if state.dialog_windows.is_empty() {
                 Task::none()
             } else {
-                state.close_menus()
+                state.close_dialogs()
             };
 
             let gauge_index = state.gauges.iter().position(|g| g.id == id);
             let gauge_menu = gauge_index.and_then(|idx| state.gauges[idx].menu.clone());
+            let gauge_info = gauge_index.and_then(|idx| state.gauges[idx].info.clone());
             let gauge_callback = gauge_index.and_then(|idx| state.gauges[idx].on_click.clone());
 
             if matches!(input, GaugeInput::Button(iced::mouse::Button::Right))
                 && let Some(menu) = gauge_menu
             {
                 let anchor_y = state
-                    .gauge_menu_anchor
+                    .gauge_dialog_anchor
                     .get(&id)
                     .copied()
                     .or_else(|| state.gauge_anchor_y(target));
-                return Task::batch(vec![close_menus_task, state.open_menu(&id, menu, anchor_y)]);
+                return Task::batch(vec![close_dialogs_task, state.open_menu(&id, menu, anchor_y)]);
+            }
+
+            if matches!(input, GaugeInput::Button(iced::mouse::Button::Middle))
+                && let Some(dialog) = gauge_info
+            {
+                let anchor_y = state
+                    .gauge_dialog_anchor
+                    .get(&id)
+                    .copied()
+                    .or_else(|| state.gauge_anchor_y(target));
+                return Task::batch(vec![
+                    close_dialogs_task,
+                    state.open_info_dialog(&id, dialog, anchor_y),
+                ]);
             }
 
             if let Some(callback) = gauge_callback {
@@ -389,8 +420,8 @@ fn update(state: &mut BarState, message: Message) -> Task<Message> {
                 println!("Gauge '{id}' clicked: {:?} {:?}", target, input);
             }
 
-            if close_menus_task.units() > 0 {
-                return close_menus_task;
+            if close_dialogs_task.units() > 0 {
+                return close_dialogs_task;
             }
         }
         Message::MenuItemSelected {
@@ -399,9 +430,9 @@ fn update(state: &mut BarState, message: Message) -> Task<Message> {
             item_id,
         } => {
             // close menus first so clicking in parent bar after selection behaves consistently
-            state.menu_windows.remove(&window);
-            state.closing_menus.remove(&window);
-            let _ = state.close_menus();
+            state.dialog_windows.remove(&window);
+            state.closing_dialogs.remove(&window);
+            let _ = state.close_dialogs();
             if let Some(menu) = state
                 .gauges
                 .iter()
@@ -414,17 +445,18 @@ fn update(state: &mut BarState, message: Message) -> Task<Message> {
             return Task::done(Message::RemoveWindow(window));
         }
         Message::MenuDismissed(window) => {
-            state.menu_windows.remove(&window);
-            state.closing_menus.remove(&window);
+            state.dialog_windows.remove(&window);
+            state.closing_dialogs.remove(&window);
             return Task::done(Message::RemoveWindow(window));
         }
         Message::WindowClosed(window) => {
-            state.menu_windows.remove(&window);
-            state.closing_menus.remove(&window);
+            state.dialog_windows.remove(&window);
+            state.closing_dialogs.remove(&window);
         }
         Message::IcedEvent(iced::Event::Window(iced::window::Event::Unfocused)) => {
-            if let Some(window) = state.menu_windows.keys().copied().next() {
-                state.menu_windows.remove(&window);
+            if let Some(window) = state.dialog_windows.keys().copied().next() {
+                state.dialog_windows.remove(&window);
+                state.closing_dialogs.remove(&window);
                 return Task::done(Message::RemoveWindow(window));
             }
         }
@@ -459,7 +491,7 @@ fn update_gauge(gauges: &mut Vec<GaugeModel>, new: GaugeModel) {
 
 #[cfg(test)]
 mod tests {
-    use crate::app::GaugeMenuWindow;
+    use crate::app::{GaugeDialog, GaugeDialogWindow};
     use crate::gauge::{GaugeClickTarget, GaugeMenu, GaugeValue, GaugeValueAttention};
     use crate::settings_storage::SettingsStorage;
     use std::sync::Arc;
@@ -508,6 +540,7 @@ mod tests {
             attention: GaugeValueAttention::Nominal,
             on_click: None,
             menu: None,
+            info: None,
         };
         let g2 = GaugeModel {
             id: "clock",
@@ -516,6 +549,7 @@ mod tests {
             attention: GaugeValueAttention::Nominal,
             on_click: None,
             menu: None,
+            info: None,
         };
 
         update_gauge(&mut gauges, g1.clone());
@@ -533,24 +567,25 @@ mod tests {
             attention: GaugeValueAttention::Nominal,
             on_click: None,
             menu: None,
+            info: None,
         };
         update_gauge(&mut gauges, g3.clone());
         assert_eq!(gauges.len(), 2, "different id should append");
     }
 
     #[test]
-    fn left_click_closes_open_menu_and_invokes_callback() {
+    fn left_click_closes_open_dialog_without_invoking_callback() {
         let mut state = BarState::default();
         let window = window::Id::unique();
-        state.menu_windows.insert(
+        state.dialog_windows.insert(
             window,
-            GaugeMenuWindow {
+            GaugeDialogWindow {
                 gauge_id: "audio_out".to_string(),
-                menu: GaugeMenu {
+                dialog: GaugeDialog::Menu(GaugeMenu {
                     title: "Test".into(),
                     items: Vec::new(),
                     on_select: None,
-                },
+                }),
             },
         );
 
@@ -565,6 +600,7 @@ mod tests {
                 move |_click| clicked.store(true, Ordering::SeqCst)
             })),
             menu: None,
+            info: None,
         });
 
         let task = update(
@@ -576,13 +612,16 @@ mod tests {
             },
         );
 
-        assert!(clicked.load(Ordering::SeqCst), "callback should be invoked");
         assert!(
-            state.menu_windows.is_empty(),
+            !clicked.load(Ordering::SeqCst),
+            "callback should not be invoked while closing dialog"
+        );
+        assert!(
+            state.dialog_windows.is_empty(),
             "menu windows should be cleared"
         );
         assert!(
-            state.closing_menus.contains(&window),
+            state.closing_dialogs.contains(&window),
             "window should be marked for closing"
         );
         assert!(
@@ -595,15 +634,15 @@ mod tests {
     fn right_click_leaves_menu_open() {
         let mut state = BarState::default();
         let window = window::Id::unique();
-        state.menu_windows.insert(
+        state.dialog_windows.insert(
             window,
-            GaugeMenuWindow {
+            GaugeDialogWindow {
                 gauge_id: "audio_out".to_string(),
-                menu: GaugeMenu {
+                dialog: GaugeDialog::Menu(GaugeMenu {
                     title: "Test".into(),
                     items: Vec::new(),
                     on_select: None,
-                },
+                }),
             },
         );
         state.gauges.push(GaugeModel {
@@ -613,6 +652,7 @@ mod tests {
             attention: GaugeValueAttention::Nominal,
             on_click: None,
             menu: None,
+            info: None,
         });
 
         let task = update(
@@ -625,11 +665,11 @@ mod tests {
         );
 
         assert!(
-            !state.menu_windows.contains_key(&window),
+            !state.dialog_windows.contains_key(&window),
             "any click should close existing menu"
         );
         assert!(
-            state.closing_menus.contains(&window),
+            state.closing_dialogs.contains(&window),
             "window should be marked for closing"
         );
         assert!(
@@ -643,26 +683,26 @@ mod tests {
         let mut state = BarState::default();
         let window = window::Id::unique();
         let other_window = window::Id::unique();
-        state.menu_windows.insert(
+        state.dialog_windows.insert(
             window,
-            GaugeMenuWindow {
+            GaugeDialogWindow {
                 gauge_id: "audio_out".to_string(),
-                menu: GaugeMenu {
+                dialog: GaugeDialog::Menu(GaugeMenu {
                     title: "Test".into(),
                     items: Vec::new(),
                     on_select: None,
-                },
+                }),
             },
         );
-        state.menu_windows.insert(
+        state.dialog_windows.insert(
             other_window,
-            GaugeMenuWindow {
+            GaugeDialogWindow {
                 gauge_id: "audio_out".to_string(),
-                menu: GaugeMenu {
+                dialog: GaugeDialog::Menu(GaugeMenu {
                     title: "Other".into(),
                     items: Vec::new(),
                     on_select: None,
-                },
+                }),
             },
         );
 
@@ -684,6 +724,7 @@ mod tests {
                 items: Vec::new(),
                 on_select: Some(on_select),
             }),
+            info: None,
         });
 
         let task = update(
@@ -700,13 +741,13 @@ mod tests {
             Some("sink-1"),
             "menu selection should be forwarded"
         );
-        assert!(state.menu_windows.is_empty(), "menus should be cleared");
+        assert!(state.dialog_windows.is_empty(), "menus should be cleared");
         assert!(
-            state.closing_menus.contains(&other_window),
+            state.closing_dialogs.contains(&other_window),
             "other menus should be marked for closing"
         );
         assert!(
-            !state.closing_menus.contains(&window),
+            !state.closing_dialogs.contains(&window),
             "selected window is closed directly"
         );
         assert!(task.units() > 0, "menu selection returns a close task");
@@ -716,29 +757,65 @@ mod tests {
     fn menu_dismissed_clears_tracking() {
         let mut state = BarState::default();
         let window = window::Id::unique();
-        state.menu_windows.insert(
+        state.dialog_windows.insert(
             window,
-            GaugeMenuWindow {
+            GaugeDialogWindow {
                 gauge_id: "audio_out".to_string(),
-                menu: GaugeMenu {
+                dialog: GaugeDialog::Menu(GaugeMenu {
                     title: "Test".into(),
                     items: Vec::new(),
                     on_select: None,
-                },
+                }),
             },
         );
-        state.closing_menus.insert(window);
+        state.closing_dialogs.insert(window);
 
         let _ = update(&mut state, Message::MenuDismissed(window));
 
         assert!(
-            !state.menu_windows.contains_key(&window),
+            !state.dialog_windows.contains_key(&window),
             "menu should be removed"
         );
         assert!(
-            !state.closing_menus.contains(&window),
+            !state.closing_dialogs.contains(&window),
             "closing set should be cleared"
         );
+    }
+
+    #[test]
+    fn gauge_click_closes_existing_dialog_without_reopening() {
+        let mut state = BarState::default();
+        let window = window::Id::unique();
+        state.dialog_windows.insert(
+            window,
+            GaugeDialogWindow {
+                gauge_id: "test".to_string(),
+                dialog: GaugeDialog::Menu(GaugeMenu {
+                    title: "Test".into(),
+                    items: Vec::new(),
+                    on_select: None,
+                }),
+            },
+        );
+
+        let task = update(
+            &mut state,
+            Message::GaugeClicked {
+                id: "test".to_string(),
+                target: GaugeClickTarget::Icon,
+                input: GaugeInput::Button(mouse::Button::Middle),
+            },
+        );
+
+        assert!(
+            state.dialog_windows.is_empty(),
+            "dialog windows should be cleared on any click"
+        );
+        assert!(
+            state.closing_dialogs.contains(&window),
+            "existing dialog should be marked for closing"
+        );
+        assert!(task.units() > 0, "closing task should be returned");
     }
 
     fn assert_text_value(model: &GaugeModel, expected: &str) {

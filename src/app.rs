@@ -7,7 +7,8 @@ use crate::gauge::{
     GaugeClickTarget, GaugeInput, GaugeMenu, GaugeModel, GaugeValue, GaugeValueAttention,
 };
 use crate::icon::svg_asset;
-use crate::menu_dialog::{dialog_dimensions, menu_view};
+use crate::info_dialog::{dialog_dimensions as info_dialog_dimensions, info_view, InfoDialog};
+use crate::menu_dialog::{dialog_dimensions as menu_dialog_dimensions, menu_view};
 use crate::settings;
 use crate::sway_workspace::WorkspaceInfo;
 use iced::alignment;
@@ -115,16 +116,22 @@ pub struct BarState {
     pub gauge_order: Vec<String>,
     pub current_workspace: Option<String>,
     pub previous_workspace: Option<String>,
-    pub menu_windows: HashMap<window::Id, GaugeMenuWindow>,
+    pub dialog_windows: HashMap<window::Id, GaugeDialogWindow>,
     pub last_cursor: Option<iced::Point>,
-    pub closing_menus: HashSet<window::Id>,
-    pub gauge_menu_anchor: HashMap<String, i32>,
+    pub closing_dialogs: HashSet<window::Id>,
+    pub gauge_dialog_anchor: HashMap<String, i32>,
 }
 
 #[derive(Clone)]
-pub struct GaugeMenuWindow {
+pub enum GaugeDialog {
+    Menu(GaugeMenu),
+    Info(InfoDialog),
+}
+
+#[derive(Clone)]
+pub struct GaugeDialogWindow {
     pub gauge_id: String,
-    pub menu: GaugeMenu,
+    pub dialog: GaugeDialog,
 }
 
 impl BarState {
@@ -156,27 +163,74 @@ impl BarState {
         menu: GaugeMenu,
         anchor_y: Option<i32>,
     ) -> Task<Message> {
-        let mut tasks = vec![self.close_menus()];
+        let (width, height) = menu_dialog_dimensions(&menu);
+        self.open_dialog_window(
+            gauge_id,
+            GaugeDialog::Menu(menu),
+            anchor_y,
+            (width, height),
+        )
+    }
 
-        let (width, height) = dialog_dimensions(&menu);
+    pub fn open_info_dialog(
+        &mut self,
+        gauge_id: &str,
+        dialog: InfoDialog,
+        anchor_y: Option<i32>,
+    ) -> Task<Message> {
+        let (width, height) = info_dialog_dimensions(&dialog);
+        self.open_dialog_window(
+            gauge_id,
+            GaugeDialog::Info(dialog),
+            anchor_y,
+            (width, height),
+        )
+    }
+
+    fn open_dialog_window(
+        &mut self,
+        gauge_id: &str,
+        dialog: GaugeDialog,
+        anchor_y: Option<i32>,
+        size: (u32, u32),
+    ) -> Task<Message> {
+        let mut tasks = vec![self.close_dialogs()];
+
+        let (width, height) = size;
         let bar_width = settings::settings().get_parsed_or("grelier.bar.width", 28u32) as i32;
         let anchor_y = anchor_y
-            .or_else(|| self.gauge_menu_anchor.get(gauge_id).copied())
+            .or_else(|| self.gauge_dialog_anchor.get(gauge_id).copied())
             .or_else(|| self.last_cursor.map(|p| p.y as i32))
             .unwrap_or_default();
+        // Use workspace bounds to keep the popup within the visible screen height.
+        let screen_height = self
+            .workspaces
+            .iter()
+            .map(|ws| ws.rect.y + ws.rect.height)
+            .max()
+            .unwrap_or(height as i32);
+        let max_top = (screen_height - height as i32).max(0);
+        // Center the popup around the anchor and keep it on-screen vertically.
+        let mut position_y = anchor_y.saturating_sub(height as i32 / 2);
+        if position_y < 0 {
+            position_y = 0;
+        }
+        if position_y > max_top {
+            position_y = max_top;
+        }
 
         let settings = IcedNewPopupSettings {
             size: (width, height),
-            position: (bar_width, anchor_y),
+            position: (bar_width, position_y),
         };
         let (window, task) = Message::popup_open(settings);
-        self.gauge_menu_anchor
+        self.gauge_dialog_anchor
             .insert(gauge_id.to_string(), anchor_y);
-        self.menu_windows.insert(
+        self.dialog_windows.insert(
             window,
-            GaugeMenuWindow {
+            GaugeDialogWindow {
                 gauge_id: gauge_id.to_string(),
-                menu,
+                dialog,
             },
         );
         tasks.push(task);
@@ -184,11 +238,11 @@ impl BarState {
         Task::batch(tasks)
     }
 
-    pub fn close_menus(&mut self) -> Task<Message> {
-        let ids: Vec<window::Id> = self.menu_windows.keys().copied().collect();
-        self.menu_windows.clear();
+    pub fn close_dialogs(&mut self) -> Task<Message> {
+        let ids: Vec<window::Id> = self.dialog_windows.keys().copied().collect();
+        self.dialog_windows.clear();
         for id in &ids {
-            self.closing_menus.insert(*id);
+            self.closing_dialogs.insert(*id);
         }
         Task::batch(ids.into_iter().map(Message::RemoveWindow).map(Task::done))
     }
@@ -288,18 +342,21 @@ impl BarState {
         let border_alpha_2 = settings.get_parsed_or("grelier.bar.border_alpha_2", 0.7);
         let border_alpha_3 = settings.get_parsed_or("grelier.bar.border_alpha_3", 0.9);
 
-        if let Some(menu_window) = self.menu_windows.get(&window) {
-            let gauge_id = menu_window.gauge_id.clone();
+        if let Some(dialog_window) = self.dialog_windows.get(&window) {
+            let gauge_id = dialog_window.gauge_id.clone();
             let window_id = window;
-            return menu_view(&menu_window.menu, move |item_id| {
-                Message::MenuItemSelected {
-                    window: window_id,
-                    gauge_id: gauge_id.clone(),
-                    item_id,
-                }
-            });
+            return match &dialog_window.dialog {
+                GaugeDialog::Menu(menu) => menu_view(menu, move |item_id| {
+                    Message::MenuItemSelected {
+                        window: window_id,
+                        gauge_id: gauge_id.clone(),
+                        item_id,
+                    }
+                }),
+                GaugeDialog::Info(dialog) => info_view(dialog),
+            };
         }
-        if self.closing_menus.contains(&window) {
+        if self.closing_dialogs.contains(&window) {
             return container(Space::new()).into();
         }
 
@@ -620,6 +677,7 @@ mod tests {
             attention: GaugeValueAttention::Nominal,
             on_click: None,
             menu: None,
+            info: None,
         }
     }
 
