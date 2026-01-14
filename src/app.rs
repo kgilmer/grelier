@@ -341,7 +341,7 @@ impl BarState {
                                 if is_previous {
                                     palette.primary.weak.color
                                 } else {
-                                    palette.background.stronger.color
+                                    palette.background.strong.color
                                 }
                             } else {
                                 workspace_color(
@@ -349,7 +349,7 @@ impl BarState {
                                     urgent,
                                     palette.background.base.color,
                                     palette.primary.base.color,
-                                    palette.danger.base.color,
+                                    palette.success.base.color,
                                 )
                             };
                             let text_color = if is_previous {
