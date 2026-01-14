@@ -1,5 +1,3 @@
-#![cfg(debug_assertions)]
-
 // Test gauge that cycles quantity icons and toggles style/attention on clicks.
 // Consumes Settings: grelier.gauge.test_gauge.quantitystyle.
 use iced::mouse;
@@ -178,6 +176,7 @@ inventory::submit! {
     GaugeSpec {
         id: "test_gauge",
         label: "Test Gauge",
+        description: "Test gauge emitting canned values for development.",
         default_enabled: false,
         settings,
         stream,

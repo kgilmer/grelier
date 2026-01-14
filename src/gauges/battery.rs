@@ -269,6 +269,7 @@ inventory::submit! {
     GaugeSpec {
         id: "battery",
         label: "Battery",
+        description: "Battery gauge reporting percent charge and charging status.",
         default_enabled: false,
         settings,
         stream,

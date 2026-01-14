@@ -72,6 +72,7 @@ inventory::submit! {
     GaugeSpec {
         id: "net_down",
         label: "Net Down",
+        description: "Network download rate gauge displaying bytes per second.",
         default_enabled: false,
         settings,
         stream,

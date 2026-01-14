@@ -302,7 +302,8 @@ inventory::submit! {
     GaugeSpec {
         id: "ram",
         label: "RAM",
-        default_enabled: false,
+        description: "RAM usage gauge showing percent memory utilization.",
+        default_enabled: true,
         settings,
         stream,
         validate: None,

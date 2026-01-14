@@ -8,7 +8,7 @@ This program displays a fixed bar on the left-hand side of the screen.  It shows
 
 ## Configuration
 
-Grelier reads from `$HOME/.config/grelier/Settings.xresources` on start for it's configuration.  Any configuration changes made interactively are immediately saved back to this file.  The file is regenerated each time, so any manual edits will be destroyed.  `grelier --list-settings` can be used to see all supported settings.
+Grelier reads from `$HOME/.config/grelier/Settings.xresources` on start for it's configuration.  Any configuration changes made interactively are immediately saved back to this file.  The file is regenerated each time, so any manual edits will be destroyed.  `grelier --list-settings` can be used to see all supported settings.  `grelier --list-gauges` will print all available gauges with descriptions.
 
 ### Workspace styling
 
@@ -27,13 +27,14 @@ This project is in active development and should not be considered stable.
 ## Usage
 
 ```
-Usage: grelier [--settings <settings>] [--list-themes] [--list-settings]
+Usage: grelier [--settings <settings>] [--list-themes] [--list-gauges] [--list-settings]
 
 Workspace + gauges display
 
 Options:
   --settings        comma-separated settings overrides (key=value,key2=value2)
   --list-themes     list available themes and exit
+  --list-gauges     list available gauges and exit
   --list-settings   list settings for the selected gauges and exit
   --help, help      display usage information
 ```

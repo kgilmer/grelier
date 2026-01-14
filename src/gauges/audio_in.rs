@@ -473,6 +473,7 @@ inventory::submit! {
     GaugeSpec {
         id: "audio_in",
         label: "Audio In",
+        description: "Audio input volume gauge reporting percent level and mute state.",
         default_enabled: false,
         settings,
         stream,

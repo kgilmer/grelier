@@ -114,6 +114,7 @@ inventory::submit! {
     GaugeSpec {
         id: "net_up",
         label: "Net Up",
+        description: "Network upload rate gauge displaying bytes per second.",
         default_enabled: false,
         settings,
         stream,
