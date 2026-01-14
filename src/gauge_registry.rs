@@ -14,6 +14,7 @@ pub type GaugeValidator = fn(&Settings) -> Result<(), String>;
 pub struct GaugeSpec {
     pub id: &'static str,
     pub label: &'static str,
+    pub description: &'static str,
     pub default_enabled: bool,
     pub settings: fn() -> &'static [SettingSpec],
     pub stream: fn() -> GaugeStream,
@@ -68,6 +69,14 @@ pub fn list_settings(base: &[SettingSpec]) {
         for spec in (gauge.settings)() {
             println!("{}:{}", spec.key, spec.default);
         }
+    }
+}
+
+pub fn list_gauges() {
+    let mut gauges: Vec<&'static GaugeSpec> = all().collect();
+    gauges.sort_by_key(|spec| spec.id);
+    for gauge in gauges {
+        println!("{}: {}", gauge.id, gauge.description);
     }
 }
 

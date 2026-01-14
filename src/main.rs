@@ -169,7 +169,11 @@ struct Args {
     #[argh(switch)]
     list_themes: bool,
 
-    /// list settings for the selected gauges and exit
+    /// list available gauges and exit
+    #[argh(switch)]
+    list_gauges: bool,
+
+    /// list app settings and exit
     #[argh(switch)]
     list_settings: bool,
 }
@@ -194,6 +198,11 @@ fn main() -> Result<(), iced_layershell::Error> {
 
     if args.list_themes {
         theme::list_themes();
+        return Ok(());
+    }
+
+    if args.list_gauges {
+        gauge_registry::list_gauges();
         return Ok(());
     }
 

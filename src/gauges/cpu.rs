@@ -288,7 +288,8 @@ inventory::submit! {
     GaugeSpec {
         id: "cpu",
         label: "CPU",
-        default_enabled: false,
+        description: "CPU utilization gauge displaying percent usage with adaptive polling.",
+        default_enabled: true,
         settings,
         stream,
         validate: None,

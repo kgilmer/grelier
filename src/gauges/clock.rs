@@ -127,6 +127,7 @@ inventory::submit! {
     GaugeSpec {
         id: "clock",
         label: "Clock",
+        description: "Clock gauge showing the local time.",
         default_enabled: true,
         settings,
         stream,

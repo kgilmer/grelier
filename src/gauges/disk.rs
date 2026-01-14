@@ -207,6 +207,7 @@ inventory::submit! {
     GaugeSpec {
         id: "disk",
         label: "Disk",
+        description: "Disk usage gauge showing percent utilization for a configured path.",
         default_enabled: false,
         settings,
         stream,

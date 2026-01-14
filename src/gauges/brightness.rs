@@ -262,6 +262,7 @@ inventory::submit! {
     GaugeSpec {
         id: "brightness",
         label: "Brightness",
+        description: "Brightness gauge controlling backlight percent level.",
         default_enabled: false,
         settings,
         stream,

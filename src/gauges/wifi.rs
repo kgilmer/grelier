@@ -259,6 +259,7 @@ inventory::submit! {
     GaugeSpec {
         id: "wifi",
         label: "Wi-Fi",
+        description: "Wi-Fi signal gauge showing percent link quality and current SSID.",
         default_enabled: false,
         settings,
         stream,

@@ -77,6 +77,7 @@ inventory::submit! {
     GaugeSpec {
         id: "date",
         label: "Date",
+        description: "Date gauge showing the current calendar date.",
         default_enabled: true,
         settings,
         stream,
