@@ -60,13 +60,13 @@ pub fn collect_settings(base: &[SettingSpec]) -> Vec<SettingSpec> {
 
 pub fn list_settings(base: &[SettingSpec]) {
     for spec in base {
-        println!("{}: {}", spec.key, spec.default);
+        println!("{}:{}", spec.key, spec.default);
     }
     let mut gauges: Vec<&'static GaugeSpec> = all().collect();
     gauges.sort_by_key(|spec| spec.id);
     for gauge in gauges {
         for spec in (gauge.settings)() {
-            println!("{}: {}", spec.key, spec.default);
+            println!("{}:{}", spec.key, spec.default);
         }
     }
 }

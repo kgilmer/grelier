@@ -1,3 +1,5 @@
+#![cfg(debug_assertions)]
+
 // Test gauge that cycles quantity icons and toggles style/attention on clicks.
 // Consumes Settings: grelier.gauge.test_gauge.quantitystyle.
 use iced::mouse;
