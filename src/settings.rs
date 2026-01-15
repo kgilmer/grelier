@@ -107,7 +107,11 @@ pub fn parse_settings_arg(arg: &str) -> Result<HashMap<String, String>, String> 
         return Ok(map);
     }
 
-    for pair in trimmed.split(',').map(str::trim).filter(|s| !s.is_empty()) {
+    for pair in split_settings_pairs(trimmed)? {
+        let pair = pair.trim();
+        if pair.is_empty() {
+            continue;
+        }
         let sep_index = pair
             .find(['=', ':'])
             .ok_or_else(|| format!("missing '=' or ':' in setting '{pair}'"))?;
@@ -123,10 +127,88 @@ pub fn parse_settings_arg(arg: &str) -> Result<HashMap<String, String>, String> 
         if map.contains_key(&key) {
             return Err(format!("duplicate setting key '{key}'"));
         }
-        map.insert(key, value.to_string());
+        let parsed_value = parse_value(value.trim())?;
+        map.insert(key, parsed_value);
     }
 
     Ok(map)
+}
+
+fn split_settings_pairs(input: &str) -> Result<Vec<String>, String> {
+    let mut parts = Vec::new();
+    let mut current = String::new();
+    let mut in_quotes = false;
+    let mut escaped = false;
+    let chars: Vec<char> = input.chars().collect();
+
+    for (idx, ch) in chars.iter().copied().enumerate() {
+        if escaped {
+            current.push(ch);
+            escaped = false;
+            continue;
+        }
+        match ch {
+            '\\' => {
+                escaped = true;
+            }
+            '"' => {
+                in_quotes = !in_quotes;
+                current.push(ch);
+            }
+            ',' if !in_quotes => {
+                // Only treat as a separator if the remainder contains another key/value separator.
+                let rest = &chars[idx + 1..];
+                let has_more_pairs = rest.iter().any(|c| *c == '=' || *c == ':');
+                if has_more_pairs {
+                    parts.push(current);
+                    current = String::new();
+                } else {
+                    current.push(ch);
+                }
+            }
+            _ => current.push(ch),
+        }
+    }
+
+    if in_quotes {
+        return Err("unterminated quote in settings string".to_string());
+    }
+    if escaped {
+        return Err("dangling escape at end of settings string".to_string());
+    }
+
+    parts.push(current);
+    Ok(parts)
+}
+
+fn parse_value(raw: &str) -> Result<String, String> {
+    let trimmed = raw.trim();
+    if trimmed.starts_with('"') && trimmed.ends_with('"') && trimmed.len() >= 2 {
+        let inner = &trimmed[1..trimmed.len() - 1];
+        return Ok(unescape_quoted(inner));
+    }
+    Ok(trimmed.to_string())
+}
+
+fn unescape_quoted(value: &str) -> String {
+    let mut result = String::new();
+    let mut escaped = false;
+    for ch in value.chars() {
+        if escaped {
+            result.push(ch);
+            escaped = false;
+            continue;
+        }
+        if ch == '\\' {
+            escaped = true;
+        } else {
+            result.push(ch);
+        }
+    }
+    if escaped {
+        result.push('\\');
+    }
+    result
 }
 
 fn parse_or_exit<T: FromStr>(key: &str, value: &str) -> T {
@@ -178,6 +260,37 @@ mod tests {
     fn parse_settings_accepts_empty_string() {
         let map = parse_settings_arg("").expect("empty settings should parse");
         assert!(map.is_empty());
+    }
+
+    #[test]
+    fn parse_settings_accepts_quoted_value_with_commas() {
+        let map =
+            parse_settings_arg("grelier.gauges:\"test_gauge,clock\"").expect("parse quoted comma");
+        assert_eq!(
+            map.get("grelier.gauges").cloned(),
+            Some("test_gauge,clock".to_string())
+        );
+    }
+
+    #[test]
+    fn parse_settings_accepts_unquoted_value_with_commas() {
+        let map = parse_settings_arg("grelier.gauges:test_gauge,clock")
+            .expect("parse unquoted comma value");
+        assert_eq!(
+            map.get("grelier.gauges").cloned(),
+            Some("test_gauge,clock".to_string())
+        );
+    }
+
+    #[test]
+    fn parse_settings_handles_multiple_pairs() {
+        let map = parse_settings_arg("grelier.gauges:\"test_gauge,clock\",grelier.theme=Light")
+            .expect("parse two pairs");
+        assert_eq!(
+            map.get("grelier.gauges").cloned(),
+            Some("test_gauge,clock".to_string())
+        );
+        assert_eq!(map.get("grelier.theme").cloned(), Some("Light".to_string()));
     }
 
     #[test]
