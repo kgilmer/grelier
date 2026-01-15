@@ -162,9 +162,9 @@ fn base_setting_specs(default_gauges: &'static str) -> Vec<SettingSpec> {
 #[derive(FromArgs, Debug)]
 /// Workspace + gauges display
 struct Args {
-    /// comma-separated settings overrides (key=value,key2=value2)
-    #[argh(option)]
-    settings: Option<String>,
+    /// setting override; repeat for multiple pairs (key=value or key:value)
+    #[argh(option, short = 's')]
+    setting: Vec<String>,
 
     /// list available themes and exit
     #[argh(switch)]
@@ -222,7 +222,7 @@ fn main() -> Result<(), iced_layershell::Error> {
         settings_storage::SettingsStorage::new(settings_storage::SettingsStorage::default_path());
     let settings_store = settings::init_settings(settings::Settings::new(storage));
 
-    if let Some(arg) = args.settings.as_deref() {
+    for arg in &args.setting {
         let overrides = match settings::parse_settings_arg(arg) {
             Ok(map) => map,
             Err(err) => {
