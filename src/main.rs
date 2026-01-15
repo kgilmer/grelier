@@ -163,7 +163,7 @@ fn base_setting_specs(default_gauges: &'static str) -> Vec<SettingSpec> {
 /// Workspace + gauges display
 struct Args {
     /// setting override; repeat for multiple pairs (key=value or key:value)
-    #[argh(option, short = 's')]
+    #[argh(option, short = 's', long = "settings")]
     setting: Vec<String>,
 
     /// list available themes and exit
