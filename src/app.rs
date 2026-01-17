@@ -406,6 +406,7 @@ impl BarState {
             settings.get_parsed_or("grelier.app.workspace_icon_padding_x", 2u16);
         let workspace_icon_padding_y =
             settings.get_parsed_or("grelier.app.workspace_icon_padding_y", 2u16);
+        let workspace_app_icons = settings.get_bool_or("grelier.app.workspace_app_icons", true);
         let gauge_padding_x = settings.get_parsed_or("grelier.app.gauge_padding_x", 2u16);
         let gauge_padding_y = settings.get_parsed_or("grelier.app.gauge_padding_y", 2u16);
         let gauge_spacing = settings
@@ -479,16 +480,18 @@ impl BarState {
                     let mut icons_column = Column::new()
                         .spacing(workspace_icon_spacing)
                         .align_x(alignment::Horizontal::Center);
-                    for app_id in ws_apps {
-                        let handle = self
-                            .app_icons
-                            .icon_for(app_id)
-                            .unwrap_or(&FALLBACK_ICON_HANDLE);
-                        let app_id = app_id.to_string();
-                        let icon = mouse_area(app_icon_view(handle, workspace_icon_size))
-                            .on_press(Message::WorkspaceAppClicked { app_id })
-                            .interaction(mouse::Interaction::Pointer);
-                        icons_column = icons_column.push(icon);
+                    if workspace_app_icons {
+                        for app_id in ws_apps {
+                            let handle = self
+                                .app_icons
+                                .icon_for(app_id)
+                                .unwrap_or(&FALLBACK_ICON_HANDLE);
+                            let app_id = app_id.to_string();
+                            let icon = mouse_area(app_icon_view(handle, workspace_icon_size))
+                                .on_press(Message::WorkspaceAppClicked { app_id })
+                                .interaction(mouse::Interaction::Pointer);
+                            icons_column = icons_column.push(icon);
+                        }
                     }
 
                     let label_content = container(label)
@@ -550,7 +553,7 @@ impl BarState {
                         .align_x(alignment::Horizontal::Center)
                         .push(label_button);
 
-                    if !ws_apps.is_empty() {
+                    if workspace_app_icons && !ws_apps.is_empty() {
                         let icons_container = container(icons_column)
                             .padding([workspace_icon_padding_y, workspace_icon_padding_x])
                             .width(Length::Fill)

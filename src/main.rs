@@ -152,6 +152,10 @@ fn base_setting_specs(default_gauges: &'static str) -> Vec<SettingSpec> {
             default: "2",
         },
         SettingSpec {
+            key: "grelier.app.workspace_app_icons",
+            default: "true",
+        },
+        SettingSpec {
             key: "grelier.app.gauge_padding_x",
             default: "2",
         },
@@ -351,15 +355,22 @@ fn main() -> Result<(), iced_layershell::Error> {
     };
 
     let gauge_order = gauges.clone();
+    let workspace_app_icons = settings_store.get_bool_or("grelier.app.workspace_app_icons", true);
 
     daemon(
         move || {
-            let mut icon_cache = Cache::new(load_desktop_apps);
-            let app_icons = AppIconCache::from_app_descriptors(icon_cache.load_from_apps_loader());
-            let refresh_task = Task::perform(
-                async move { icon_cache.refresh().map_err(|err| err.to_string()) },
-                Message::CacheRefreshed,
-            );
+            let (app_icons, refresh_task) = if workspace_app_icons {
+                let mut icon_cache = Cache::new(load_desktop_apps);
+                let app_icons =
+                    AppIconCache::from_app_descriptors(icon_cache.load_from_apps_loader());
+                let refresh_task = Task::perform(
+                    async move { icon_cache.refresh().map_err(|err| err.to_string()) },
+                    Message::CacheRefreshed,
+                );
+                (app_icons, refresh_task)
+            } else {
+                (AppIconCache::default(), Task::none())
+            };
             (
                 BarState::with_gauge_order_and_icons(gauge_order.clone(), app_icons),
                 refresh_task,
