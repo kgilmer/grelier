@@ -50,10 +50,14 @@ pub fn dialog_dimensions(dialog: &InfoDialog) -> (u32, u32) {
     );
     let line_spacing = settings::settings()
         .get_parsed_or("grelier.info_dialog.line_spacing", DEFAULT_LINE_SPACING);
-    let container_padding_y = settings::settings()
-        .get_parsed_or("grelier.info_dialog.container_padding_y", DEFAULT_CONTAINER_PADDING_Y);
-    let container_padding_x = settings::settings()
-        .get_parsed_or("grelier.info_dialog.container_padding_x", DEFAULT_CONTAINER_PADDING_X);
+    let container_padding_y = settings::settings().get_parsed_or(
+        "grelier.info_dialog.container_padding_y",
+        DEFAULT_CONTAINER_PADDING_Y,
+    );
+    let container_padding_x = settings::settings().get_parsed_or(
+        "grelier.info_dialog.container_padding_x",
+        DEFAULT_CONTAINER_PADDING_X,
+    );
     let bottom_padding_extra = settings::settings().get_parsed_or(
         "grelier.info_dialog.bottom_padding_extra",
         DEFAULT_BOTTOM_PADDING_EXTRA,
@@ -66,20 +70,18 @@ pub fn dialog_dimensions(dialog: &InfoDialog) -> (u32, u32) {
         .chain(std::iter::once(dialog.title.chars().count() as u32))
         .max()
         .unwrap_or(0);
-    let target_chars = max_line_chars
-        .min(max_chars_per_line.max(1))
-        .max(1);
-    let width =
-        (target_chars * char_width + container_padding_x * 2).clamp(min_width, max_width);
+    let target_chars = max_line_chars.min(max_chars_per_line.max(1)).max(1);
+    let width = (target_chars * char_width + container_padding_x * 2).clamp(min_width, max_width);
 
-    let header_rows = ((dialog.title.chars().count() as u32).max(1) + target_chars - 1)
-        / target_chars;
+    let header_rows = (dialog.title.chars().count() as u32)
+        .max(1)
+        .div_ceil(target_chars);
     let rows: u32 = dialog
         .lines
         .iter()
         .map(|line| {
             let len = (line.chars().count() as u32).max(1);
-            (len + target_chars - 1) / target_chars
+            len.div_ceil(target_chars)
         })
         .sum::<u32>()
         .max(1);
@@ -116,8 +118,10 @@ pub fn info_view<'a, Message: 'a>(dialog: &'a InfoDialog) -> Element<'a, Message
         "grelier.info_dialog.container_padding_y",
         DEFAULT_CONTAINER_PADDING_Y,
     );
-    let container_padding_x = settings::settings()
-        .get_parsed_or("grelier.info_dialog.container_padding_x", DEFAULT_CONTAINER_PADDING_X);
+    let container_padding_x = settings::settings().get_parsed_or(
+        "grelier.info_dialog.container_padding_x",
+        DEFAULT_CONTAINER_PADDING_X,
+    );
     let bottom_padding_extra = settings::settings().get_parsed_or(
         "grelier.info_dialog.bottom_padding_extra",
         DEFAULT_BOTTOM_PADDING_EXTRA,

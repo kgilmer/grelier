@@ -7,7 +7,7 @@ use crate::gauge::{
     GaugeClickTarget, GaugeInput, GaugeMenu, GaugeModel, GaugeValue, GaugeValueAttention,
 };
 use crate::icon::svg_asset;
-use crate::info_dialog::{dialog_dimensions as info_dialog_dimensions, info_view, InfoDialog};
+use crate::info_dialog::{InfoDialog, dialog_dimensions as info_dialog_dimensions, info_view};
 use crate::menu_dialog::{dialog_dimensions as menu_dialog_dimensions, menu_view};
 use crate::settings;
 use crate::sway_workspace::WorkspaceInfo;
@@ -164,12 +164,7 @@ impl BarState {
         anchor_y: Option<i32>,
     ) -> Task<Message> {
         let (width, height) = menu_dialog_dimensions(&menu);
-        self.open_dialog_window(
-            gauge_id,
-            GaugeDialog::Menu(menu),
-            anchor_y,
-            (width, height),
-        )
+        self.open_dialog_window(gauge_id, GaugeDialog::Menu(menu), anchor_y, (width, height))
     }
 
     pub fn open_info_dialog(
@@ -346,13 +341,13 @@ impl BarState {
             let gauge_id = dialog_window.gauge_id.clone();
             let window_id = window;
             return match &dialog_window.dialog {
-                GaugeDialog::Menu(menu) => menu_view(menu, move |item_id| {
-                    Message::MenuItemSelected {
+                GaugeDialog::Menu(menu) => {
+                    menu_view(menu, move |item_id| Message::MenuItemSelected {
                         window: window_id,
                         gauge_id: gauge_id.clone(),
                         item_id,
-                    }
-                }),
+                    })
+                }
                 GaugeDialog::Info(dialog) => info_view(dialog),
             };
         }

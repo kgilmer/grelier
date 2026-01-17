@@ -359,12 +359,10 @@ fn update(state: &mut BarState, message: Message) -> Task<Message> {
                 return state.close_dialogs();
             }
         }
-        Message::IcedEvent(iced::Event::Keyboard(
-            iced::keyboard::Event::KeyPressed {
-                key: iced::keyboard::Key::Named(iced::keyboard::key::Named::Escape),
-                ..
-            },
-        )) => {
+        Message::IcedEvent(iced::Event::Keyboard(iced::keyboard::Event::KeyPressed {
+            key: iced::keyboard::Key::Named(iced::keyboard::key::Named::Escape),
+            ..
+        })) => {
             if !state.dialog_windows.is_empty() {
                 return state.close_dialogs();
             }
@@ -397,7 +395,10 @@ fn update(state: &mut BarState, message: Message) -> Task<Message> {
                     .get(&id)
                     .copied()
                     .or_else(|| state.gauge_anchor_y(target));
-                return Task::batch(vec![close_dialogs_task, state.open_menu(&id, menu, anchor_y)]);
+                return Task::batch(vec![
+                    close_dialogs_task,
+                    state.open_menu(&id, menu, anchor_y),
+                ]);
             }
 
             if matches!(input, GaugeInput::Button(iced::mouse::Button::Middle))
