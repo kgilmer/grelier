@@ -351,11 +351,20 @@ fn main() -> Result<(), iced_layershell::Error> {
     };
 
     let gauge_order = gauges.clone();
-    let mut icon_cache = Cache::new(load_desktop_apps);
-    let app_icons = AppIconCache::from_app_descriptors(icon_cache.load_from_apps_loader());
 
     daemon(
-        move || BarState::with_gauge_order_and_icons(gauge_order.clone(), app_icons.clone()),
+        move || {
+            let mut icon_cache = Cache::new(load_desktop_apps);
+            let app_icons = AppIconCache::from_app_descriptors(icon_cache.load_from_apps_loader());
+            let refresh_task = Task::perform(
+                async move { icon_cache.refresh().map_err(|err| err.to_string()) },
+                Message::CacheRefreshed,
+            );
+            (
+                BarState::with_gauge_order_and_icons(gauge_order.clone(), app_icons),
+                refresh_task,
+            )
+        },
         BarState::namespace,
         update,
         BarState::view,
@@ -493,6 +502,11 @@ fn update(state: &mut BarState, message: Message) -> Task<Message> {
             state.dialog_windows.remove(&window);
             state.closing_dialogs.remove(&window);
             return Task::done(Message::RemoveWindow(window));
+        }
+        Message::CacheRefreshed(result) => {
+            if let Err(err) = result {
+                eprintln!("Failed to refresh icon cache: {err}");
+            }
         }
         Message::WindowClosed(window) => {
             state.dialog_windows.remove(&window);

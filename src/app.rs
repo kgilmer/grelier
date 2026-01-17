@@ -50,6 +50,7 @@ pub enum Message {
     },
     MenuDismissed(iced::window::Id),
     WindowClosed(iced::window::Id),
+    CacheRefreshed(Result<(), String>),
     IcedEvent(iced::Event),
 }
 
