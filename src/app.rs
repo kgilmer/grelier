@@ -64,6 +64,14 @@ fn lerp_color(from: Color, to: Color, t: f32) -> Color {
     }
 }
 
+fn attention_color(attention: GaugeValueAttention, theme: &Theme) -> Color {
+    match attention {
+        GaugeValueAttention::Nominal => theme.palette().text,
+        GaugeValueAttention::Warning => theme.extended_palette().warning.base.color,
+        GaugeValueAttention::Danger => theme.extended_palette().danger.base.color,
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum Orientation {
     #[default]
@@ -611,15 +619,7 @@ impl BarState {
                         .style({
                             let attention = gauge_attention;
                             move |theme: &Theme, _status| svg::Style {
-                                color: Some(match attention {
-                                    GaugeValueAttention::Nominal => theme.palette().text,
-                                    GaugeValueAttention::Warning => {
-                                        theme.extended_palette().warning.base.color
-                                    }
-                                    GaugeValueAttention::Danger => {
-                                        theme.extended_palette().danger.base.color
-                                    }
-                                }),
+                                color: Some(attention_color(attention, theme)),
                             }
                         });
                     let centered_icon: Element<'_, Message> = container(icon_view)
@@ -638,15 +638,7 @@ impl BarState {
                             .width(Length::Fill)
                             .align_x(text::Alignment::Center)
                             .style(move |theme: &Theme| text::Style {
-                                color: Some(match attention {
-                                    GaugeValueAttention::Nominal => theme.palette().text,
-                                    GaugeValueAttention::Warning => {
-                                        theme.extended_palette().warning.base.color
-                                    }
-                                    GaugeValueAttention::Danger => {
-                                        theme.extended_palette().danger.base.color
-                                    }
-                                }),
+                                color: Some(attention_color(attention, theme)),
                             })
                             .into()
                     }
@@ -656,15 +648,7 @@ impl BarState {
                         .style({
                             let attention = gauge_attention;
                             move |theme: &Theme, _status| svg::Style {
-                                color: Some(match attention {
-                                    GaugeValueAttention::Nominal => theme.palette().text,
-                                    GaugeValueAttention::Warning => {
-                                        theme.extended_palette().warning.base.color
-                                    }
-                                    GaugeValueAttention::Danger => {
-                                        theme.extended_palette().danger.base.color
-                                    }
-                                }),
+                                color: Some(attention_color(attention, theme)),
                             }
                         })
                         .into(),
@@ -674,15 +658,7 @@ impl BarState {
                         .style({
                             let attention = GaugeValueAttention::Danger;
                             move |theme: &Theme, _status| svg::Style {
-                                color: Some(match attention {
-                                    GaugeValueAttention::Nominal => theme.palette().text,
-                                    GaugeValueAttention::Warning => {
-                                        theme.extended_palette().warning.base.color
-                                    }
-                                    GaugeValueAttention::Danger => {
-                                        theme.extended_palette().danger.base.color
-                                    }
-                                }),
+                                color: Some(attention_color(attention, theme)),
                             }
                         })
                         .into(),

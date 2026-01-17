@@ -19,3 +19,6 @@ inventory = "0.3"
 elbey_cache = { package = "elbey-cache", version = "0.7.0" }
 freedesktop-desktop-entry = "0.8.1"
 locale_config = "0.3.0"
+
+[dev-dependencies]
+serde_json = "1"

@@ -440,16 +440,15 @@ fn update(state: &mut BarState, message: Message) -> Task<Message> {
                 return state.close_dialogs();
             }
 
-            let close_dialogs_task = if state.dialog_windows.is_empty() {
-                Task::none()
-            } else {
-                state.close_dialogs()
-            };
-
-            let gauge_index = state.gauges.iter().position(|g| g.id == id);
-            let gauge_menu = gauge_index.and_then(|idx| state.gauges[idx].menu.clone());
-            let gauge_info = gauge_index.and_then(|idx| state.gauges[idx].info.clone());
-            let gauge_callback = gauge_index.and_then(|idx| state.gauges[idx].on_click.clone());
+            let (gauge_menu, gauge_info, gauge_callback) =
+                match state.gauges.iter().find(|g| g.id == id) {
+                    Some(gauge) => (
+                        gauge.menu.clone(),
+                        gauge.info.clone(),
+                        gauge.on_click.clone(),
+                    ),
+                    None => (None, None, None),
+                };
 
             if matches!(input, GaugeInput::Button(iced::mouse::Button::Right))
                 && let Some(menu) = gauge_menu
@@ -459,10 +458,7 @@ fn update(state: &mut BarState, message: Message) -> Task<Message> {
                     .get(&id)
                     .copied()
                     .or_else(|| state.gauge_anchor_y(target));
-                return Task::batch(vec![
-                    close_dialogs_task,
-                    state.open_menu(&id, menu, anchor_y),
-                ]);
+                return state.open_menu(&id, menu, anchor_y);
             }
 
             if matches!(input, GaugeInput::Button(iced::mouse::Button::Middle))
@@ -473,20 +469,13 @@ fn update(state: &mut BarState, message: Message) -> Task<Message> {
                     .get(&id)
                     .copied()
                     .or_else(|| state.gauge_anchor_y(target));
-                return Task::batch(vec![
-                    close_dialogs_task,
-                    state.open_info_dialog(&id, dialog, anchor_y),
-                ]);
+                return state.open_info_dialog(&id, dialog, anchor_y);
             }
 
             if let Some(callback) = gauge_callback {
                 callback(GaugeClick { input, target });
             } else {
                 println!("Gauge '{id}' clicked: {:?} {:?}", target, input);
-            }
-
-            if close_dialogs_task.units() > 0 {
-                return close_dialogs_task;
             }
         }
         Message::MenuItemSelected {
