@@ -82,10 +82,8 @@ pub fn dialog_dimensions(menu: &GaugeMenu) -> (u32, u32) {
     let text_height = item_line_height.ceil() as u32;
     let row_height = indicator_size.max(text_height) + button_padding_y * 2;
     let list_height = rows * row_height + list_spacing.saturating_mul(rows.saturating_sub(1));
-    let height = header_height
-        + header_list_spacing
-        + list_height
-        + container_padding_y.saturating_mul(2);
+    let height =
+        header_height + header_list_spacing + list_height + container_padding_y.saturating_mul(2);
 
     (width, height)
 }

@@ -106,25 +106,18 @@ pub fn parse_settings_arg(arg: &str) -> Result<HashMap<String, String>, String> 
     if trimmed.is_empty() {
         return Ok(map);
     }
-
-    for pair in trimmed.split(',').map(str::trim).filter(|s| !s.is_empty()) {
-        let sep_index = pair
-            .find(['=', ':'])
-            .ok_or_else(|| format!("missing '=' or ':' in setting '{pair}'"))?;
-        let (key, value) = pair.split_at(sep_index);
-        let value = &value[1..];
-        if key.is_empty() {
-            return Err(format!("missing key in setting '{pair}'"));
-        }
-        if key.chars().any(|c| c.is_whitespace()) {
-            return Err(format!("setting key '{key}' cannot contain whitespace"));
-        }
-        let key = key.to_string();
-        if map.contains_key(&key) {
-            return Err(format!("duplicate setting key '{key}'"));
-        }
-        map.insert(key, value.to_string());
+    let sep_index = trimmed
+        .find(['=', ':'])
+        .ok_or_else(|| format!("missing '=' or ':' in setting '{trimmed}'"))?;
+    let (key, value) = trimmed.split_at(sep_index);
+    let value = &value[1..];
+    if key.is_empty() {
+        return Err(format!("missing key in setting '{trimmed}'"));
     }
+    if key.chars().any(|c| c.is_whitespace()) {
+        return Err(format!("setting key '{key}' cannot contain whitespace"));
+    }
+    map.insert(key.to_string(), value.trim().to_string());
 
     Ok(map)
 }
@@ -169,15 +162,29 @@ mod tests {
     }
 
     #[test]
-    fn parse_settings_rejects_duplicate_key() {
-        let err = parse_settings_arg("grelier.theme=Dark,grelier.theme=Light").unwrap_err();
-        assert!(err.contains("duplicate setting key"));
-    }
-
-    #[test]
     fn parse_settings_accepts_empty_string() {
         let map = parse_settings_arg("").expect("empty settings should parse");
         assert!(map.is_empty());
+    }
+
+    #[test]
+    fn parse_settings_accepts_unquoted_value_with_commas() {
+        let map = parse_settings_arg("grelier.gauges:test_gauge,clock")
+            .expect("parse unquoted comma value");
+        assert_eq!(
+            map.get("grelier.gauges").cloned(),
+            Some("test_gauge,clock".to_string())
+        );
+    }
+
+    #[test]
+    fn parse_settings_keeps_commas_in_value() {
+        let map = parse_settings_arg("grelier.theme=Dark,grelier.theme=Light")
+            .expect("parse comma-containing value");
+        assert_eq!(
+            map.get("grelier.theme").cloned(),
+            Some("Dark,grelier.theme=Light".to_string())
+        );
     }
 
     #[test]

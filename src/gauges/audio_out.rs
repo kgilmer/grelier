@@ -343,6 +343,7 @@ fn audio_out_stream() -> impl iced::futures::Stream<Item = crate::gauge::GaugeMo
                         attention,
                         on_click: Some(on_click.clone()),
                         menu,
+                        info: None,
                     });
                 };
 
