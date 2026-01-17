@@ -5,14 +5,14 @@ use crate::icon::svg_asset;
 use crate::settings;
 use iced::alignment;
 use iced::widget::svg::Svg;
+use iced::widget::text::LineHeight;
 use iced::widget::{Column, Container, Row, Space, Text, button, container};
-use iced::{Element, Length, Theme};
+use iced::{Element, Length, Pixels, Theme};
 
 const DEFAULT_HEADER_FONT_SIZE: u32 = 14;
 const DEFAULT_ITEM_FONT_SIZE: u32 = 12;
 const DEFAULT_INDICATOR_SIZE: u32 = 16;
 const DEFAULT_BUTTON_PADDING_Y: u32 = 4;
-const DEFAULT_HEADER_SPACING: u32 = 4;
 const DEFAULT_LIST_SPACING: u32 = 6;
 const DEFAULT_HEADER_LIST_SPACING: u32 = 6;
 const DEFAULT_CONTAINER_PADDING_Y: u32 = 20;
@@ -47,8 +47,10 @@ pub fn dialog_dimensions(menu: &GaugeMenu) -> (u32, u32) {
         "grelier.menu_dialog.button_padding_y",
         DEFAULT_BUTTON_PADDING_Y,
     );
-    let header_spacing = settings::settings()
-        .get_parsed_or("grelier.menu_dialog.header_spacing", DEFAULT_HEADER_SPACING);
+    let header_bottom_spacing = settings::settings().get_parsed_or(
+        "grelier.menu_dialog.header_bottom_spacing",
+        DEFAULT_HEADER_BOTTOM_SPACING,
+    );
     let list_spacing = settings::settings()
         .get_parsed_or("grelier.menu_dialog.list_spacing", DEFAULT_LIST_SPACING);
     let header_list_spacing = settings::settings().get_parsed_or(
@@ -70,11 +72,20 @@ pub fn dialog_dimensions(menu: &GaugeMenu) -> (u32, u32) {
     let width = (max_label_chars * char_width + label_padding).clamp(min_width, max_width);
 
     let rows = menu.items.len().max(1) as u32;
-    let header_height = (header_font_size as f32 * 1.2).ceil() as u32 + header_spacing;
-    let text_height = (item_font_size as f32 * 1.2).ceil() as u32;
+    let header_line_height = LineHeight::default()
+        .to_absolute(Pixels(header_font_size as f32))
+        .0;
+    let item_line_height = LineHeight::default()
+        .to_absolute(Pixels(item_font_size as f32))
+        .0;
+    let header_height = header_line_height.ceil() as u32 + header_bottom_spacing;
+    let text_height = item_line_height.ceil() as u32;
     let row_height = indicator_size.max(text_height) + button_padding_y * 2;
     let list_height = rows * row_height + list_spacing.saturating_mul(rows.saturating_sub(1));
-    let height = header_height + header_list_spacing + list_height + container_padding_y;
+    let height = header_height
+        + header_list_spacing
+        + list_height
+        + container_padding_y.saturating_mul(2);
 
     (width, height)
 }
