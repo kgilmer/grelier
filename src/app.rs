@@ -10,10 +10,12 @@ use crate::icon::svg_asset;
 use crate::info_dialog::{InfoDialog, dialog_dimensions as info_dialog_dimensions, info_view};
 use crate::menu_dialog::{dialog_dimensions as menu_dialog_dimensions, menu_view};
 use crate::settings;
-use crate::sway_workspace::WorkspaceInfo;
+use crate::sway_workspace::{WorkspaceApps, WorkspaceInfo};
+use elbey_cache::{FALLBACK_ICON_HANDLE, IconHandle};
 use iced::alignment;
 use iced::border;
 use iced::font::Weight;
+use iced::widget::image::Image;
 use iced::widget::svg::{self, Svg};
 use iced::widget::text;
 use iced::widget::{Column, Row, Space, Stack, Text, button, container, mouse_area, rule};
@@ -26,8 +28,14 @@ use iced_layershell::to_layer_message;
 #[to_layer_message(multi)]
 #[derive(Debug, Clone)]
 pub enum Message {
-    Workspaces(Vec<WorkspaceInfo>),
+    Workspaces {
+        workspaces: Vec<WorkspaceInfo>,
+        apps: Vec<WorkspaceApps>,
+    },
     WorkspaceClicked(String),
+    WorkspaceAppClicked {
+        app_id: String,
+    },
     BackgroundClicked,
     Gauge(GaugeModel),
     GaugeClicked {
@@ -109,9 +117,38 @@ fn scroll_input(delta: mouse::ScrollDelta) -> Option<GaugeInput> {
     }
 }
 
+fn app_icon_view(handle: &IconHandle, size: f32) -> Element<'_, Message> {
+    match handle {
+        IconHandle::Raster(handle) => Image::new(handle.clone())
+            .width(Length::Fixed(size))
+            .height(Length::Fixed(size))
+            .into(),
+        IconHandle::Vector(handle) => Svg::new(handle.clone())
+            .width(Length::Fixed(size))
+            .height(Length::Fixed(size))
+            .into(),
+        IconHandle::NotLoaded => match &*FALLBACK_ICON_HANDLE {
+            IconHandle::Raster(handle) => Image::new(handle.clone())
+                .width(Length::Fixed(size))
+                .height(Length::Fixed(size))
+                .into(),
+            IconHandle::Vector(handle) => Svg::new(handle.clone())
+                .width(Length::Fixed(size))
+                .height(Length::Fixed(size))
+                .into(),
+            IconHandle::NotLoaded => container(Space::new())
+                .width(Length::Fixed(size))
+                .height(Length::Fixed(size))
+                .into(),
+        },
+    }
+}
+
 #[derive(Clone, Default)]
 pub struct BarState {
     pub workspaces: Vec<WorkspaceInfo>,
+    pub workspace_apps: HashMap<String, Vec<String>>,
+    pub app_icons: AppIconCache,
     pub gauges: Vec<GaugeModel>,
     pub gauge_order: Vec<String>,
     pub current_workspace: Option<String>,
@@ -120,6 +157,42 @@ pub struct BarState {
     pub last_cursor: Option<iced::Point>,
     pub closing_dialogs: HashSet<window::Id>,
     pub gauge_dialog_anchor: HashMap<String, i32>,
+}
+
+#[derive(Clone, Default)]
+pub struct AppIconCache {
+    by_appid: HashMap<String, IconHandle>,
+    by_lower_title: HashMap<String, IconHandle>,
+    by_icon_name: HashMap<String, IconHandle>,
+}
+
+impl AppIconCache {
+    pub fn from_app_descriptors(apps: Vec<elbey_cache::AppDescriptor>) -> Self {
+        let mut cache = AppIconCache::default();
+        for app in apps {
+            cache
+                .by_appid
+                .insert(app.appid.clone(), app.icon_handle.clone());
+            cache
+                .by_lower_title
+                .insert(app.lower_title.clone(), app.icon_handle.clone());
+            if let Some(icon_name) = app.icon_name.as_ref() {
+                cache
+                    .by_icon_name
+                    .insert(icon_name.to_string(), app.icon_handle.clone());
+            }
+        }
+        cache
+    }
+
+    pub fn icon_for(&self, app_id: &str) -> Option<&IconHandle> {
+        self.by_appid
+            .get(app_id)
+            .or_else(|| self.by_appid.get(&app_id.to_ascii_lowercase()))
+            .or_else(|| self.by_lower_title.get(&app_id.to_ascii_lowercase()))
+            .or_else(|| self.by_icon_name.get(app_id))
+            .or_else(|| self.by_icon_name.get(&app_id.to_ascii_lowercase()))
+    }
 }
 
 #[derive(Clone)]
@@ -149,6 +222,14 @@ impl BarState {
     pub fn with_gauge_order(gauge_order: Vec<String>) -> Self {
         Self {
             gauge_order,
+            ..Self::default()
+        }
+    }
+
+    pub fn with_gauge_order_and_icons(gauge_order: Vec<String>, app_icons: AppIconCache) -> Self {
+        Self {
+            gauge_order,
+            app_icons,
             ..Self::default()
         }
     }
@@ -317,12 +398,19 @@ impl BarState {
             settings.get_parsed_or("grelier.app.workspace_button_padding_y", 4u16);
         let workspace_corner_radius = settings.get_parsed_or("grelier.ws.corner_radius", 5.0_f32);
         let workspace_transitions = settings.get_bool_or("grelier.ws.transitions", true);
+        let workspace_icon_size = settings.get_parsed_or("grelier.app.workspace_icon_size", 12.0);
+        let workspace_icon_spacing =
+            settings.get_parsed_or("grelier.app.workspace_icon_spacing", 4u32);
+        let workspace_icon_padding_x =
+            settings.get_parsed_or("grelier.app.workspace_icon_padding_x", 2u16);
+        let workspace_icon_padding_y =
+            settings.get_parsed_or("grelier.app.workspace_icon_padding_y", 2u16);
         let gauge_padding_x = settings.get_parsed_or("grelier.app.gauge_padding_x", 2u16);
         let gauge_padding_y = settings.get_parsed_or("grelier.app.gauge_padding_y", 2u16);
         let gauge_spacing = settings
             .get_parsed("grelier.gauge.spacing")
             .unwrap_or_else(|| settings.get_parsed_or("grelier.app.gauge_spacing", 18u32));
-        let gauge_icon_size = settings.get_parsed_or("grelier.app.gauge_icon_size", 17.0);
+        let gauge_icon_size = settings.get_parsed_or("grelier.app.gauge_icon_size", 16.0);
         let gauge_value_icon_size =
             settings.get_parsed_or("grelier.app.gauge_value_icon_size", 20.0);
         let gauge_icon_value_spacing =
@@ -365,6 +453,11 @@ impl BarState {
             |col, ws| {
                 let ws_name = ws.name.clone();
                 let ws_num = ws.num;
+                let ws_apps = self
+                    .workspace_apps
+                    .get(&ws_name)
+                    .map(|apps| apps.as_slice())
+                    .unwrap_or(&[]);
                 let (focus_level, urgent_level) = workspace_levels(ws);
                 let is_previous = highlight_previous
                     && !ws.focused
@@ -382,7 +475,22 @@ impl BarState {
                         });
                     }
 
-                    let content = container(label)
+                    let mut icons_column = Column::new()
+                        .spacing(workspace_icon_spacing)
+                        .align_x(alignment::Horizontal::Center);
+                    for app_id in ws_apps {
+                        let handle = self
+                            .app_icons
+                            .icon_for(app_id)
+                            .unwrap_or(&FALLBACK_ICON_HANDLE);
+                        let app_id = app_id.to_string();
+                        let icon = mouse_area(app_icon_view(handle, workspace_icon_size))
+                            .on_press(Message::WorkspaceAppClicked { app_id })
+                            .interaction(mouse::Interaction::Pointer);
+                        icons_column = icons_column.push(icon);
+                    }
+
+                    let label_content = container(label)
                         .padding([workspace_button_padding_y, workspace_button_padding_x])
                         .width(Length::Fill)
                         .style(move |theme: &Theme| {
@@ -425,7 +533,7 @@ impl BarState {
                             }
                         });
 
-                    button(content)
+                    let label_button: Element<'_, Message> = button(label_content)
                         .style(|theme: &Theme, _status| button::Style {
                             background: None,
                             text_color: theme.palette().text,
@@ -434,7 +542,28 @@ impl BarState {
                         .padding(0)
                         .width(Length::Fill)
                         .on_press(Message::WorkspaceClicked(name))
-                        .into()
+                        .into();
+
+                    let mut layout = Column::new()
+                        .spacing(2)
+                        .align_x(alignment::Horizontal::Center)
+                        .push(label_button);
+
+                    if !ws_apps.is_empty() {
+                        let icons_container = container(icons_column)
+                            .padding([workspace_icon_padding_y, workspace_icon_padding_x])
+                            .width(Length::Fill)
+                            .align_x(alignment::Horizontal::Center)
+                            .style(move |theme: &Theme| container::Style {
+                                background: Some(theme.palette().background.into()),
+                                border: Border::default()
+                                    .rounded(border::Radius::new(workspace_corner_radius)),
+                                ..container::Style::default()
+                            });
+                        layout = layout.push(icons_container);
+                    }
+
+                    layout.into()
                 };
 
                 let workspace: Element<'_, Message> = if workspace_transitions {

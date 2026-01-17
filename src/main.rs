@@ -39,8 +39,11 @@ use iced_layershell::reexport::{Anchor, KeyboardInteractivity, Layer};
 use iced_layershell::settings::{LayerShellSettings, Settings as LayerShellAppSettings, StartMode};
 
 use crate::app::Orientation;
-use crate::app::{BarState, Message};
+use crate::app::{AppIconCache, BarState, Message};
 use crate::gauge::{GaugeClick, GaugeInput, GaugeModel, SettingSpec};
+use elbey_cache::{AppDescriptor, Cache};
+use freedesktop_desktop_entry::desktop_entries;
+use locale_config::Locale;
 
 const DEFAULT_ORIENTATION: &str = "left";
 const DEFAULT_THEME: &str = "Nord";
@@ -133,6 +136,22 @@ fn base_setting_specs(default_gauges: &'static str) -> Vec<SettingSpec> {
             default: "5.0",
         },
         SettingSpec {
+            key: "grelier.app.workspace_icon_size",
+            default: "14.0",
+        },
+        SettingSpec {
+            key: "grelier.app.workspace_icon_spacing",
+            default: "4",
+        },
+        SettingSpec {
+            key: "grelier.app.workspace_icon_padding_x",
+            default: "2",
+        },
+        SettingSpec {
+            key: "grelier.app.workspace_icon_padding_y",
+            default: "2",
+        },
+        SettingSpec {
             key: "grelier.app.gauge_padding_x",
             default: "2",
         },
@@ -177,6 +196,17 @@ struct Args {
     /// list app settings and exit
     #[argh(switch)]
     list_settings: bool,
+}
+
+fn load_desktop_apps() -> Vec<AppDescriptor> {
+    let locales: Vec<String> = Locale::user_default()
+        .tags()
+        .map(|(_, tag)| tag.to_string())
+        .collect();
+    desktop_entries(&locales)
+        .into_iter()
+        .map(AppDescriptor::from)
+        .collect()
 }
 
 fn app_subscription(_state: &BarState, gauges: &[String]) -> Subscription<Message> {
@@ -321,9 +351,11 @@ fn main() -> Result<(), iced_layershell::Error> {
     };
 
     let gauge_order = gauges.clone();
+    let mut icon_cache = Cache::new(load_desktop_apps);
+    let app_icons = AppIconCache::from_app_descriptors(icon_cache.load_from_apps_loader());
 
     daemon(
-        move || BarState::with_gauge_order(gauge_order.clone()),
+        move || BarState::with_gauge_order_and_icons(gauge_order.clone(), app_icons.clone()),
         BarState::namespace,
         update,
         BarState::view,
@@ -339,9 +371,13 @@ fn main() -> Result<(), iced_layershell::Error> {
 
 fn update(state: &mut BarState, message: Message) -> Task<Message> {
     match message {
-        Message::Workspaces(ws) => {
-            state.update_workspace_focus(&ws);
-            state.workspaces = ws;
+        Message::Workspaces { workspaces, apps } => {
+            state.update_workspace_focus(&workspaces);
+            state.workspaces = workspaces;
+            state.workspace_apps = apps
+                .into_iter()
+                .map(|entry| (entry.name, entry.apps))
+                .collect();
         }
         Message::WorkspaceClicked(name) => {
             if !state.dialog_windows.is_empty() {
@@ -349,6 +385,14 @@ fn update(state: &mut BarState, message: Message) -> Task<Message> {
             }
             if let Err(err) = sway_workspace::focus_workspace(&name) {
                 eprintln!("Failed to focus workspace \"{name}\": {err}");
+            }
+        }
+        Message::WorkspaceAppClicked { app_id } => {
+            if !state.dialog_windows.is_empty() {
+                return state.close_dialogs();
+            }
+            if let Err(err) = sway_workspace::focus_app(&app_id) {
+                eprintln!("Failed to focus app \"{app_id}\": {err}");
             }
         }
         Message::IcedEvent(iced::Event::Mouse(mouse::Event::CursorMoved { position })) => {

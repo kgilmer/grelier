@@ -4,7 +4,7 @@ use std::cell::RefCell;
 use iced::Subscription;
 use iced::futures::channel::mpsc;
 use swayipc::Event;
-use swayipc::{Connection, Error, EventStream, EventType, Workspace};
+use swayipc::{Connection, Error, EventStream, EventType, Node, NodeType, Workspace};
 
 #[cfg(test)]
 type SwayConnection = FakeConnection;
@@ -28,6 +28,12 @@ pub struct WorkspaceInfo {
 }
 
 #[derive(Debug, Clone)]
+pub struct WorkspaceApps {
+    pub name: String,
+    pub apps: Vec<String>,
+}
+
+#[derive(Debug, Clone)]
 pub struct Rect {
     pub x: i32,
     pub y: i32,
@@ -48,9 +54,16 @@ pub fn fetch_workspaces() -> Result<Vec<Workspace>, Error> {
     })
 }
 
+pub fn fetch_workspace_apps() -> Result<Vec<WorkspaceApps>, Error> {
+    with_command_conn(|conn| {
+        let tree = conn.get_tree()?;
+        Ok(workspace_apps(&tree))
+    })
+}
+
 /// Subscribe to workspace-related events.
 pub fn subscribe_workspace_events() -> Result<EventStream, Error> {
-    Connection::new()?.subscribe([EventType::Workspace])
+    Connection::new()?.subscribe([EventType::Workspace, EventType::Window])
 }
 
 /// Focus the workspace with the given name.
@@ -58,6 +71,18 @@ pub fn focus_workspace(name: &str) -> Result<(), Error> {
     with_command_conn(|conn| {
         let cmd = format!("workspace \"{}\"", name.replace('"', "\\\""));
         conn.run_command(cmd)?;
+        Ok(())
+    })
+}
+
+/// Focus the first matching app by app_id or class.
+pub fn focus_app(app_id: &str) -> Result<(), Error> {
+    with_command_conn(|conn| {
+        let escaped = app_id.replace('"', "\\\"");
+        let app_id_cmd = format!("[app_id=\"{escaped}\"] focus");
+        let class_cmd = format!("[class=\"{escaped}\"] focus");
+        let _ = conn.run_command(app_id_cmd)?;
+        let _ = conn.run_command(class_cmd)?;
         Ok(())
     })
 }
@@ -101,6 +126,59 @@ fn to_workspace_info(ws: swayipc::Workspace) -> WorkspaceInfo {
     }
 }
 
+fn workspace_apps(root: &Node) -> Vec<WorkspaceApps> {
+    let mut out = Vec::new();
+    collect_workspace_apps(root, &mut out);
+    out
+}
+
+fn collect_workspace_apps(node: &Node, out: &mut Vec<WorkspaceApps>) {
+    if node.node_type == NodeType::Workspace {
+        let name = node
+            .name
+            .clone()
+            .or_else(|| node.num.map(|num| num.to_string()))
+            .unwrap_or_else(|| "<unnamed>".to_string());
+        if name == "__i3_scratch" {
+            return;
+        }
+        let mut apps = Vec::new();
+        for child in node.nodes.iter().chain(node.floating_nodes.iter()) {
+            collect_app_names(child, &mut apps);
+        }
+        out.push(WorkspaceApps { name, apps });
+    }
+
+    for child in node.nodes.iter().chain(node.floating_nodes.iter()) {
+        collect_workspace_apps(child, out);
+    }
+}
+
+fn collect_app_names(node: &Node, out: &mut Vec<String>) {
+    if let Some(name) = app_name(node) {
+        out.push(name);
+    }
+
+    for child in node.nodes.iter().chain(node.floating_nodes.iter()) {
+        collect_app_names(child, out);
+    }
+}
+
+fn app_name(node: &Node) -> Option<String> {
+    if let Some(app_id) = &node.app_id {
+        return Some(app_id.clone());
+    }
+
+    let props = node.window_properties.as_ref()?;
+    if let Some(class) = &props.class {
+        Some(class.clone())
+    } else if let Some(instance) = &props.instance {
+        Some(instance.clone())
+    } else {
+        props.title.clone()
+    }
+}
+
 pub fn workspace_subscription() -> Subscription<Message> {
     Subscription::run(workspace_stream)
 }
@@ -112,8 +190,18 @@ fn workspace_stream() -> impl iced::futures::Stream<Item = Message> {
         let send_workspaces = |sender: &mut mpsc::Sender<Message>| match fetch_workspaces() {
             Ok(ws) => {
                 let info = ws.into_iter().map(to_workspace_info).collect();
+                let apps = match fetch_workspace_apps() {
+                    Ok(apps) => apps,
+                    Err(err) => {
+                        eprintln!("Failed to fetch workspace app names: {err}");
+                        Vec::new()
+                    }
+                };
                 sender
-                    .try_send(Message::Workspaces(info))
+                    .try_send(Message::Workspaces {
+                        workspaces: info,
+                        apps,
+                    })
                     .expect("failed to send workspace info");
             }
             Err(err) => eprintln!("Failed to fetch workspaces: {err}"),
@@ -132,6 +220,7 @@ fn workspace_stream() -> impl iced::futures::Stream<Item = Message> {
         for event in &mut stream {
             match event {
                 Ok(Event::Workspace(_)) => send_workspaces(&mut sender),
+                Ok(Event::Window(_)) => send_workspaces(&mut sender),
                 Ok(_) => {}
                 Err(err) => {
                     eprintln!("Workspace event stream error: {err}");
@@ -193,6 +282,10 @@ impl FakeConnection {
         log_call(self.id, "run_command");
         Ok(vec![Ok(())])
     }
+
+    fn get_tree(&mut self) -> Result<swayipc::Node, Error> {
+        Ok(empty_node())
+    }
 }
 
 #[cfg(test)]
@@ -224,5 +317,55 @@ mod tests {
             calls.contains(&"get_workspaces") && calls.contains(&"run_command"),
             "expected both fetch and focus calls; got {calls:?}"
         );
+    }
+}
+
+#[cfg(test)]
+fn empty_node() -> swayipc::Node {
+    let rect = swayipc::Rect {
+        x: 0,
+        y: 0,
+        width: 0,
+        height: 0,
+    };
+
+    swayipc::Node {
+        id: 0,
+        name: None,
+        node_type: swayipc::NodeType::Root,
+        border: swayipc::NodeBorder::None,
+        current_border_width: 0,
+        layout: swayipc::NodeLayout::SplitH,
+        percent: None,
+        rect,
+        window_rect: rect,
+        deco_rect: rect,
+        geometry: rect,
+        urgent: false,
+        focused: false,
+        focus: Vec::new(),
+        floating: None,
+        nodes: Vec::new(),
+        floating_nodes: Vec::new(),
+        sticky: false,
+        representation: None,
+        fullscreen_mode: None,
+        scratchpad_state: None,
+        app_id: None,
+        pid: None,
+        window: None,
+        num: None,
+        window_properties: None,
+        marks: Vec::new(),
+        inhibit_idle: None,
+        idle_inhibitors: None,
+        sandbox_engine: None,
+        sandbox_app_id: None,
+        sandbox_instance_id: None,
+        tag: None,
+        shell: None,
+        foreign_toplevel_identifier: None,
+        visible: None,
+        output: None,
     }
 }
