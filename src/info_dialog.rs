@@ -16,6 +16,7 @@ const DEFAULT_HEADER_BOTTOM_SPACING: u32 = 4;
 const DEFAULT_LINE_SPACING: u32 = 6;
 const DEFAULT_CONTAINER_PADDING_Y: u32 = 10;
 const DEFAULT_CONTAINER_PADDING_X: u32 = 10;
+const DEFAULT_BOTTOM_PADDING_EXTRA: u32 = 4;
 
 #[derive(Debug, Clone)]
 pub struct InfoDialog {
@@ -53,6 +54,10 @@ pub fn dialog_dimensions(dialog: &InfoDialog) -> (u32, u32) {
         .get_parsed_or("grelier.info_dialog.container_padding_y", DEFAULT_CONTAINER_PADDING_Y);
     let container_padding_x = settings::settings()
         .get_parsed_or("grelier.info_dialog.container_padding_x", DEFAULT_CONTAINER_PADDING_X);
+    let bottom_padding_extra = settings::settings().get_parsed_or(
+        "grelier.info_dialog.bottom_padding_extra",
+        DEFAULT_BOTTOM_PADDING_EXTRA,
+    );
 
     let max_line_chars = dialog
         .lines
@@ -83,7 +88,11 @@ pub fn dialog_dimensions(dialog: &InfoDialog) -> (u32, u32) {
     let line_height = (body_font_size as f32 * 1.2).ceil() as u32;
     let body_height = rows * line_height
         + line_spacing.saturating_mul(dialog.lines.len().saturating_sub(1) as u32);
-    let height = header_height + header_bottom_spacing + body_height + container_padding_y * 2;
+    let height = header_height
+        + header_bottom_spacing
+        + body_height
+        + container_padding_y * 2
+        + bottom_padding_extra;
 
     (width, height)
 }
@@ -109,6 +118,10 @@ pub fn info_view<'a, Message: 'a>(dialog: &'a InfoDialog) -> Element<'a, Message
     );
     let container_padding_x = settings::settings()
         .get_parsed_or("grelier.info_dialog.container_padding_x", DEFAULT_CONTAINER_PADDING_X);
+    let bottom_padding_extra = settings::settings().get_parsed_or(
+        "grelier.info_dialog.bottom_padding_extra",
+        DEFAULT_BOTTOM_PADDING_EXTRA,
+    );
 
     let header = Column::new()
         .width(Length::Fill)
@@ -138,7 +151,8 @@ pub fn info_view<'a, Message: 'a>(dialog: &'a InfoDialog) -> Element<'a, Message
             .height(Length::Fill)
             .spacing(header_spacing)
             .push(header)
-            .push(lines),
+            .push(lines)
+            .push(Space::new().height(Length::Fixed(bottom_padding_extra as f32))),
     )
     .padding([container_padding_y as u16, container_padding_x as u16])
     .width(Length::Fill)
