@@ -39,8 +39,11 @@ use iced_layershell::reexport::{Anchor, KeyboardInteractivity, Layer};
 use iced_layershell::settings::{LayerShellSettings, Settings as LayerShellAppSettings, StartMode};
 
 use crate::app::Orientation;
-use crate::app::{BarState, Message};
+use crate::app::{AppIconCache, BarState, Message};
 use crate::gauge::{GaugeClick, GaugeInput, GaugeModel, SettingSpec};
+use elbey_cache::{AppDescriptor, Cache};
+use freedesktop_desktop_entry::desktop_entries;
+use locale_config::Locale;
 
 const DEFAULT_ORIENTATION: &str = "left";
 const DEFAULT_THEME: &str = "Nord";
@@ -133,6 +136,26 @@ fn base_setting_specs(default_gauges: &'static str) -> Vec<SettingSpec> {
             default: "5.0",
         },
         SettingSpec {
+            key: "grelier.app.workspace_icon_size",
+            default: "14.0",
+        },
+        SettingSpec {
+            key: "grelier.app.workspace_icon_spacing",
+            default: "4",
+        },
+        SettingSpec {
+            key: "grelier.app.workspace_icon_padding_x",
+            default: "2",
+        },
+        SettingSpec {
+            key: "grelier.app.workspace_icon_padding_y",
+            default: "2",
+        },
+        SettingSpec {
+            key: "grelier.app.workspace_app_icons",
+            default: "true",
+        },
+        SettingSpec {
             key: "grelier.app.gauge_padding_x",
             default: "2",
         },
@@ -177,6 +200,17 @@ struct Args {
     /// list app settings and exit
     #[argh(switch)]
     list_settings: bool,
+}
+
+fn load_desktop_apps() -> Vec<AppDescriptor> {
+    let locales: Vec<String> = Locale::user_default()
+        .tags()
+        .map(|(_, tag)| tag.to_string())
+        .collect();
+    desktop_entries(&locales)
+        .into_iter()
+        .map(AppDescriptor::from)
+        .collect()
 }
 
 fn app_subscription(_state: &BarState, gauges: &[String]) -> Subscription<Message> {
@@ -321,9 +355,27 @@ fn main() -> Result<(), iced_layershell::Error> {
     };
 
     let gauge_order = gauges.clone();
+    let workspace_app_icons = settings_store.get_bool_or("grelier.app.workspace_app_icons", true);
 
     daemon(
-        move || BarState::with_gauge_order(gauge_order.clone()),
+        move || {
+            let (app_icons, refresh_task) = if workspace_app_icons {
+                let mut icon_cache = Cache::new(load_desktop_apps);
+                let app_icons =
+                    AppIconCache::from_app_descriptors(icon_cache.load_from_apps_loader());
+                let refresh_task = Task::perform(
+                    async move { icon_cache.refresh().map_err(|err| err.to_string()) },
+                    Message::CacheRefreshed,
+                );
+                (app_icons, refresh_task)
+            } else {
+                (AppIconCache::default(), Task::none())
+            };
+            (
+                BarState::with_gauge_order_and_icons(gauge_order.clone(), app_icons),
+                refresh_task,
+            )
+        },
         BarState::namespace,
         update,
         BarState::view,
@@ -339,9 +391,13 @@ fn main() -> Result<(), iced_layershell::Error> {
 
 fn update(state: &mut BarState, message: Message) -> Task<Message> {
     match message {
-        Message::Workspaces(ws) => {
-            state.update_workspace_focus(&ws);
-            state.workspaces = ws;
+        Message::Workspaces { workspaces, apps } => {
+            state.update_workspace_focus(&workspaces);
+            state.workspaces = workspaces;
+            state.workspace_apps = apps
+                .into_iter()
+                .map(|entry| (entry.name, entry.apps))
+                .collect();
         }
         Message::WorkspaceClicked(name) => {
             if !state.dialog_windows.is_empty() {
@@ -349,6 +405,14 @@ fn update(state: &mut BarState, message: Message) -> Task<Message> {
             }
             if let Err(err) = sway_workspace::focus_workspace(&name) {
                 eprintln!("Failed to focus workspace \"{name}\": {err}");
+            }
+        }
+        Message::WorkspaceAppClicked { app_id } => {
+            if !state.dialog_windows.is_empty() {
+                return state.close_dialogs();
+            }
+            if let Err(err) = sway_workspace::focus_app(&app_id) {
+                eprintln!("Failed to focus app \"{app_id}\": {err}");
             }
         }
         Message::IcedEvent(iced::Event::Mouse(mouse::Event::CursorMoved { position })) => {
@@ -376,16 +440,15 @@ fn update(state: &mut BarState, message: Message) -> Task<Message> {
                 return state.close_dialogs();
             }
 
-            let close_dialogs_task = if state.dialog_windows.is_empty() {
-                Task::none()
-            } else {
-                state.close_dialogs()
-            };
-
-            let gauge_index = state.gauges.iter().position(|g| g.id == id);
-            let gauge_menu = gauge_index.and_then(|idx| state.gauges[idx].menu.clone());
-            let gauge_info = gauge_index.and_then(|idx| state.gauges[idx].info.clone());
-            let gauge_callback = gauge_index.and_then(|idx| state.gauges[idx].on_click.clone());
+            let (gauge_menu, gauge_info, gauge_callback) =
+                match state.gauges.iter().find(|g| g.id == id) {
+                    Some(gauge) => (
+                        gauge.menu.clone(),
+                        gauge.info.clone(),
+                        gauge.on_click.clone(),
+                    ),
+                    None => (None, None, None),
+                };
 
             if matches!(input, GaugeInput::Button(iced::mouse::Button::Right))
                 && let Some(menu) = gauge_menu
@@ -395,10 +458,7 @@ fn update(state: &mut BarState, message: Message) -> Task<Message> {
                     .get(&id)
                     .copied()
                     .or_else(|| state.gauge_anchor_y(target));
-                return Task::batch(vec![
-                    close_dialogs_task,
-                    state.open_menu(&id, menu, anchor_y),
-                ]);
+                return state.open_menu(&id, menu, anchor_y);
             }
 
             if matches!(input, GaugeInput::Button(iced::mouse::Button::Middle))
@@ -409,20 +469,13 @@ fn update(state: &mut BarState, message: Message) -> Task<Message> {
                     .get(&id)
                     .copied()
                     .or_else(|| state.gauge_anchor_y(target));
-                return Task::batch(vec![
-                    close_dialogs_task,
-                    state.open_info_dialog(&id, dialog, anchor_y),
-                ]);
+                return state.open_info_dialog(&id, dialog, anchor_y);
             }
 
             if let Some(callback) = gauge_callback {
                 callback(GaugeClick { input, target });
             } else {
                 println!("Gauge '{id}' clicked: {:?} {:?}", target, input);
-            }
-
-            if close_dialogs_task.units() > 0 {
-                return close_dialogs_task;
             }
         }
         Message::MenuItemSelected {
@@ -449,6 +502,11 @@ fn update(state: &mut BarState, message: Message) -> Task<Message> {
             state.dialog_windows.remove(&window);
             state.closing_dialogs.remove(&window);
             return Task::done(Message::RemoveWindow(window));
+        }
+        Message::CacheRefreshed(result) => {
+            if let Err(err) = result {
+                eprintln!("Failed to refresh icon cache: {err}");
+            }
         }
         Message::WindowClosed(window) => {
             state.dialog_windows.remove(&window);
