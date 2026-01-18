@@ -16,7 +16,7 @@ swayipc = "3"
 libpulse-binding = "2.28"
 inventory = "0.3"
 
-elbey_cache = { package = "elbey-cache", version = "0.7.0" }
+elbey_cache = { package = "elbey-cache", version = "0.8.0" }
 freedesktop-desktop-entry = "0.8.1"
 locale_config = "0.3.0"
 

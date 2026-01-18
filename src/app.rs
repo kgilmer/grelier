@@ -11,7 +11,7 @@ use crate::info_dialog::{InfoDialog, dialog_dimensions as info_dialog_dimensions
 use crate::menu_dialog::{dialog_dimensions as menu_dialog_dimensions, menu_view};
 use crate::settings;
 use crate::sway_workspace::{WorkspaceApps, WorkspaceInfo};
-use elbey_cache::{FALLBACK_ICON_HANDLE, IconHandle};
+use elbey_cache::{AppDescriptor, FALLBACK_ICON_HANDLE, IconHandle};
 use iced::alignment;
 use iced::border;
 use iced::font::Weight;
@@ -34,6 +34,9 @@ pub enum Message {
     },
     WorkspaceClicked(String),
     WorkspaceAppClicked {
+        app_id: String,
+    },
+    TopAppClicked {
         app_id: String,
     },
     BackgroundClicked,
@@ -157,6 +160,7 @@ fn app_icon_view(handle: &IconHandle, size: f32) -> Element<'_, Message> {
 pub struct BarState {
     pub workspaces: Vec<WorkspaceInfo>,
     pub workspace_apps: HashMap<String, Vec<String>>,
+    pub top_apps: Vec<AppDescriptor>,
     pub app_icons: AppIconCache,
     pub gauges: Vec<GaugeModel>,
     pub gauge_order: Vec<String>,
@@ -235,9 +239,14 @@ impl BarState {
         }
     }
 
-    pub fn with_gauge_order_and_icons(gauge_order: Vec<String>, app_icons: AppIconCache) -> Self {
+    pub fn with_gauge_order_and_icons(
+        gauge_order: Vec<String>,
+        app_icons: AppIconCache,
+        top_apps: Vec<AppDescriptor>,
+    ) -> Self {
         Self {
             gauge_order,
+            top_apps,
             app_icons,
             ..Self::default()
         }
@@ -408,6 +417,10 @@ impl BarState {
         let workspace_corner_radius = settings.get_parsed_or("grelier.ws.corner_radius", 5.0_f32);
         let workspace_transitions = settings.get_bool_or("grelier.ws.transitions", true);
         let workspace_icon_size = settings.get_parsed_or("grelier.app.workspace_icon_size", 12.0);
+        let top_apps_icon_size = settings.get_parsed_or(
+            "grelier.app.top_apps_icon_size",
+            workspace_icon_size + 2.0,
+        );
         let workspace_icon_spacing =
             settings.get_parsed_or("grelier.app.workspace_icon_spacing", 4u32);
         let workspace_icon_padding_x =
@@ -595,6 +608,33 @@ impl BarState {
         let ordered_gauges = self.ordered_gauges();
         let error_icon = svg_asset("error.svg");
 
+        let top_apps = self.top_apps.iter().fold(
+            Column::new()
+                .spacing(workspace_icon_spacing)
+                .align_x(alignment::Horizontal::Center)
+                .width(Length::Fill),
+            |col, app| {
+                let app_id = app.appid.clone();
+                let handle = match &app.icon_handle {
+                    IconHandle::NotLoaded => self
+                        .app_icons
+                        .icon_for(&app_id)
+                        .unwrap_or(&FALLBACK_ICON_HANDLE),
+                    handle => handle,
+                };
+                let icon = mouse_area(app_icon_view(handle, top_apps_icon_size))
+                    .on_press(Message::TopAppClicked { app_id })
+                    .interaction(mouse::Interaction::Pointer);
+                col.push(icon)
+            },
+        );
+
+        let top_apps_section: Element<'_, Message> = container(top_apps)
+            .padding([workspace_icon_padding_y, workspace_icon_padding_x])
+            .width(Length::Fill)
+            .align_x(alignment::Horizontal::Center)
+            .into();
+
         let gauges = ordered_gauges.into_iter().fold(
             Column::new()
                 .padding([gauge_padding_y, gauge_padding_x])
@@ -707,6 +747,8 @@ impl BarState {
             .width(Length::Fill)
             .height(Length::Fill)
             .push(workspaces)
+            .push(Space::new().height(Length::Fill))
+            .push(top_apps_section)
             .push(Space::new().height(Length::Fill))
             .push(gauges);
 

@@ -87,6 +87,16 @@ pub fn focus_app(app_id: &str) -> Result<(), Error> {
     })
 }
 
+/// Launch an application using the desktop app id.
+pub fn launch_app(app_id: &str) -> Result<(), Error> {
+    with_command_conn(|conn| {
+        let escaped = app_id.replace('"', "\\\"");
+        let cmd = format!("exec gtk-launch \"{escaped}\"");
+        conn.run_command(cmd)?;
+        Ok(())
+    })
+}
+
 fn with_command_conn<R>(
     f: impl FnOnce(&mut SwayConnection) -> Result<R, Error>,
 ) -> Result<R, Error> {
