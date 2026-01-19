@@ -30,6 +30,7 @@ mod sway_workspace;
 mod theme;
 
 use argh::FromArgs;
+use std::collections::HashMap;
 use iced::Font;
 use iced::Task;
 use iced::{Subscription, event, mouse, window};
@@ -41,7 +42,7 @@ use iced_layershell::settings::{LayerShellSettings, Settings as LayerShellAppSet
 use crate::app::Orientation;
 use crate::app::{AppIconCache, BarState, Message};
 use crate::gauge::{GaugeClick, GaugeInput, GaugeModel, SettingSpec};
-use elbey_cache::{AppDescriptor, Cache};
+use elbey_cache::{AppDescriptor, Cache, IconHandle};
 use freedesktop_desktop_entry::desktop_entries;
 use locale_config::Locale;
 
@@ -229,9 +230,15 @@ fn load_cached_apps_from_cache(
     cache: &mut Cache,
     top_count: usize,
     workspace_app_icons: bool,
-) -> (AppIconCache, Vec<AppDescriptor>) {
+) -> (Vec<AppDescriptor>, AppIconCache, Vec<AppDescriptor>) {
+    let apps = if workspace_app_icons || top_count > 0 {
+        cache.load_from_apps_loader()
+    } else {
+        Vec::new()
+    };
+
     let app_icons = if workspace_app_icons {
-        AppIconCache::from_app_descriptors(cache.load_from_apps_loader())
+        AppIconCache::from_app_descriptors(apps.clone())
     } else {
         AppIconCache::default()
     };
@@ -247,7 +254,7 @@ fn load_cached_apps_from_cache(
         Vec::new()
     };
 
-    (app_icons, top_apps)
+    (apps, app_icons, top_apps)
 }
 
 fn load_cached_apps(
@@ -255,7 +262,9 @@ fn load_cached_apps(
     workspace_app_icons: bool,
 ) -> (AppIconCache, Vec<AppDescriptor>) {
     let mut cache = Cache::new(load_desktop_apps);
-    load_cached_apps_from_cache(&mut cache, top_count, workspace_app_icons)
+    let (_apps, app_icons, top_apps) =
+        load_cached_apps_from_cache(&mut cache, top_count, workspace_app_icons);
+    (app_icons, top_apps)
 }
 
 fn app_subscription(_state: &BarState, gauges: &[String]) -> Subscription<Message> {
@@ -406,14 +415,29 @@ fn main() -> Result<(), iced_layershell::Error> {
     daemon(
         move || {
             let mut icon_cache = Cache::new(load_desktop_apps);
-            let (app_icons, top_apps) = load_cached_apps_from_cache(
+            let (mut apps, app_icons, top_apps) = load_cached_apps_from_cache(
                 &mut icon_cache,
                 top_apps_count,
                 workspace_app_icons,
             );
             let refresh_task = if workspace_app_icons || top_apps_count > 0 {
                 Task::perform(
-                    async move { icon_cache.refresh().map_err(|err| err.to_string()) },
+                    async move {
+                        icon_cache
+                            .refresh_in_place(&mut apps)
+                            .map_err(|err| err.to_string())?;
+                        let top_apps = if top_apps_count > 0 {
+                            icon_cache
+                                .read_top(top_apps_count)
+                                .unwrap_or_default()
+                                .into_iter()
+                                .filter(|app| app.exec_count > 0)
+                                .collect()
+                        } else {
+                            Vec::new()
+                        };
+                        Ok((apps, top_apps))
+                    },
                     Message::CacheRefreshed,
                 )
             } else {
@@ -569,24 +593,43 @@ fn update(state: &mut BarState, message: Message) -> Task<Message> {
             state.closing_dialogs.remove(&window);
             return Task::done(Message::RemoveWindow(window));
         }
-        Message::CacheRefreshed(result) => {
-            match result {
-                Ok(()) => {
-                    let settings = settings::settings();
-                    let top_apps_count =
-                        settings.get_parsed_or("grelier.app.top_apps_count", 6usize);
-                    let workspace_app_icons =
-                        settings.get_bool_or("grelier.app.workspace_app_icons", true);
-                    let (app_icons, top_apps) =
-                        load_cached_apps(top_apps_count, workspace_app_icons);
-                    state.app_icons = app_icons;
-                    state.top_apps = top_apps;
+        Message::CacheRefreshed(result) => match result {
+            Ok((apps, top_apps)) => {
+                let settings = settings::settings();
+                let workspace_app_icons =
+                    settings.get_bool_or("grelier.app.workspace_app_icons", true);
+                state.app_icons = if workspace_app_icons {
+                    AppIconCache::from_app_descriptors(apps)
+                } else {
+                    AppIconCache::default()
+                };
+                let mut updated_top_apps = top_apps;
+                if !state.top_apps.is_empty() {
+                    let mut existing_by_id: HashMap<String, &AppDescriptor> =
+                        HashMap::with_capacity(state.top_apps.len());
+                    for app in &state.top_apps {
+                        existing_by_id.insert(app.appid.clone(), app);
+                    }
+                    for app in &mut updated_top_apps {
+                        if let Some(existing) = existing_by_id.get(&app.appid) {
+                            let same_icon = existing.icon_path == app.icon_path
+                                && existing.icon_name == app.icon_name;
+                            let handle_loaded = matches!(
+                                existing.icon_handle,
+                                IconHandle::Raster(_) | IconHandle::Vector(_)
+                            );
+                            if same_icon && handle_loaded {
+                                app.icon_handle = existing.icon_handle.clone();
+                            }
+                        }
+                    }
                 }
-                Err(err) => {
-                    eprintln!("Failed to refresh icon cache: {err}");
-                }
+                state.top_apps = updated_top_apps;
             }
-        }
+            Err(err) => {
+                eprintln!("Failed to refresh icon cache: {err}");
+            }
+        },
         Message::WindowClosed(window) => {
             state.dialog_windows.remove(&window);
             state.closing_dialogs.remove(&window);
