@@ -416,6 +416,7 @@ impl BarState {
             settings.get_parsed_or("grelier.app.workspace_button_padding_y", 4u16);
         let workspace_corner_radius = settings.get_parsed_or("grelier.ws.corner_radius", 5.0_f32);
         let workspace_transitions = settings.get_bool_or("grelier.ws.transitions", true);
+        let workspace_label_size = settings.get_parsed_or("grelier.app.workspace_label_size", 14u32);
         let workspace_icon_size = settings.get_parsed_or("grelier.app.workspace_icon_size", 12.0);
         let top_apps_icon_size = settings.get_parsed_or(
             "grelier.app.top_apps_icon_size",
@@ -489,6 +490,7 @@ impl BarState {
                 let build_workspace = move |focus: f32, urgent: f32| -> Element<'_, Message> {
                     let name = ws_name.clone();
                     let mut label = Text::new(ws_num.to_string())
+                        .size(workspace_label_size)
                         .width(Length::Fill)
                         .align_x(text::Alignment::Center);
                     if focus > 0.0 {

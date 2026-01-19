@@ -136,6 +136,10 @@ fn base_setting_specs(default_gauges: &'static str) -> Vec<SettingSpec> {
             default: "5.0",
         },
         SettingSpec {
+            key: "grelier.app.workspace_label_size",
+            default: "14",
+        },
+        SettingSpec {
             key: "grelier.app.workspace_icon_size",
             default: "14.0",
         },
