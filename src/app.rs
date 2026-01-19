@@ -181,6 +181,10 @@ pub struct AppIconCache {
 
 impl AppIconCache {
     pub fn from_app_descriptors(apps: Vec<elbey_cache::AppDescriptor>) -> Self {
+        Self::from_app_descriptors_ref(&apps)
+    }
+
+    pub fn from_app_descriptors_ref(apps: &[elbey_cache::AppDescriptor]) -> Self {
         let mut cache = AppIconCache::default();
         for app in apps {
             cache
@@ -416,12 +420,11 @@ impl BarState {
             settings.get_parsed_or("grelier.app.workspace_button_padding_y", 4u16);
         let workspace_corner_radius = settings.get_parsed_or("grelier.ws.corner_radius", 5.0_f32);
         let workspace_transitions = settings.get_bool_or("grelier.ws.transitions", true);
-        let workspace_label_size = settings.get_parsed_or("grelier.app.workspace_label_size", 14u32);
+        let workspace_label_size =
+            settings.get_parsed_or("grelier.app.workspace_label_size", 14u32);
         let workspace_icon_size = settings.get_parsed_or("grelier.app.workspace_icon_size", 12.0);
-        let top_apps_icon_size = settings.get_parsed_or(
-            "grelier.app.top_apps_icon_size",
-            workspace_icon_size + 2.0,
-        );
+        let top_apps_icon_size =
+            settings.get_parsed_or("grelier.app.top_apps_icon_size", workspace_icon_size + 2.0);
         let workspace_icon_spacing =
             settings.get_parsed_or("grelier.app.workspace_icon_spacing", 4u32);
         let workspace_icon_padding_x =
