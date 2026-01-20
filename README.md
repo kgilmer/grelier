@@ -1,26 +1,12 @@
 # grelier
 
-A desktop bar for Linux
+A desktop bar for Sway on Linux
 
 ## Overview
 
-This program displays a fixed bar on the left-hand side of the screen.  It shows a list of all workspaces at the top and a user-configurable set of gauges at the bottom.  A gauge is something that displays system information or provides some action to change system state.  The program can take configuration parameters from CLI arguments or use Xresource-style key-value pairs specified in `$HOME/.config/grelier/Settings.xresources`.
+This program displays a fixed bar on the left or right-hand side of the screen.  It shows a list of all workspaces at the top, a selection of frequently launched apps in the center, and a user-configurable set of gauges at the bottom.  A gauge is something that displays system information or provides some action to change system state.  The program can take configuration parameters from CLI arguments or use Xresource-style key-value pairs specified in `$HOME/.config/grelier/Settings.xresources`.
 
-## Configuration
-
-Grelier reads from `$HOME/.config/grelier/Settings.xresources` on start for it's configuration.  Any configuration changes made interactively are immediately saved back to this file.  The file is regenerated each time, so any manual edits will be destroyed.  `grelier --list-settings` can be used to see all supported settings.  `grelier --list-gauges` will print all available gauges with descriptions.
-
-### Workspace styling
-
-- `grelier.ws.corner_radius` (default `5.0`): Sets the roundness of workspace indicators.
-- `grelier.ws.spacing` (default `2`): Controls the space between workspace indicators.
-- `grelier.ws.transitions` (default `true`): Enables the focus/urgent transition animation.
-
-### Gauge layout
-
-- `grelier.gauge.spacing` (default `18`): Sets the vertical space between gauges.
-
-## Status
+### Status
 
 This project is in active development and should not be considered stable.
 
@@ -38,6 +24,20 @@ Options:
   --list-settings   list settings for the selected gauges and exit
   --help, help      display usage information
 ```
+
+## Configuration
+
+Grelier reads from `$HOME/.config/grelier/Settings.xresources` on start for it's configuration.  Any configuration changes made interactively are immediately saved back to this file.  The file is regenerated each time, so any manual edits will be destroyed.  `grelier --list-settings` can be used to see all supported settings.  `grelier --list-gauges` will print all available gauges with descriptions.
+
+### Workspace styling
+
+- `grelier.ws.corner_radius` (default `5.0`): Sets the roundness of workspace indicators.
+- `grelier.ws.spacing` (default `2`): Controls the space between workspace indicators.
+- `grelier.ws.transitions` (default `true`): Enables the focus/urgent transition animation.
+
+### Gauge layout
+
+- `grelier.gauge.spacing` (default `18`): Sets the vertical space between gauges.
 
 ### Bar Settings
 
