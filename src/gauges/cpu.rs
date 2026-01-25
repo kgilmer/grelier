@@ -1,13 +1,9 @@
-// CPU utilization gauge with adaptive polling and quantity-style icons.
+// CPU utilization gauge with adaptive polling and quantity icons.
 // Consumes Settings: grelier.gauge.cpu.*.
-use crate::gauge::{
-    GaugeClick, GaugeClickAction, GaugeInput, GaugeValue, GaugeValueAttention, SettingSpec,
-    fixed_interval,
-};
+use crate::gauge::{GaugeValue, GaugeValueAttention, SettingSpec, fixed_interval};
 use crate::gauge_registry::{GaugeSpec, GaugeStream};
-use crate::icon::{QuantityStyle, icon_quantity, svg_asset};
+use crate::icon::{icon_quantity, svg_asset};
 use crate::settings;
-use iced::mouse;
 use std::fs::File;
 use std::io::{BufRead, BufReader};
 use std::sync::{Arc, Mutex};
@@ -87,7 +83,6 @@ struct CpuState {
     previous: Option<CpuTime>,
     fast_interval: bool,
     below_threshold_streak: u8,
-    quantity_style: QuantityStyle,
     fast_threshold: f32,
     calm_ticks: u8,
     fast_interval_duration: Duration,
@@ -122,13 +117,12 @@ impl CpuState {
 
 fn cpu_value(
     utilization: Option<f32>,
-    style: QuantityStyle,
     warning_threshold: f32,
     danger_threshold: f32,
 ) -> (Option<GaugeValue>, GaugeValueAttention) {
     match utilization {
         Some(util) => (
-            Some(GaugeValue::Svg(icon_quantity(style, util))),
+            Some(GaugeValue::Svg(icon_quantity(util))),
             attention_for(util, warning_threshold, danger_threshold),
         ),
         None => (None, GaugeValueAttention::Danger),
@@ -136,8 +130,6 @@ fn cpu_value(
 }
 
 fn cpu_stream() -> impl iced::futures::Stream<Item = crate::gauge::GaugeModel> {
-    let style_value = settings::settings().get_or("grelier.gauge.cpu.quantitystyle", "grid");
-    let style = QuantityStyle::parse_setting("grelier.gauge.cpu.quantitystyle", &style_value);
     let warning_threshold = settings::settings().get_parsed_or(
         "grelier.gauge.cpu.warning_threshold",
         DEFAULT_WARNING_THRESHOLD,
@@ -159,7 +151,6 @@ fn cpu_stream() -> impl iced::futures::Stream<Item = crate::gauge::GaugeModel> {
         DEFAULT_SLOW_INTERVAL_SECS,
     );
     let state = Arc::new(Mutex::new(CpuState {
-        quantity_style: style,
         fast_threshold,
         calm_ticks,
         fast_interval_duration: Duration::from_secs(fast_interval_secs),
@@ -171,21 +162,6 @@ fn cpu_stream() -> impl iced::futures::Stream<Item = crate::gauge::GaugeModel> {
         below_threshold_streak: 0,
     }));
     let interval_state = Arc::clone(&state);
-    let on_click: GaugeClickAction = {
-        let state = Arc::clone(&state);
-        Arc::new(move |click: GaugeClick| {
-            if matches!(click.input, GaugeInput::Button(mouse::Button::Left))
-                && let Ok(mut state) = state.lock()
-            {
-                state.quantity_style = state.quantity_style.toggle();
-                settings::settings().update(
-                    "grelier.gauge.cpu.quantitystyle",
-                    state.quantity_style.as_setting_value(),
-                );
-            }
-        })
-    };
-
     fixed_interval(
         "cpu",
         Some(svg_asset("microchip.svg")),
@@ -201,7 +177,6 @@ fn cpu_stream() -> impl iced::futures::Stream<Item = crate::gauge::GaugeModel> {
                 None => {
                     return Some(cpu_value(
                         None,
-                        QuantityStyle::Grid,
                         warning_threshold,
                         danger_threshold,
                     ));
@@ -213,19 +188,17 @@ fn cpu_stream() -> impl iced::futures::Stream<Item = crate::gauge::GaugeModel> {
                 Err(_) => {
                     return Some(cpu_value(
                         None,
-                        QuantityStyle::Grid,
                         warning_threshold,
                         danger_threshold,
                     ));
                 }
             };
-            let style = state.quantity_style;
             let previous = match state.previous {
                 Some(prev) => prev,
                 None => {
                     state.previous = Some(now);
                     return Some((
-                        Some(GaugeValue::Svg(icon_quantity(style, 0.0))),
+                        Some(GaugeValue::Svg(icon_quantity(0.0))),
                         GaugeValueAttention::Nominal,
                     ));
                 }
@@ -237,21 +210,16 @@ fn cpu_stream() -> impl iced::futures::Stream<Item = crate::gauge::GaugeModel> {
 
             Some(cpu_value(
                 Some(utilization),
-                style,
                 state.warning_threshold,
                 state.danger_threshold,
             ))
         },
-        Some(on_click),
+        None,
     )
 }
 
 pub fn settings() -> &'static [SettingSpec] {
     const SETTINGS: &[SettingSpec] = &[
-        SettingSpec {
-            key: "grelier.gauge.cpu.quantitystyle",
-            default: "grid",
-        },
         SettingSpec {
             key: "grelier.gauge.cpu.warning_threshold",
             default: "0.75",
@@ -303,7 +271,6 @@ mod tests {
     #[test]
     fn cpu_interval_speeds_up_and_recovers() {
         let mut state = CpuState {
-            quantity_style: QuantityStyle::Grid,
             fast_threshold: DEFAULT_FAST_THRESHOLD,
             calm_ticks: DEFAULT_CALM_TICKS,
             fast_interval_duration: Duration::from_secs(DEFAULT_FAST_INTERVAL_SECS),
@@ -343,7 +310,6 @@ mod tests {
     fn returns_none_on_missing_utilization() {
         let (value, attention) = super::cpu_value(
             None,
-            QuantityStyle::Grid,
             DEFAULT_WARNING_THRESHOLD,
             DEFAULT_DANGER_THRESHOLD,
         );

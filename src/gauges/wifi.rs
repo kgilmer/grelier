@@ -1,16 +1,12 @@
 // Wi-Fi signal/connection gauge that polls sysfs and /proc.
 // Consumes Settings: grelier.gauge.wifi.*.
-use crate::gauge::{
-    GaugeClick, GaugeClickAction, GaugeInput, GaugeModel, GaugeValue, GaugeValueAttention,
-    SettingSpec, event_stream,
-};
+use crate::gauge::{GaugeModel, GaugeValue, GaugeValueAttention, SettingSpec, event_stream};
 use crate::gauge_registry::{GaugeSpec, GaugeStream};
-use crate::icon::{QuantityStyle, icon_quantity, svg_asset};
+use crate::icon::{icon_quantity, svg_asset};
 use crate::settings;
-use iced::mouse;
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex, mpsc as sync_mpsc};
+use std::thread;
 use std::time::Duration;
 
 const SYS_NET: &str = "/sys/class/net";
@@ -161,11 +157,7 @@ fn wifi_snapshot_with_paths(
     }
 }
 
-fn wifi_gauge(
-    snapshot: WifiSnapshot,
-    style: QuantityStyle,
-    on_click: Option<GaugeClickAction>,
-) -> GaugeModel {
+fn wifi_gauge(snapshot: WifiSnapshot) -> GaugeModel {
     let (icon, attention) = match snapshot.state {
         WifiState::Connected => ("wifi.svg", GaugeValueAttention::Nominal),
         WifiState::NotConnected => ("wifi-off.svg", GaugeValueAttention::Warning),
@@ -177,10 +169,10 @@ fn wifi_gauge(
         icon: Some(svg_asset(icon)),
         value: match snapshot.state {
             WifiState::NoDevice => None,
-            _ => Some(GaugeValue::Svg(icon_quantity(style, snapshot.strength))),
+            _ => Some(GaugeValue::Svg(icon_quantity(snapshot.strength))),
         },
         attention,
-        on_click,
+        on_click: None,
         menu: None,
         info: None,
     }
@@ -188,8 +180,6 @@ fn wifi_gauge(
 
 fn wifi_stream() -> impl iced::futures::Stream<Item = GaugeModel> {
     event_stream("wifi", None, move |mut sender| {
-        let style_value = settings::settings().get_or("grelier.gauge.wifi.quantitystyle", "grid");
-        let style = QuantityStyle::parse_setting("grelier.gauge.wifi.quantitystyle", &style_value);
         let mut quality_max = settings::settings()
             .get_parsed_or("grelier.gauge.wifi.quality_max", DEFAULT_QUALITY_MAX);
         if quality_max <= 0.0 {
@@ -200,46 +190,16 @@ fn wifi_stream() -> impl iced::futures::Stream<Item = GaugeModel> {
             DEFAULT_POLL_INTERVAL_SECS,
         );
         let poll_interval = Duration::from_secs(poll_interval_secs);
-        let state = Arc::new(Mutex::new(style));
-        let (trigger_tx, trigger_rx) = sync_mpsc::channel::<()>();
-        let on_click: GaugeClickAction = {
-            let state = Arc::clone(&state);
-            let trigger_tx = trigger_tx.clone();
-            Arc::new(move |click: GaugeClick| {
-                if matches!(click.input, GaugeInput::Button(mouse::Button::Left)) {
-                    if let Ok(mut style) = state.lock() {
-                        *style = style.toggle();
-                        settings::settings()
-                            .update("grelier.gauge.wifi.quantitystyle", style.as_setting_value());
-                    }
-                    let _ = trigger_tx.send(());
-                }
-            })
-        };
-
-        let _trigger_tx = trigger_tx;
         loop {
             let snapshot = wifi_snapshot(quality_max);
-            let style = state
-                .lock()
-                .map(|style| *style)
-                .unwrap_or(QuantityStyle::Grid);
-            let _ = sender.try_send(wifi_gauge(snapshot, style, Some(on_click.clone())));
-
-            match trigger_rx.recv_timeout(poll_interval) {
-                Ok(()) | Err(sync_mpsc::RecvTimeoutError::Timeout) => continue,
-                Err(sync_mpsc::RecvTimeoutError::Disconnected) => break,
-            }
+            let _ = sender.try_send(wifi_gauge(snapshot));
+            thread::sleep(poll_interval);
         }
     })
 }
 
 pub fn settings() -> &'static [SettingSpec] {
     const SETTINGS: &[SettingSpec] = &[
-        SettingSpec {
-            key: "grelier.gauge.wifi.quantitystyle",
-            default: "grid",
-        },
         SettingSpec {
             key: "grelier.gauge.wifi.quality_max",
             default: "70",

@@ -1,4 +1,4 @@
-// SVG asset helpers and quantity-style icon selection for gauges.
+// SVG asset helpers and quantity icon selection for gauges.
 use iced::widget::svg;
 use std::path::Path;
 
@@ -11,57 +11,13 @@ pub fn svg_asset(name: &str) -> svg::Handle {
     svg::Handle::from_path(path)
 }
 
-#[derive(Debug, Clone, Copy, Default)]
-pub enum QuantityStyle {
-    #[default]
-    Grid,
-    Pie,
-}
-
-impl QuantityStyle {
-    pub fn toggle(self) -> Self {
-        match self {
-            QuantityStyle::Grid => QuantityStyle::Pie,
-            QuantityStyle::Pie => QuantityStyle::Grid,
-        }
-    }
-
-    pub fn parse_setting(key: &str, value: &str) -> Self {
-        match value {
-            "grid" => QuantityStyle::Grid,
-            "pie" => QuantityStyle::Pie,
-            other => panic!("Invalid setting '{key}': expected grid or pie, got '{other}'"),
-        }
-    }
-
-    pub fn as_setting_value(self) -> &'static str {
-        match self {
-            QuantityStyle::Grid => "grid",
-            QuantityStyle::Pie => "pie",
-        }
-    }
-}
-
 /// Returns the appropriate handle to the SVG representing the quantity `value`.
 /// `value` must be a number between 0 and 1.  0 indicates "no quantity" and 1 indicates "full quantity".
-/// grid-0.svg - grid-9.svg and pie-0.svg - pie-8.svg are the icons returned.
-pub fn icon_quantity(style: QuantityStyle, value: f32) -> svg::Handle {
-    let (prefix, max_index) = match style {
-        QuantityStyle::Grid => ("grid", 9usize),
-        QuantityStyle::Pie => ("pie", 8usize),
-    };
-
+/// ratio-0.svg through ratio-7.svg are the icons returned.
+pub fn icon_quantity(value: f32) -> svg::Handle {
     let clamped = value.clamp(0.0, 1.0);
-    let icon_name = if clamped <= 0.0 {
-        format!("{prefix}-0.svg")
-    } else if clamped >= 1.0 {
-        format!("{prefix}-{max_index}.svg")
-    } else {
-        // Use half-up rounding to avoid skipping icons (ties-to-even would skip grid-5).
-        let half_up = (clamped * max_index as f32 + 0.5).floor() as usize;
-        let index = half_up.min(max_index);
-        format!("{prefix}-{index}.svg")
-    };
+    let index = (clamped * 7.0).round() as u8;
+    let icon_name = format!("ratio-{index}.svg");
 
     svg_asset(&icon_name)
 }
@@ -71,28 +27,16 @@ mod tests {
     use super::*;
 
     #[test]
-    fn quantity_grid_uses_grid_icons_at_extremes() {
-        let zero = icon_quantity(QuantityStyle::Grid, 0.0);
-        let full = icon_quantity(QuantityStyle::Grid, 1.0);
-        assert_eq!(zero, svg_asset("grid-0.svg"));
-        assert_eq!(full, svg_asset("grid-9.svg"));
-    }
-
-    #[test]
-    fn quantity_grid_midpoints_cover_range() {
-        // Check a mid value that should land near the middle of the 0-9 grid set.
-        let mid = icon_quantity(QuantityStyle::Grid, 0.5);
-        assert_eq!(mid, svg_asset("grid-5.svg"));
-        // And a lower-mid value that should map to grid-4.
-        let lower_mid = icon_quantity(QuantityStyle::Grid, 0.45);
-        assert_eq!(lower_mid, svg_asset("grid-4.svg"));
-    }
-
-    #[test]
-    fn quantity_pie_uses_pie_icons_at_extremes() {
-        let zero = icon_quantity(QuantityStyle::Pie, 0.0);
-        let full = icon_quantity(QuantityStyle::Pie, 1.0);
-        assert_eq!(zero, svg_asset("pie-0.svg"));
-        assert_eq!(full, svg_asset("pie-8.svg"));
+    fn quantity_bar_uses_ratio_icons_across_range() {
+        let zero = icon_quantity(0.0);
+        let low = icon_quantity(0.25);
+        let mid = icon_quantity(0.5);
+        let high = icon_quantity(0.85);
+        let full = icon_quantity(1.0);
+        assert_eq!(zero, svg_asset("ratio-0.svg"));
+        assert_eq!(low, svg_asset("ratio-2.svg"));
+        assert_eq!(mid, svg_asset("ratio-4.svg"));
+        assert_eq!(high, svg_asset("ratio-6.svg"));
+        assert_eq!(full, svg_asset("ratio-7.svg"));
     }
 }

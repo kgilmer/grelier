@@ -1,17 +1,12 @@
 // Disk usage gauge for a configurable filesystem path.
 // Consumes Settings: grelier.gauge.disk.*.
-use crate::gauge::{
-    GaugeClick, GaugeClickAction, GaugeInput, GaugeValue, GaugeValueAttention, SettingSpec,
-    fixed_interval,
-};
+use crate::gauge::{GaugeValue, GaugeValueAttention, SettingSpec, fixed_interval};
 use crate::gauge_registry::{GaugeSpec, GaugeStream};
-use crate::icon::{QuantityStyle, icon_quantity, svg_asset};
+use crate::icon::{icon_quantity, svg_asset};
 use crate::settings;
-use iced::mouse;
 use std::ffi::CString;
 use std::mem::MaybeUninit;
 use std::os::raw::{c_char, c_int, c_ulong};
-use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 const DEFAULT_ROOT_PATH: &str = "/";
@@ -99,27 +94,19 @@ fn attention_for(
 
 fn disk_value(
     utilization: Option<f32>,
-    style: QuantityStyle,
     warning_threshold: f32,
     danger_threshold: f32,
 ) -> (Option<GaugeValue>, GaugeValueAttention) {
     match utilization {
         Some(util) => (
-            Some(GaugeValue::Svg(icon_quantity(style, util))),
+            Some(GaugeValue::Svg(icon_quantity(util))),
             attention_for(util, warning_threshold, danger_threshold),
         ),
         None => (None, GaugeValueAttention::Danger),
     }
 }
 
-#[derive(Default)]
-struct DiskState {
-    quantity_style: QuantityStyle,
-}
-
 fn disk_stream() -> impl iced::futures::Stream<Item = crate::gauge::GaugeModel> {
-    let style_value = settings::settings().get_or("grelier.gauge.disk.quantitystyle", "grid");
-    let style = QuantityStyle::parse_setting("grelier.gauge.disk.quantitystyle", &style_value);
     let path = settings::settings().get_or("grelier.gauge.disk.path", DEFAULT_ROOT_PATH);
     let poll_interval_secs = settings::settings().get_parsed_or(
         "grelier.gauge.disk.poll_interval_secs",
@@ -133,52 +120,26 @@ fn disk_stream() -> impl iced::futures::Stream<Item = crate::gauge::GaugeModel> 
         "grelier.gauge.disk.danger_threshold",
         DEFAULT_DANGER_THRESHOLD,
     );
-    let state = Arc::new(Mutex::new(DiskState {
-        quantity_style: style,
-    }));
-    let on_click: GaugeClickAction = {
-        let state = Arc::clone(&state);
-        Arc::new(move |click: GaugeClick| {
-            if matches!(click.input, GaugeInput::Button(mouse::Button::Left))
-                && let Ok(mut state) = state.lock()
-            {
-                state.quantity_style = state.quantity_style.toggle();
-                settings::settings().update(
-                    "grelier.gauge.disk.quantitystyle",
-                    state.quantity_style.as_setting_value(),
-                );
-            }
-        })
-    };
 
     fixed_interval(
         "disk",
         Some(svg_asset("disk.svg")),
         move || Duration::from_secs(poll_interval_secs),
         {
-            let state = Arc::clone(&state);
             let path = path.clone();
             move || {
                 let utilization = root_utilization(&path);
-                let style = state
-                    .lock()
-                    .map(|state| state.quantity_style)
-                    .unwrap_or(QuantityStyle::Grid);
                 let (value, attention) =
-                    disk_value(utilization, style, warning_threshold, danger_threshold);
+                    disk_value(utilization, warning_threshold, danger_threshold);
                 Some((value, attention))
             }
         },
-        Some(on_click),
+        None,
     )
 }
 
 pub fn settings() -> &'static [SettingSpec] {
     const SETTINGS: &[SettingSpec] = &[
-        SettingSpec {
-            key: "grelier.gauge.disk.quantitystyle",
-            default: "grid",
-        },
         SettingSpec {
             key: "grelier.gauge.disk.path",
             default: DEFAULT_ROOT_PATH,
@@ -243,7 +204,6 @@ mod tests {
     fn returns_none_on_missing_utilization() {
         let (value, attention) = disk_value(
             None,
-            QuantityStyle::Grid,
             DEFAULT_WARNING_THRESHOLD,
             DEFAULT_DANGER_THRESHOLD,
         );

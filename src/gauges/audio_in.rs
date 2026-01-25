@@ -5,7 +5,7 @@ use crate::gauge::{
     MenuSelectAction, SettingSpec, event_stream,
 };
 use crate::gauge_registry::{GaugeSpec, GaugeStream};
-use crate::icon::svg_asset;
+use crate::icon::{icon_quantity, svg_asset};
 use crate::settings;
 use libpulse_binding as pulse;
 use pulse::callbacks::ListResult;
@@ -23,16 +23,19 @@ use std::time::Duration;
 const IDLE_WAIT: Duration = Duration::from_millis(25);
 const DEFAULT_STEP_PERCENT: i8 = 5;
 
-fn format_percent(value: u8) -> String {
-    format!("{:02}", value.min(99))
-}
-
 fn format_level(percent: Option<u8>) -> (Option<GaugeValue>, GaugeValueAttention) {
     match percent {
-        Some(value) => (
-            Some(GaugeValue::Text(format_percent(value))),
-            GaugeValueAttention::Nominal,
-        ),
+        Some(value) => {
+            let ratio = if value == 0 {
+                0.0
+            } else {
+                value.min(99) as f32 / 99.0
+            };
+            (
+                Some(GaugeValue::Svg(icon_quantity(ratio))),
+                GaugeValueAttention::Nominal,
+            )
+        }
         None => (None, GaugeValueAttention::Danger),
     }
 }
@@ -514,10 +517,15 @@ mod tests {
     }
 
     #[test]
-    fn formats_with_two_digits() {
-        assert_eq!(format_percent(0), "00");
-        assert_eq!(format_percent(7), "07");
-        assert_eq!(format_percent(99), "99");
+    fn level_uses_ratio_icon() {
+        let (value, attention) = format_level(Some(50));
+        assert_eq!(attention, GaugeValueAttention::Nominal);
+        match value {
+            Some(GaugeValue::Svg(handle)) => {
+                assert_eq!(handle, icon_quantity(50.0 / 99.0));
+            }
+            _ => panic!("expected svg value for level"),
+        }
     }
 
     #[test]
