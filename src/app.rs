@@ -351,8 +351,7 @@ impl BarState {
         // Icon is 14px tall with no padding; value sits below with a 3px spacer.
         let icon_offset =
             settings::settings().get_parsed_or("grelier.app.gauge_anchor_offset_icon", 7.0);
-        let value_offset =
-            settings::settings().get_parsed_or("grelier.app.gauge_anchor_offset_value", 28.0);
+        let value_offset = 28.0;
         let offset = match target {
             GaugeClickTarget::Icon => icon_offset, // half of icon size to reach top
             GaugeClickTarget::Value => value_offset, // approx icon+spacer+half text line
@@ -419,12 +418,11 @@ impl BarState {
         let workspace_button_padding_y =
             settings.get_parsed_or("grelier.app.workspace_button_padding_y", 4u16);
         let workspace_corner_radius = settings.get_parsed_or("grelier.ws.corner_radius", 5.0_f32);
-        let workspace_transitions = settings.get_bool_or("grelier.ws.transitions", true);
+        let workspace_transitions = settings.get_bool_or("grelier.ws.transitions", false);
         let workspace_label_size =
             settings.get_parsed_or("grelier.app.workspace_label_size", 14u32);
-        let workspace_icon_size = settings.get_parsed_or("grelier.app.workspace_icon_size", 12.0);
-        let top_apps_icon_size =
-            settings.get_parsed_or("grelier.app.top_apps_icon_size", workspace_icon_size + 2.0);
+        let workspace_icon_size = settings.get_parsed_or("grelier.app.workspace_icon_size", 22.0);
+        let top_apps_icon_size = settings.get_parsed_or("grelier.app.top_apps_icon_size", 20.0);
         let workspace_icon_spacing =
             settings.get_parsed_or("grelier.app.workspace_icon_spacing", 4u32);
         let workspace_icon_padding_x =
@@ -436,19 +434,19 @@ impl BarState {
         let gauge_padding_y = settings.get_parsed_or("grelier.app.gauge_padding_y", 2u16);
         let gauge_spacing = settings
             .get_parsed("grelier.gauge.spacing")
-            .unwrap_or_else(|| settings.get_parsed_or("grelier.app.gauge_spacing", 18u32));
-        let gauge_icon_size = settings.get_parsed_or("grelier.app.gauge_icon_size", 16.0);
+            .unwrap_or_else(|| settings.get_parsed_or("grelier.app.gauge_spacing", 14u32));
+        let gauge_icon_size = settings.get_parsed_or("grelier.app.gauge_icon_size", 20.0);
         let gauge_value_icon_size =
             settings.get_parsed_or("grelier.app.gauge_value_icon_size", 20.0);
         let gauge_icon_value_spacing =
-            settings.get_parsed_or("grelier.app.gauge_icon_value_spacing", 3.0);
+            settings.get_parsed_or("grelier.app.gauge_icon_value_spacing", 0.0);
         let border_blend = settings.get_bool_or("grelier.bar.border_blend", true);
         let border_line_width = settings.get_parsed_or("grelier.bar.border_line_width", 1.0);
         let border_column_width = settings.get_parsed_or("grelier.bar.border_column_width", 3.0);
         let border_mix_1 = settings.get_parsed_or("grelier.bar.border_mix_1", 0.2);
         let border_mix_2 = settings.get_parsed_or("grelier.bar.border_mix_2", 0.6);
         let border_mix_3 = settings.get_parsed_or("grelier.bar.border_mix_3", 1.0);
-        let border_alpha_1 = settings.get_parsed_or("grelier.bar.border_alpha_1", 0.9);
+        let border_alpha_1 = settings.get_parsed_or("grelier.bar.border_alpha_1", 0.6);
         let border_alpha_2 = settings.get_parsed_or("grelier.bar.border_alpha_2", 0.7);
         let border_alpha_3 = settings.get_parsed_or("grelier.bar.border_alpha_3", 0.9);
 

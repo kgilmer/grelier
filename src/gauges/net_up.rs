@@ -3,19 +3,27 @@
 use crate::gauge::{GaugeValue, GaugeValueAttention, SettingSpec, fixed_interval};
 use crate::gauge_registry::{GaugeSpec, GaugeStream};
 use crate::gauges::net_common::{
-    NetIntervalState, format_rate, net_interval_config_from_settings, shared_net_sampler,
+    NetIntervalState, SlidingWindow, net_interval_config_from_settings, shared_net_sampler,
 };
-use crate::icon::svg_asset;
+use crate::icon::{icon_quantity, svg_asset};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-fn map_rate(rate: Option<f64>) -> (Option<GaugeValue>, GaugeValueAttention, f64) {
+const RATE_WINDOW_SAMPLES: usize = 60;
+
+fn map_rate(
+    rate: Option<f64>,
+    window: &mut SlidingWindow,
+) -> (Option<GaugeValue>, GaugeValueAttention, f64) {
     match rate {
-        Some(bytes_per_sec) => (
-            Some(GaugeValue::Text(format_rate(bytes_per_sec))),
-            GaugeValueAttention::Nominal,
-            bytes_per_sec,
-        ),
+        Some(bytes_per_sec) => {
+            let ratio = window.push(bytes_per_sec);
+            (
+                Some(GaugeValue::Svg(icon_quantity(ratio))),
+                GaugeValueAttention::Nominal,
+                bytes_per_sec,
+            )
+        }
         None => (None, GaugeValueAttention::Danger, 0.0),
     }
 }
@@ -25,6 +33,7 @@ fn net_up_stream() -> impl iced::futures::Stream<Item = crate::gauge::GaugeModel
     let interval_state = Arc::new(Mutex::new(NetIntervalState::new(
         net_interval_config_from_settings(),
     )));
+    let rate_window = Arc::new(Mutex::new(SlidingWindow::new(RATE_WINDOW_SAMPLES)));
 
     fixed_interval(
         "net_up",
@@ -41,13 +50,17 @@ fn net_up_stream() -> impl iced::futures::Stream<Item = crate::gauge::GaugeModel
         {
             let sampler = Arc::clone(&sampler);
             let state = Arc::clone(&interval_state);
+            let window = Arc::clone(&rate_window);
             move || {
                 let rate = sampler
                     .lock()
                     .ok()
                     .and_then(|mut s| s.rates().map(|r| r.upload_bytes_per_sec));
 
-                let (value, attention, bytes_per_sec) = map_rate(rate);
+                let (value, attention, bytes_per_sec) = match window.lock() {
+                    Ok(mut window) => map_rate(rate, &mut window),
+                    Err(_) => map_rate(rate, &mut SlidingWindow::new(RATE_WINDOW_SAMPLES)),
+                };
 
                 if let Ok(mut state) = state.lock() {
                     state.update(bytes_per_sec);
@@ -114,7 +127,7 @@ inventory::submit! {
     GaugeSpec {
         id: "net_up",
         label: "Net Up",
-        description: "Network upload rate gauge displaying bytes per second.",
+        description: "Network upload rate gauge displaying a relative icon.",
         default_enabled: false,
         settings,
         stream,
@@ -128,7 +141,8 @@ mod tests {
 
     #[test]
     fn returns_none_on_missing_rate() {
-        let (value, attention, bytes) = map_rate(None);
+        let mut window = SlidingWindow::new(RATE_WINDOW_SAMPLES);
+        let (value, attention, bytes) = map_rate(None, &mut window);
         assert!(value.is_none());
         assert_eq!(attention, GaugeValueAttention::Danger);
         assert_eq!(bytes, 0.0);

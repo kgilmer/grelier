@@ -5,7 +5,7 @@ use crate::gauge::{
     event_stream,
 };
 use crate::gauge_registry::{GaugeSpec, GaugeStream};
-use crate::icon::svg_asset;
+use crate::icon::{icon_quantity, svg_asset};
 use crate::settings;
 use std::fs;
 use std::io;
@@ -16,18 +16,15 @@ use std::time::Duration;
 
 const DEFAULT_STEP_PERCENT: i8 = 5;
 const DEFAULT_REFRESH_INTERVAL_SECS: u64 = 2;
-const DISPLAY_MAX: u8 = 99;
 const ABS_MAX_PERCENT: u8 = 100;
 const SYS_BACKLIGHT: &str = "/sys/class/backlight";
-
-fn format_percent(value: u8) -> String {
-    format!("{:02}", value.min(DISPLAY_MAX))
-}
 
 fn brightness_value(percent: Option<u8>) -> (Option<GaugeValue>, GaugeValueAttention) {
     match percent {
         Some(p) => (
-            Some(GaugeValue::Text(format_percent(p))),
+            Some(GaugeValue::Svg(icon_quantity(
+                p as f32 / ABS_MAX_PERCENT as f32,
+            ))),
             GaugeValueAttention::Nominal,
         ),
         None => (None, GaugeValueAttention::Danger),
@@ -276,11 +273,13 @@ mod tests {
     use super::*;
 
     #[test]
-    fn formats_to_two_digits() {
-        assert_eq!(format_percent(0), "00");
-        assert_eq!(format_percent(7), "07");
-        assert_eq!(format_percent(99), "99");
-        assert_eq!(format_percent(120), "99");
+    fn brightness_value_uses_quantity_icon() {
+        let (value, attention) = brightness_value(Some(50));
+        let GaugeValue::Svg(handle) = value.expect("expected a brightness gauge value") else {
+            panic!("expected svg value for brightness");
+        };
+        assert_eq!(handle, icon_quantity(50.0 / 100.0));
+        assert_eq!(attention, GaugeValueAttention::Nominal);
     }
 
     #[test]

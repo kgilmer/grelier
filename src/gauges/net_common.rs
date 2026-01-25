@@ -338,6 +338,91 @@ pub fn format_rate(bytes_per_sec: f64) -> String {
     format!("{:02.0}\n{unit}", rounded)
 }
 
+pub struct SlidingWindow {
+    samples: std::collections::VecDeque<f64>,
+    min: f64,
+    max: f64,
+    capacity: usize,
+}
+
+impl SlidingWindow {
+    pub fn new(capacity: usize) -> Self {
+        Self {
+            samples: std::collections::VecDeque::with_capacity(capacity),
+            min: 0.0,
+            max: 0.0,
+            capacity,
+        }
+    }
+
+    pub fn push(&mut self, value: f64) -> f32 {
+        let value = value.max(0.0);
+        if self.capacity == 0 {
+            return 0.0;
+        }
+
+        let dropped = if self.samples.len() == self.capacity {
+            self.samples.pop_front()
+        } else {
+            None
+        };
+
+        self.samples.push_back(value);
+
+        if self.samples.len() == 1 {
+            self.min = value;
+            self.max = value;
+            return self.normalize(value);
+        }
+
+        if let Some(dropped) = dropped
+            && (dropped == self.min || dropped == self.max)
+        {
+            self.recompute_bounds();
+        }
+
+        if value < self.min {
+            self.min = value;
+        }
+        if value > self.max {
+            self.max = value;
+        }
+
+        self.normalize(value)
+    }
+
+    fn recompute_bounds(&mut self) {
+        let mut iter = self.samples.iter().copied();
+        if let Some(first) = iter.next() {
+            self.min = first;
+            self.max = first;
+            for sample in iter {
+                if sample < self.min {
+                    self.min = sample;
+                }
+                if sample > self.max {
+                    self.max = sample;
+                }
+            }
+        }
+    }
+
+    fn normalize(&self, value: f64) -> f32 {
+        if self.samples.is_empty() {
+            return 0.0;
+        }
+
+        let span = self.max - self.min;
+        let ratio = if span <= f64::EPSILON {
+            if self.max > 0.0 { 1.0 } else { 0.0 }
+        } else {
+            ((value - self.min) / span).clamp(0.0, 1.0)
+        };
+
+        ratio as f32
+    }
+}
+
 /// Attempt to find the interface that carries the default route.
 fn default_route_interface() -> Option<String> {
     let contents = fs::read_to_string(proc_net_route_path()).ok()?;

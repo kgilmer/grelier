@@ -93,7 +93,7 @@ fn base_setting_specs(default_gauges: &'static str) -> Vec<SettingSpec> {
         },
         SettingSpec {
             key: "grelier.bar.border_alpha_1",
-            default: "0.9",
+            default: "0.6",
         },
         SettingSpec {
             key: "grelier.bar.border_alpha_2",
@@ -106,10 +106,6 @@ fn base_setting_specs(default_gauges: &'static str) -> Vec<SettingSpec> {
         SettingSpec {
             key: "grelier.app.gauge_anchor_offset_icon",
             default: "7.0",
-        },
-        SettingSpec {
-            key: "grelier.app.gauge_anchor_offset_value",
-            default: "28.0",
         },
         SettingSpec {
             key: "grelier.app.workspace_padding_x",
@@ -141,7 +137,7 @@ fn base_setting_specs(default_gauges: &'static str) -> Vec<SettingSpec> {
         },
         SettingSpec {
             key: "grelier.app.workspace_icon_size",
-            default: "14.0",
+            default: "22.0",
         },
         SettingSpec {
             key: "grelier.app.workspace_icon_spacing",
@@ -165,7 +161,7 @@ fn base_setting_specs(default_gauges: &'static str) -> Vec<SettingSpec> {
         },
         SettingSpec {
             key: "grelier.app.top_apps_icon_size",
-            default: "16.0",
+            default: "20.0",
         },
         SettingSpec {
             key: "grelier.app.gauge_padding_x",
@@ -177,11 +173,11 @@ fn base_setting_specs(default_gauges: &'static str) -> Vec<SettingSpec> {
         },
         SettingSpec {
             key: "grelier.app.gauge_spacing",
-            default: "18",
+            default: "14",
         },
         SettingSpec {
             key: "grelier.app.gauge_icon_size",
-            default: "17.0",
+            default: "20.0",
         },
         SettingSpec {
             key: "grelier.app.gauge_value_icon_size",
@@ -189,7 +185,7 @@ fn base_setting_specs(default_gauges: &'static str) -> Vec<SettingSpec> {
         },
         SettingSpec {
             key: "grelier.app.gauge_icon_value_spacing",
-            default: "3.0",
+            default: "0.0",
         },
     ]
 }
