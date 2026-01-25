@@ -95,11 +95,8 @@ fn test_gauge_stream() -> impl iced::futures::Stream<Item = crate::gauge::GaugeM
         let state = Arc::clone(&state);
         Arc::new(move |click: GaugeClick| {
             let _attention = if let Ok(mut state) = state.lock() {
-                match click.input {
-                    crate::gauge::GaugeInput::Button(mouse::Button::Right) => {
-                        state.cycle_attention()
-                    }
-                    _ => {}
+                if let crate::gauge::GaugeInput::Button(mouse::Button::Right) = click.input {
+                    state.cycle_attention();
                 }
                 state.attention
             } else {

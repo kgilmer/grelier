@@ -39,7 +39,7 @@ use iced_layershell::reexport::{Anchor, KeyboardInteractivity, Layer};
 use iced_layershell::settings::{LayerShellSettings, Settings as LayerShellAppSettings, StartMode};
 
 use crate::app::Orientation;
-use crate::app::{AppIconCache, BarState, Message};
+use crate::app::{AppIconCache, BarState, GaugeDialog, GaugeDialogWindow, Message};
 use crate::gauge::{GaugeClick, GaugeInput, GaugeModel, SettingSpec};
 use elbey_cache::{AppDescriptor, Cache};
 use freedesktop_desktop_entry::desktop_entries;
@@ -504,7 +504,8 @@ fn update(state: &mut BarState, message: Message) -> Task<Message> {
             }
         }
         Message::Gauge(gauge) => {
-            update_gauge(&mut state.gauges, gauge);
+            update_gauge(&mut state.gauges, gauge.clone());
+            refresh_info_dialogs(&mut state.dialog_windows, &gauge);
         }
         Message::GaugeClicked { id, target, input } => {
             // If any dialog is open, any click just dismisses it.
@@ -534,6 +535,30 @@ fn update(state: &mut BarState, message: Message) -> Task<Message> {
             }
 
             if matches!(input, GaugeInput::Button(iced::mouse::Button::Middle))
+                && let Some(dialog) = gauge_info
+            {
+                let anchor_y = state
+                    .gauge_dialog_anchor
+                    .get(&id)
+                    .copied()
+                    .or_else(|| state.gauge_anchor_y(target));
+                return state.open_info_dialog(&id, dialog, anchor_y);
+            }
+
+            if matches!(input, GaugeInput::Button(iced::mouse::Button::Left))
+                && matches!(
+                    id.as_str(),
+                    "battery"
+                        | "audio_in"
+                        | "audio_out"
+                        | "brightness"
+                        | "cpu"
+                        | "disk"
+                        | "net_down"
+                        | "net_up"
+                        | "ram"
+                        | "wifi"
+                )
                 && let Some(dialog) = gauge_info
             {
                 let anchor_y = state
@@ -598,11 +623,21 @@ fn update(state: &mut BarState, message: Message) -> Task<Message> {
         Message::IcedEvent(iced::Event::Window(iced::window::Event::Unfocused)) => {
             if let Some(window) = state.dialog_windows.keys().copied().next() {
                 state.dialog_windows.remove(&window);
-                state.closing_dialogs.remove(&window);
+                state.closing_dialogs.insert(window);
                 return Task::done(Message::RemoveWindow(window));
             }
         }
         Message::IcedEvent(_) => {}
+        Message::NewLayerShell { id, .. } => {
+            if state.primary_window.is_none() {
+                state.primary_window = Some(id);
+            }
+        }
+        Message::NewBaseWindow { id, .. } => {
+            if state.primary_window.is_none() {
+                state.primary_window = Some(id);
+            }
+        }
         Message::AnchorChange { .. }
         | Message::SetInputRegion { .. }
         | Message::AnchorSizeChange { .. }
@@ -611,8 +646,6 @@ fn update(state: &mut BarState, message: Message) -> Task<Message> {
         | Message::SizeChange { .. }
         | Message::ExclusiveZoneChange { .. }
         | Message::VirtualKeyboardPressed { .. }
-        | Message::NewLayerShell { .. }
-        | Message::NewBaseWindow { .. }
         | Message::NewPopUp { .. }
         | Message::NewMenu { .. }
         | Message::NewInputPanel { .. }
@@ -628,6 +661,23 @@ fn update_gauge(gauges: &mut Vec<GaugeModel>, new: GaugeModel) {
         *existing = new;
     } else {
         gauges.push(new);
+    }
+}
+
+fn refresh_info_dialogs(
+    dialog_windows: &mut std::collections::HashMap<window::Id, GaugeDialogWindow>,
+    gauge: &GaugeModel,
+) {
+    let Some(info) = gauge.info.as_ref() else {
+        return;
+    };
+
+    for dialog_window in dialog_windows.values_mut() {
+        if dialog_window.gauge_id == gauge.id
+            && let GaugeDialog::Info(dialog) = &mut dialog_window.dialog
+        {
+            *dialog = info.clone();
+        }
     }
 }
 

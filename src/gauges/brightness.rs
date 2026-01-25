@@ -6,11 +6,13 @@ use crate::gauge::{
 };
 use crate::gauge_registry::{GaugeSpec, GaugeStream};
 use crate::icon::{icon_quantity, svg_asset};
+use crate::info_dialog::InfoDialog;
 use crate::settings;
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use std::sync::Mutex;
 use std::sync::mpsc::{self, RecvTimeoutError};
 use std::time::Duration;
 
@@ -65,6 +67,7 @@ fn raw_from_percent(percent: u8, max: u32) -> u32 {
 struct Backlight {
     brightness: PathBuf,
     max_brightness: u32,
+    name: String,
 }
 
 impl Backlight {
@@ -83,9 +86,11 @@ impl Backlight {
                     continue;
                 }
 
+                let name = entry.file_name().to_string_lossy().to_string();
                 return Some(Self {
                     brightness,
                     max_brightness: max,
+                    name,
                 });
             }
         }
@@ -141,6 +146,13 @@ fn brightness_stream() -> impl iced::futures::Stream<Item = crate::gauge::GaugeM
             _ => {}
         })
     };
+    let info_state = Arc::new(Mutex::new(InfoDialog {
+        title: "Brightness".to_string(),
+        lines: vec![
+            "No backlight device".to_string(),
+            "Brightness: N/A".to_string(),
+        ],
+    }));
 
     event_stream(
         "brightness",
@@ -148,12 +160,27 @@ fn brightness_stream() -> impl iced::futures::Stream<Item = crate::gauge::GaugeM
         move |mut sender| {
             let mut backlight = Backlight::discover();
 
-            let mut send_state = |percent: Option<u8>, attention: GaugeValueAttention| {
+            let info_state = Arc::clone(&info_state);
+            let mut send_state = |percent: Option<u8>,
+                                  attention: GaugeValueAttention,
+                                  device_name: Option<String>| {
                 let (value, default_attention) = brightness_value(percent);
                 let attention = if value.is_some() {
                     attention
                 } else {
                     default_attention
+                };
+                let info = if let Ok(mut info) = info_state.lock() {
+                    let device_line =
+                        device_name.unwrap_or_else(|| "No backlight device".to_string());
+                    let brightness_line = match percent {
+                        Some(value) => format!("Brightness: {value}%"),
+                        None => "Brightness: N/A".to_string(),
+                    };
+                    info.lines = vec![device_line, brightness_line];
+                    Some(info.clone())
+                } else {
+                    None
                 };
 
                 let _ = sender.try_send(crate::gauge::GaugeModel {
@@ -163,7 +190,7 @@ fn brightness_stream() -> impl iced::futures::Stream<Item = crate::gauge::GaugeM
                     attention,
                     on_click: Some(on_click.clone()),
                     menu: None,
-                    info: None,
+                    info,
                 });
             };
 
@@ -184,7 +211,8 @@ fn brightness_stream() -> impl iced::futures::Stream<Item = crate::gauge::GaugeM
                 GaugeValueAttention::Danger
             };
 
-            send_state(percent, attention);
+            let device_name = backlight.as_ref().map(|ctl| ctl.name.clone());
+            send_state(percent, attention, device_name);
 
             loop {
                 let needs_refresh =
@@ -231,7 +259,8 @@ fn brightness_stream() -> impl iced::futures::Stream<Item = crate::gauge::GaugeM
                         GaugeValueAttention::Danger
                     };
 
-                    send_state(percent, attention);
+                    let device_name = backlight.as_ref().map(|ctl| ctl.name.clone());
+                    send_state(percent, attention, device_name);
                 }
             }
         },

@@ -3,9 +3,12 @@
 use crate::gauge::{GaugeValue, GaugeValueAttention, NO_SETTINGS, SettingSpec, fixed_interval};
 use crate::gauge_registry::{GaugeSpec, GaugeStream};
 use crate::gauges::net_common::{
-    NetIntervalState, SlidingWindow, net_interval_config_from_settings, shared_net_sampler,
+    NetIntervalState, SlidingWindow, format_rate_per_sec, net_interval_config_from_settings,
+    shared_net_sampler,
 };
 use crate::icon::{icon_quantity, svg_asset};
+use crate::info_dialog::InfoDialog;
+use iced::futures::StreamExt;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -34,6 +37,10 @@ fn net_down_stream() -> impl iced::futures::Stream<Item = crate::gauge::GaugeMod
         net_interval_config_from_settings(),
     )));
     let rate_window = Arc::new(Mutex::new(SlidingWindow::new(RATE_WINDOW_SAMPLES)));
+    let info_state = Arc::new(Mutex::new(InfoDialog {
+        title: "Net Down".to_string(),
+        lines: vec!["No active interface".to_string(), "0 KB/s".to_string()],
+    }));
 
     fixed_interval(
         "net_down",
@@ -51,16 +58,28 @@ fn net_down_stream() -> impl iced::futures::Stream<Item = crate::gauge::GaugeMod
             let sampler = Arc::clone(&sampler);
             let state = Arc::clone(&interval_state);
             let window = Arc::clone(&rate_window);
+            let info_state = Arc::clone(&info_state);
             move || {
-                let rate = sampler
+                let (rate, iface) = sampler
                     .lock()
                     .ok()
-                    .and_then(|mut s| s.rates().map(|r| r.download_bytes_per_sec));
+                    .map(|mut s| {
+                        let rates = s.rates();
+                        let iface = s.cached_interface();
+                        (rates, iface)
+                    })
+                    .unwrap_or((None, None));
+                let rate = rate.map(|r| r.download_bytes_per_sec);
 
                 let (value, attention, bytes_per_sec) = match window.lock() {
                     Ok(mut window) => map_rate(rate, &mut window),
                     Err(_) => map_rate(rate, &mut SlidingWindow::new(RATE_WINDOW_SAMPLES)),
                 };
+
+                if let Ok(mut info) = info_state.lock() {
+                    let iface_line = iface.unwrap_or_else(|| "No active interface".to_string());
+                    info.lines = vec![iface_line, format_rate_per_sec(bytes_per_sec)];
+                }
 
                 if let Ok(mut state) = state.lock() {
                     state.update(bytes_per_sec);
@@ -71,6 +90,15 @@ fn net_down_stream() -> impl iced::futures::Stream<Item = crate::gauge::GaugeMod
         },
         None,
     )
+    .map({
+        let info_state = Arc::clone(&info_state);
+        move |mut model| {
+            if let Ok(info) = info_state.lock() {
+                model.info = Some(info.clone());
+            }
+            model
+        }
+    })
 }
 
 pub fn settings() -> &'static [SettingSpec] {

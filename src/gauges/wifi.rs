@@ -3,9 +3,11 @@
 use crate::gauge::{GaugeModel, GaugeValue, GaugeValueAttention, SettingSpec, event_stream};
 use crate::gauge_registry::{GaugeSpec, GaugeStream};
 use crate::icon::{icon_quantity, svg_asset};
+use crate::info_dialog::InfoDialog;
 use crate::settings;
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::process::Command;
 use std::thread;
 use std::time::Duration;
 
@@ -21,9 +23,11 @@ enum WifiState {
     NoDevice,
 }
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Debug)]
 struct WifiSnapshot {
     state: WifiState,
+    iface: Option<String>,
+    ssid: Option<String>,
     strength: f32,
 }
 
@@ -88,6 +92,49 @@ fn read_link_quality_at(proc_net_wireless: &Path, iface: &str) -> Option<f32> {
     None
 }
 
+fn read_ssid(iface: &str) -> Option<String> {
+    if let Some(ssid) = read_ssid_iwgetid(iface) {
+        return Some(ssid);
+    }
+    read_ssid_iw_link(iface)
+}
+
+fn read_ssid_iwgetid(iface: &str) -> Option<String> {
+    let output = Command::new("iwgetid").arg("-r").arg(iface).output().ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    normalize_ssid(&String::from_utf8_lossy(&output.stdout))
+}
+
+fn read_ssid_iw_link(iface: &str) -> Option<String> {
+    let output = Command::new("iw")
+        .arg("dev")
+        .arg(iface)
+        .arg("link")
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    for line in String::from_utf8_lossy(&output.stdout).lines() {
+        let line = line.trim();
+        if let Some(rest) = line.strip_prefix("SSID:") {
+            return normalize_ssid(rest);
+        }
+    }
+    None
+}
+
+fn normalize_ssid(raw: &str) -> Option<String> {
+    let ssid = raw.trim();
+    if ssid.is_empty() || ssid.eq_ignore_ascii_case("off/any") {
+        None
+    } else {
+        Some(ssid.to_string())
+    }
+}
+
 fn interface_connected(path: &Path, quality: Option<f32>) -> bool {
     if let Some(carrier) = read_carrier(path) {
         return carrier;
@@ -131,6 +178,8 @@ fn wifi_snapshot_with_paths(
     if ifaces.is_empty() {
         return WifiSnapshot {
             state: WifiState::NoDevice,
+            iface: None,
+            ssid: None,
             strength: 0.0,
         };
     }
@@ -138,6 +187,8 @@ fn wifi_snapshot_with_paths(
     let Some(iface) = pick_interface(&ifaces, sys_net, proc_net_wireless) else {
         return WifiSnapshot {
             state: WifiState::NoDevice,
+            iface: None,
+            ssid: None,
             strength: 0.0,
         };
     };
@@ -146,6 +197,7 @@ fn wifi_snapshot_with_paths(
     let quality = read_link_quality_at(proc_net_wireless, &iface);
     let connected = interface_connected(&path, quality);
     let strength = quality.unwrap_or(0.0).clamp(0.0, quality_max) / quality_max;
+    let ssid = if connected { read_ssid(&iface) } else { None };
 
     WifiSnapshot {
         state: if connected {
@@ -153,7 +205,30 @@ fn wifi_snapshot_with_paths(
         } else {
             WifiState::NotConnected
         },
+        iface: Some(iface),
+        ssid,
         strength,
+    }
+}
+
+fn wifi_info_dialog(snapshot: &WifiSnapshot) -> InfoDialog {
+    let device_line = snapshot
+        .iface
+        .clone()
+        .unwrap_or_else(|| "No wireless device".to_string());
+    let ssid_line = match snapshot.state {
+        WifiState::Connected => snapshot
+            .ssid
+            .clone()
+            .unwrap_or_else(|| "Unknown SSID".to_string()),
+        WifiState::NotConnected => "Not connected".to_string(),
+        WifiState::NoDevice => "No device".to_string(),
+    };
+    let signal_line = format!("Signal: {:.0}%", snapshot.strength * 100.0);
+
+    InfoDialog {
+        title: "Wi-Fi".to_string(),
+        lines: vec![device_line, ssid_line, signal_line],
     }
 }
 
@@ -174,7 +249,7 @@ fn wifi_gauge(snapshot: WifiSnapshot) -> GaugeModel {
         attention,
         on_click: None,
         menu: None,
-        info: None,
+        info: Some(wifi_info_dialog(&snapshot)),
     }
 }
 

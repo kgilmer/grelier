@@ -170,6 +170,7 @@ pub struct BarState {
     pub last_cursor: Option<iced::Point>,
     pub closing_dialogs: HashSet<window::Id>,
     pub gauge_dialog_anchor: HashMap<String, i32>,
+    pub primary_window: Option<window::Id>,
 }
 
 #[derive(Clone, Default)]
@@ -463,6 +464,9 @@ impl BarState {
                 }
                 GaugeDialog::Info(dialog) => info_view(dialog),
             };
+        }
+        if self.primary_window.is_some_and(|primary| primary != window) {
+            return container(Space::new()).into();
         }
         if self.closing_dialogs.contains(&window) {
             return container(Space::new()).into();

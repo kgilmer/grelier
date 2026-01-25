@@ -299,6 +299,10 @@ impl<P: NetDataProvider> NetSampler<P> {
 
         Some(rates)
     }
+
+    pub fn cached_interface(&self) -> Option<String> {
+        self.last_iface.clone()
+    }
 }
 
 static SHARED_NET_SAMPLER: OnceLock<Arc<Mutex<NetSampler>>> = OnceLock::new();
@@ -336,6 +340,30 @@ pub fn format_rate(bytes_per_sec: f64) -> String {
     }
 
     format!("{:02.0}\n{unit}", rounded)
+}
+
+/// Format bytes/sec into a single-line KB/MB/GB per second string for info dialogs.
+pub fn format_rate_per_sec(bytes_per_sec: f64) -> String {
+    const STEP: f64 = 1024.0;
+
+    let mut value = bytes_per_sec.max(0.0) / STEP; // Start at KB.
+    let mut unit = "KB/s";
+
+    for next in ["MB/s", "GB/s"] {
+        if value < STEP {
+            break;
+        }
+        value /= STEP;
+        unit = next;
+    }
+
+    let rendered = if value < 10.0 {
+        format!("{:.1}", value)
+    } else {
+        format!("{:.0}", value)
+    };
+
+    format!("{rendered} {unit}")
 }
 
 pub struct SlidingWindow {

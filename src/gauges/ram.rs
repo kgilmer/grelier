@@ -3,7 +3,9 @@
 use crate::gauge::{GaugeValue, GaugeValueAttention, SettingSpec, fixed_interval};
 use crate::gauge_registry::{GaugeSpec, GaugeStream};
 use crate::icon::{icon_quantity, svg_asset};
+use crate::info_dialog::InfoDialog;
 use crate::settings;
+use iced::futures::StreamExt;
 use std::fs::{File, read_to_string};
 use std::io::{BufRead, BufReader};
 use std::sync::{Arc, Mutex};
@@ -98,16 +100,21 @@ impl MemorySnapshot {
     }
 }
 
-fn memory_utilization() -> Option<f32> {
-    let snapshot = MemorySnapshot::read()?;
-    if snapshot.total == 0 {
-        return None;
+fn format_bytes(bytes: u64) -> String {
+    const UNITS: [&str; 5] = ["B", "KB", "MB", "GB", "TB"];
+    let mut value = bytes as f64;
+    let mut unit = 0usize;
+    while value >= 1024.0 && unit < UNITS.len() - 1 {
+        value /= 1024.0;
+        unit += 1;
     }
-
-    let available = snapshot.available_bytes();
-    let used = snapshot.total.saturating_sub(available);
-    let utilization = used as f32 / snapshot.total as f32;
-    Some(utilization.clamp(0.0, 1.0))
+    if unit == 0 {
+        format!("{:.0} {}", value, UNITS[unit])
+    } else if value < 10.0 {
+        format!("{:.1} {}", value, UNITS[unit])
+    } else {
+        format!("{:.0} {}", value, UNITS[unit])
+    }
 }
 
 fn attention_for(
@@ -193,6 +200,15 @@ fn ram_stream() -> impl iced::futures::Stream<Item = crate::gauge::GaugeModel> {
         "grelier.gauge.ram.slow_interval_secs",
         DEFAULT_SLOW_INTERVAL_SECS,
     );
+    let info_state = Arc::new(Mutex::new(InfoDialog {
+        title: "RAM".to_string(),
+        lines: vec![
+            "Total: N/A".to_string(),
+            "Free: N/A".to_string(),
+            "Reserved: N/A".to_string(),
+            "Used: N/A".to_string(),
+        ],
+    }));
     let state = Arc::new(Mutex::new(RamState {
         fast_threshold,
         calm_ticks,
@@ -218,12 +234,43 @@ fn ram_stream() -> impl iced::futures::Stream<Item = crate::gauge::GaugeModel> {
         },
         {
             let state = Arc::clone(&state);
+            let info_state = Arc::clone(&info_state);
             move || {
-                let utilization = memory_utilization();
-                if let Ok(mut state) = state.lock() {
-                    if let Some(util) = utilization {
-                        state.update_interval_state(util);
+                let snapshot = MemorySnapshot::read();
+                let utilization = snapshot.as_ref().and_then(|snapshot| {
+                    if snapshot.total == 0 {
+                        None
+                    } else {
+                        let available = snapshot.available_bytes();
+                        let used = snapshot.total.saturating_sub(available);
+                        let utilization = used as f32 / snapshot.total as f32;
+                        Some(utilization.clamp(0.0, 1.0))
                     }
+                });
+                if let Ok(mut info) = info_state.lock() {
+                    if let Some(snapshot) = snapshot {
+                        let available = snapshot.available_bytes();
+                        let reserved = available.saturating_sub(snapshot.free);
+                        let used = snapshot.total.saturating_sub(available);
+                        info.lines = vec![
+                            format!("Total: {}", format_bytes(snapshot.total)),
+                            format!("Free: {}", format_bytes(snapshot.free)),
+                            format!("Reserved: {}", format_bytes(reserved)),
+                            format!("Used: {}", format_bytes(used)),
+                        ];
+                    } else {
+                        info.lines = vec![
+                            "Total: N/A".to_string(),
+                            "Free: N/A".to_string(),
+                            "Reserved: N/A".to_string(),
+                            "Used: N/A".to_string(),
+                        ];
+                    }
+                }
+                if let Ok(mut state) = state.lock()
+                    && let Some(util) = utilization
+                {
+                    state.update_interval_state(util);
                 }
 
                 let (value, attention) =
@@ -233,6 +280,15 @@ fn ram_stream() -> impl iced::futures::Stream<Item = crate::gauge::GaugeModel> {
         },
         None,
     )
+    .map({
+        let info_state = Arc::clone(&info_state);
+        move |mut model| {
+            if let Ok(info) = info_state.lock() {
+                model.info = Some(info.clone());
+            }
+            model
+        }
+    })
 }
 
 pub fn settings() -> &'static [SettingSpec] {
@@ -344,11 +400,8 @@ mod tests {
 
     #[test]
     fn returns_none_on_missing_utilization() {
-        let (value, attention) = ram_value(
-            None,
-            DEFAULT_WARNING_THRESHOLD,
-            DEFAULT_DANGER_THRESHOLD,
-        );
+        let (value, attention) =
+            ram_value(None, DEFAULT_WARNING_THRESHOLD, DEFAULT_DANGER_THRESHOLD);
         assert!(value.is_none());
         assert_eq!(attention, GaugeValueAttention::Danger);
     }

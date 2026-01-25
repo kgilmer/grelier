@@ -3,7 +3,9 @@
 use crate::gauge::{GaugeValue, GaugeValueAttention, SettingSpec, fixed_interval};
 use crate::gauge_registry::{GaugeSpec, GaugeStream};
 use crate::icon::{icon_quantity, svg_asset};
+use crate::info_dialog::InfoDialog;
 use crate::settings;
+use iced::futures::StreamExt;
 use std::fs::File;
 use std::io::{BufRead, BufReader};
 use std::sync::{Arc, Mutex};
@@ -63,6 +65,19 @@ fn read_cpu_time() -> Option<CpuTime> {
         .saturating_add(values[6]);
 
     Some(CpuTime { idle, non_idle })
+}
+
+fn read_cpu_model() -> Option<String> {
+    let file = File::open("/proc/cpuinfo").ok()?;
+    for line in BufReader::new(file).lines() {
+        let line = line.ok()?;
+        if let Some(rest) = line.strip_prefix("model name") {
+            return rest
+                .split_once(':')
+                .map(|(_, value)| value.trim().to_string());
+        }
+    }
+    None
 }
 
 fn attention_for(
@@ -150,6 +165,11 @@ fn cpu_stream() -> impl iced::futures::Stream<Item = crate::gauge::GaugeModel> {
         "grelier.gauge.cpu.slow_interval_secs",
         DEFAULT_SLOW_INTERVAL_SECS,
     );
+    let cpu_model = read_cpu_model().unwrap_or_else(|| "Unknown CPU".to_string());
+    let info_state = Arc::new(Mutex::new(InfoDialog {
+        title: "CPU".to_string(),
+        lines: vec![cpu_model.clone(), "Load: N/A".to_string()],
+    }));
     let state = Arc::new(Mutex::new(CpuState {
         fast_threshold,
         calm_ticks,
@@ -171,51 +191,68 @@ fn cpu_stream() -> impl iced::futures::Stream<Item = crate::gauge::GaugeModel> {
                 .map(|s| s.interval())
                 .unwrap_or(Duration::from_secs(2))
         },
-        move || {
-            let now = match read_cpu_time() {
-                Some(now) => now,
-                None => {
-                    return Some(cpu_value(
-                        None,
-                        warning_threshold,
-                        danger_threshold,
-                    ));
-                }
-            };
+        {
+            let info_state = Arc::clone(&info_state);
+            move || {
+                let now = match read_cpu_time() {
+                    Some(now) => now,
+                    None => {
+                        if let Ok(mut info) = info_state.lock() {
+                            info.lines = vec![cpu_model.clone(), "Load: N/A".to_string()];
+                        }
+                        return Some(cpu_value(None, warning_threshold, danger_threshold));
+                    }
+                };
 
-            let mut state = match state.lock() {
-                Ok(state) => state,
-                Err(_) => {
-                    return Some(cpu_value(
-                        None,
-                        warning_threshold,
-                        danger_threshold,
-                    ));
-                }
-            };
-            let previous = match state.previous {
-                Some(prev) => prev,
-                None => {
-                    state.previous = Some(now);
-                    return Some((
-                        Some(GaugeValue::Svg(icon_quantity(0.0))),
-                        GaugeValueAttention::Nominal,
-                    ));
-                }
-            };
+                let mut state = match state.lock() {
+                    Ok(state) => state,
+                    Err(_) => {
+                        if let Ok(mut info) = info_state.lock() {
+                            info.lines = vec![cpu_model.clone(), "Load: N/A".to_string()];
+                        }
+                        return Some(cpu_value(None, warning_threshold, danger_threshold));
+                    }
+                };
+                let previous = match state.previous {
+                    Some(prev) => prev,
+                    None => {
+                        state.previous = Some(now);
+                        if let Ok(mut info) = info_state.lock() {
+                            info.lines = vec![cpu_model.clone(), "Load: 0.0%".to_string()];
+                        }
+                        return Some((
+                            Some(GaugeValue::Svg(icon_quantity(0.0))),
+                            GaugeValueAttention::Nominal,
+                        ));
+                    }
+                };
 
-            let utilization = now.utilization_since(previous);
-            state.previous = Some(now);
-            state.update_interval_state(utilization);
+                let utilization = now.utilization_since(previous);
+                state.previous = Some(now);
+                state.update_interval_state(utilization);
+                if let Ok(mut info) = info_state.lock() {
+                    let percent = (utilization * 100.0).clamp(0.0, 100.0);
+                    info.lines = vec![cpu_model.clone(), format!("Load: {:.1}%", percent)];
+                }
 
-            Some(cpu_value(
-                Some(utilization),
-                state.warning_threshold,
-                state.danger_threshold,
-            ))
+                Some(cpu_value(
+                    Some(utilization),
+                    state.warning_threshold,
+                    state.danger_threshold,
+                ))
+            }
         },
         None,
     )
+    .map({
+        let info_state = Arc::clone(&info_state);
+        move |mut model| {
+            if let Ok(info) = info_state.lock() {
+                model.info = Some(info.clone());
+            }
+            model
+        }
+    })
 }
 
 pub fn settings() -> &'static [SettingSpec] {
@@ -308,11 +345,8 @@ mod tests {
 
     #[test]
     fn returns_none_on_missing_utilization() {
-        let (value, attention) = super::cpu_value(
-            None,
-            DEFAULT_WARNING_THRESHOLD,
-            DEFAULT_DANGER_THRESHOLD,
-        );
+        let (value, attention) =
+            super::cpu_value(None, DEFAULT_WARNING_THRESHOLD, DEFAULT_DANGER_THRESHOLD);
         assert!(value.is_none());
         assert_eq!(attention, GaugeValueAttention::Danger);
     }
