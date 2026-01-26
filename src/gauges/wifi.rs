@@ -6,13 +6,14 @@ use crate::icon::{icon_quantity, svg_asset};
 use crate::info_dialog::InfoDialog;
 use crate::settings;
 use std::fs;
+use std::os::unix::net::UnixDatagram;
 use std::path::{Path, PathBuf};
-use std::process::Command;
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 const SYS_NET: &str = "/sys/class/net";
 const PROC_NET_WIRELESS: &str = "/proc/net/wireless";
+const WPA_CTRL_DIRS: [&str; 2] = ["/run/wpa_supplicant", "/var/run/wpa_supplicant"];
 const DEFAULT_QUALITY_MAX: f32 = 70.0;
 const DEFAULT_POLL_INTERVAL_SECS: u64 = 3;
 
@@ -93,37 +94,58 @@ fn read_link_quality_at(proc_net_wireless: &Path, iface: &str) -> Option<f32> {
 }
 
 fn read_ssid(iface: &str) -> Option<String> {
-    if let Some(ssid) = read_ssid_iwgetid(iface) {
-        return Some(ssid);
+    for dir in WPA_CTRL_DIRS {
+        let path = Path::new(dir).join(iface);
+        if !path.exists() {
+            continue;
+        }
+        if let Some(ssid) = read_ssid_wpa_ctrl(&path) {
+            return Some(ssid);
+        }
     }
-    read_ssid_iw_link(iface)
+    None
 }
 
-fn read_ssid_iwgetid(iface: &str) -> Option<String> {
-    let output = Command::new("iwgetid").arg("-r").arg(iface).output().ok()?;
-    if !output.status.success() {
-        return None;
-    }
-    normalize_ssid(&String::from_utf8_lossy(&output.stdout))
-}
-
-fn read_ssid_iw_link(iface: &str) -> Option<String> {
-    let output = Command::new("iw")
-        .arg("dev")
-        .arg(iface)
-        .arg("link")
-        .output()
-        .ok()?;
-    if !output.status.success() {
-        return None;
-    }
-    for line in String::from_utf8_lossy(&output.stdout).lines() {
-        let line = line.trim();
-        if let Some(rest) = line.strip_prefix("SSID:") {
+fn read_ssid_wpa_ctrl(path: &Path) -> Option<String> {
+    let temp_path = temp_socket_path()?;
+    let _temp_guard = TempSocketGuard::new(&temp_path);
+    let socket = UnixDatagram::bind(&temp_path).ok()?;
+    socket.set_read_timeout(Some(Duration::from_millis(250))).ok()?;
+    socket.send_to(b"STATUS", path).ok()?;
+    let mut buf = [0u8; 4096];
+    let size = socket.recv(&mut buf).ok()?;
+    let response = String::from_utf8_lossy(&buf[..size]);
+    for line in response.lines() {
+        if let Some(rest) = line.strip_prefix("ssid=") {
             return normalize_ssid(rest);
         }
     }
     None
+}
+
+fn temp_socket_path() -> Option<PathBuf> {
+    let mut path = std::env::temp_dir();
+    let now = SystemTime::now().duration_since(UNIX_EPOCH).ok()?.as_nanos();
+    path.push(format!("grelier_wpa_ctrl_{}_{}.sock", std::process::id(), now));
+    Some(path)
+}
+
+struct TempSocketGuard {
+    path: PathBuf,
+}
+
+impl TempSocketGuard {
+    fn new(path: &Path) -> Self {
+        Self {
+            path: path.to_path_buf(),
+        }
+    }
+}
+
+impl Drop for TempSocketGuard {
+    fn drop(&mut self) {
+        let _ = fs::remove_file(&self.path);
+    }
 }
 
 fn normalize_ssid(raw: &str) -> Option<String> {
