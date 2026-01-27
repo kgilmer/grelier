@@ -278,6 +278,25 @@ pub fn info_view<'a, Message: 'a>(dialog: &'a InfoDialog) -> Element<'a, Message
             .height(Length::Fixed(border_settings.column_width))
     };
 
+    let border_column_reversed = || {
+        Column::new()
+            .spacing(0)
+            .push(
+                rule::horizontal(border_settings.line_width)
+                    .style(line_style(border_settings.mix_3, border_settings.alpha_3)),
+            )
+            .push(
+                rule::horizontal(border_settings.line_width)
+                    .style(line_style(border_settings.mix_2, border_settings.alpha_2)),
+            )
+            .push(
+                rule::horizontal(border_settings.line_width)
+                    .style(line_style(border_settings.mix_1, border_settings.alpha_1)),
+            )
+            .width(Length::Fill)
+            .height(Length::Fixed(border_settings.column_width))
+    };
+
     let border_row = || {
         Row::new()
             .spacing(0)
@@ -297,7 +316,7 @@ pub fn info_view<'a, Message: 'a>(dialog: &'a InfoDialog) -> Element<'a, Message
             .height(Length::Fill)
     };
 
-    let top_border = container(border_column())
+    let top_border = container(border_column_reversed())
         .width(Length::Fill)
         .height(Length::Fill)
         .align_y(alignment::Vertical::Top);

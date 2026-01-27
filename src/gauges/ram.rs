@@ -139,7 +139,9 @@ fn ram_value(
 ) -> (Option<GaugeValue>, GaugeValueAttention) {
     let value = utilization.map(|util| GaugeValue::Svg(icon_quantity(util)));
     let attention = match free_ratio {
-        Some(free_ratio) => attention_for_free_ratio(free_ratio, warning_threshold, danger_threshold),
+        Some(free_ratio) => {
+            attention_for_free_ratio(free_ratio, warning_threshold, danger_threshold)
+        }
         None => GaugeValueAttention::Danger,
     };
     (value, attention)
@@ -428,8 +430,12 @@ mod tests {
 
     #[test]
     fn returns_none_on_missing_utilization() {
-        let (value, attention) =
-            ram_value(None, None, DEFAULT_WARNING_THRESHOLD, DEFAULT_DANGER_THRESHOLD);
+        let (value, attention) = ram_value(
+            None,
+            None,
+            DEFAULT_WARNING_THRESHOLD,
+            DEFAULT_DANGER_THRESHOLD,
+        );
         assert!(value.is_none());
         assert_eq!(attention, GaugeValueAttention::Danger);
     }

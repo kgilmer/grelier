@@ -169,7 +169,7 @@ mod tests {
         INIT.call_once(|| {
             let mut path = std::env::temp_dir();
             path.push("grelier_test_gauge_settings");
-            path.push("Settings.xresources");
+            path.push(format!("Settings-{}.xresources", env!("CARGO_PKG_VERSION")));
             let storage = SettingsStorage::new(path);
             let settings = crate::settings::Settings::new(storage);
             let _ = crate::settings::init_settings(settings);

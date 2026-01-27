@@ -21,7 +21,6 @@ impl Settings {
                 HashMap::new()
             }
         };
-
         Self {
             map: RwLock::new(map),
             storage,
@@ -139,7 +138,7 @@ mod tests {
     fn temp_storage_path(name: &str) -> SettingsStorage {
         let mut path = std::env::temp_dir();
         path.push(format!("grelier_settings_test_{}", name));
-        path.push("Settings.xresources");
+        path.push(format!("Settings-{}.xresources", env!("CARGO_PKG_VERSION")));
         SettingsStorage::new(path)
     }
 

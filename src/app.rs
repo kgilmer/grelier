@@ -2,6 +2,7 @@
 // Consumes Settings: grelier.bar.width, grelier.bar.border_*, grelier.app.*, grelier.ws.*.
 use std::collections::{HashMap, HashSet};
 use std::convert::TryInto;
+use std::time::{Duration, Instant};
 
 use crate::gauge::{
     GaugeClickTarget, GaugeInput, GaugeMenu, GaugeModel, GaugeValue, GaugeValueAttention,
@@ -24,6 +25,8 @@ use iced_anim::animation_builder::AnimationBuilder;
 use iced_anim::transition::Easing;
 use iced_layershell::actions::IcedNewPopupSettings;
 use iced_layershell::to_layer_message;
+
+const CLICK_FILTER_WINDOW: Duration = Duration::from_millis(250);
 
 #[to_layer_message(multi)]
 #[derive(Debug, Clone)]
@@ -171,6 +174,8 @@ pub struct BarState {
     pub closing_dialogs: HashSet<window::Id>,
     pub gauge_dialog_anchor: HashMap<String, i32>,
     pub primary_window: Option<window::Id>,
+    pub last_click_at: Option<Instant>,
+    pub last_dialog_opened_at: Option<Instant>,
 }
 
 #[derive(Clone, Default)]
@@ -332,6 +337,7 @@ impl BarState {
                 dialog,
             },
         );
+        self.last_dialog_opened_at = Some(Instant::now());
         tasks.push(task);
 
         Task::batch(tasks)
@@ -409,6 +415,28 @@ impl BarState {
         ordered.into_iter().map(|(_, gauge)| gauge).collect()
     }
 
+    pub fn allow_click(&mut self) -> bool {
+        self.allow_click_at(Instant::now())
+    }
+
+    pub(crate) fn allow_click_at(&mut self, now: Instant) -> bool {
+        let too_soon_since_click = self
+            .last_click_at
+            .and_then(|last| now.checked_duration_since(last))
+            .is_some_and(|elapsed| elapsed < CLICK_FILTER_WINDOW);
+        let too_soon_since_dialog = self
+            .last_dialog_opened_at
+            .and_then(|last| now.checked_duration_since(last))
+            .is_some_and(|elapsed| elapsed < CLICK_FILTER_WINDOW);
+
+        if too_soon_since_click || too_soon_since_dialog {
+            return false;
+        }
+
+        self.last_click_at = Some(now);
+        true
+    }
+
     pub fn view<'a>(&'a self, window: window::Id) -> Element<'a, Message> {
         let settings = settings::settings();
         let workspace_padding_x = settings.get_parsed_or("grelier.app.workspace_padding_x", 4u16);
@@ -424,8 +452,9 @@ impl BarState {
             settings.get_parsed_or("grelier.app.workspace_label_size", 14u32);
         let workspace_icon_size = settings.get_parsed_or("grelier.app.workspace_icon_size", 22.0);
         let top_apps_icon_size = settings.get_parsed_or("grelier.app.top_apps_icon_size", 20.0);
-        let workspace_icon_spacing =
-            settings.get_parsed_or("grelier.app.workspace_icon_spacing", 4u32);
+        let workspace_icon_spacing = settings
+            .get_parsed_or("grelier.app.workspace_icon_spacing", 6u32)
+            .max(2);
         let workspace_icon_padding_x =
             settings.get_parsed_or("grelier.app.workspace_icon_padding_x", 2u16);
         let workspace_icon_padding_y =

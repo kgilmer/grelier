@@ -6,8 +6,8 @@ use crate::settings;
 use iced::alignment;
 use iced::widget::svg::Svg;
 use iced::widget::text::LineHeight;
-use iced::widget::{Column, Container, Row, Space, Text, button, container};
-use iced::{Element, Length, Pixels, Theme};
+use iced::widget::{Column, Container, Row, Space, Stack, Text, button, container, rule};
+use iced::{Color, Element, Length, Pixels, Theme};
 
 const DEFAULT_HEADER_FONT_SIZE: u32 = 14;
 const DEFAULT_ITEM_FONT_SIZE: u32 = 12;
@@ -24,6 +24,45 @@ const DEFAULT_HEADER_BOTTOM_SPACING: u32 = 4;
 const DEFAULT_INDICATOR_SPACING: u32 = 10;
 const DEFAULT_BUTTON_PADDING_X: u32 = 6;
 const DEFAULT_CONTAINER_PADDING_X: u32 = 10;
+
+struct BorderSettings {
+    blend: bool,
+    line_width: f32,
+    column_width: f32,
+    mix_1: f32,
+    mix_2: f32,
+    mix_3: f32,
+    alpha_1: f32,
+    alpha_2: f32,
+    alpha_3: f32,
+}
+
+impl BorderSettings {
+    fn load() -> Self {
+        let settings = settings::settings();
+        Self {
+            blend: settings.get_bool_or("grelier.bar.border_blend", true),
+            line_width: settings.get_parsed_or("grelier.bar.border_line_width", 1.0),
+            column_width: settings.get_parsed_or("grelier.bar.border_column_width", 3.0),
+            mix_1: settings.get_parsed_or("grelier.bar.border_mix_1", 0.2),
+            mix_2: settings.get_parsed_or("grelier.bar.border_mix_2", 0.6),
+            mix_3: settings.get_parsed_or("grelier.bar.border_mix_3", 1.0),
+            alpha_1: settings.get_parsed_or("grelier.bar.border_alpha_1", 0.6),
+            alpha_2: settings.get_parsed_or("grelier.bar.border_alpha_2", 0.7),
+            alpha_3: settings.get_parsed_or("grelier.bar.border_alpha_3", 0.9),
+        }
+    }
+}
+
+fn lerp_color(from: Color, to: Color, t: f32) -> Color {
+    let t = t.clamp(0.0, 1.0);
+    Color {
+        r: from.r + (to.r - from.r) * t,
+        g: from.g + (to.g - from.g) * t,
+        b: from.b + (to.b - from.b) * t,
+        a: from.a + (to.a - from.a) * t,
+    }
+}
 
 /// Calculate a reasonable window size for a menu based on item count.
 pub fn dialog_dimensions(menu: &GaugeMenu) -> (u32, u32) {
@@ -92,6 +131,7 @@ pub fn menu_view<'a, Message: Clone + 'a>(
     menu: &'a GaugeMenu,
     on_select: impl Fn(String) -> Message + 'a,
 ) -> Element<'a, Message> {
+    let border_settings = BorderSettings::load();
     let checked_icon = svg_asset("option-checked.svg");
     let empty_icon = svg_asset("option-empty.svg");
     let header_font_size = settings::settings().get_parsed_or(
@@ -177,7 +217,7 @@ pub fn menu_view<'a, Message: Clone + 'a>(
         );
     }
 
-    Container::new(
+    let content = Container::new(
         Column::new()
             .width(Length::Fill)
             .height(Length::Fill)
@@ -191,6 +231,106 @@ pub fn menu_view<'a, Message: Clone + 'a>(
     .style(|theme: &Theme| container::Style {
         background: Some(theme.extended_palette().background.base.color.into()),
         ..container::Style::default()
-    })
-    .into()
+    });
+
+    let line_style = |mix: f32, alpha: f32| {
+        move |theme: &Theme| {
+            let background = theme.palette().background;
+            let blended = if border_settings.blend && mix != 0.0 {
+                lerp_color(background, Color::BLACK, mix)
+            } else {
+                background
+            };
+            rule::Style {
+                color: Color {
+                    a: alpha,
+                    ..blended
+                },
+                radius: 0.0.into(),
+                fill_mode: rule::FillMode::Full,
+                snap: true,
+            }
+        }
+    };
+
+    let border_column = || {
+        Column::new()
+            .spacing(0)
+            .push(
+                rule::horizontal(border_settings.line_width)
+                    .style(line_style(border_settings.mix_1, border_settings.alpha_1)),
+            )
+            .push(
+                rule::horizontal(border_settings.line_width)
+                    .style(line_style(border_settings.mix_2, border_settings.alpha_2)),
+            )
+            .push(
+                rule::horizontal(border_settings.line_width)
+                    .style(line_style(border_settings.mix_3, border_settings.alpha_3)),
+            )
+            .width(Length::Fill)
+            .height(Length::Fixed(border_settings.column_width))
+    };
+
+    let border_column_reversed = || {
+        Column::new()
+            .spacing(0)
+            .push(
+                rule::horizontal(border_settings.line_width)
+                    .style(line_style(border_settings.mix_3, border_settings.alpha_3)),
+            )
+            .push(
+                rule::horizontal(border_settings.line_width)
+                    .style(line_style(border_settings.mix_2, border_settings.alpha_2)),
+            )
+            .push(
+                rule::horizontal(border_settings.line_width)
+                    .style(line_style(border_settings.mix_1, border_settings.alpha_1)),
+            )
+            .width(Length::Fill)
+            .height(Length::Fixed(border_settings.column_width))
+    };
+
+    let border_row = || {
+        Row::new()
+            .spacing(0)
+            .push(
+                rule::vertical(border_settings.line_width)
+                    .style(line_style(border_settings.mix_1, border_settings.alpha_1)),
+            )
+            .push(
+                rule::vertical(border_settings.line_width)
+                    .style(line_style(border_settings.mix_2, border_settings.alpha_2)),
+            )
+            .push(
+                rule::vertical(border_settings.line_width)
+                    .style(line_style(border_settings.mix_3, border_settings.alpha_3)),
+            )
+            .width(Length::Fixed(border_settings.column_width))
+            .height(Length::Fill)
+    };
+
+    let top_border = container(border_column_reversed())
+        .width(Length::Fill)
+        .height(Length::Fill)
+        .align_y(alignment::Vertical::Top);
+
+    let bottom_border = container(border_column())
+        .width(Length::Fill)
+        .height(Length::Fill)
+        .align_y(alignment::Vertical::Bottom);
+
+    let right_border = container(border_row())
+        .width(Length::Fill)
+        .height(Length::Fill)
+        .align_x(alignment::Horizontal::Right);
+
+    Stack::new()
+        .width(Length::Fill)
+        .height(Length::Shrink)
+        .push(content)
+        .push(top_border)
+        .push(bottom_border)
+        .push(right_border)
+        .into()
 }

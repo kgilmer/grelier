@@ -44,9 +44,11 @@ use crate::gauge::{GaugeClick, GaugeInput, GaugeModel, SettingSpec};
 use elbey_cache::{AppDescriptor, Cache};
 use freedesktop_desktop_entry::desktop_entries;
 use locale_config::Locale;
+use std::time::{Duration, Instant};
 
 const DEFAULT_ORIENTATION: &str = "left";
 const DEFAULT_THEME: &str = "Nord";
+const DIALOG_UNFOCUS_SUPPRESSION_WINDOW: Duration = Duration::from_millis(250);
 
 /// Base settings shared by the bar regardless of which gauges are enabled.
 fn base_setting_specs(default_gauges: &'static str) -> Vec<SettingSpec> {
@@ -141,7 +143,7 @@ fn base_setting_specs(default_gauges: &'static str) -> Vec<SettingSpec> {
         },
         SettingSpec {
             key: "grelier.app.workspace_icon_spacing",
-            default: "4",
+            default: "6",
         },
         SettingSpec {
             key: "grelier.app.workspace_icon_padding_x",
@@ -173,7 +175,7 @@ fn base_setting_specs(default_gauges: &'static str) -> Vec<SettingSpec> {
         },
         SettingSpec {
             key: "grelier.app.gauge_spacing",
-            default: "14",
+            default: "7",
         },
         SettingSpec {
             key: "grelier.app.gauge_icon_size",
@@ -444,6 +446,19 @@ fn main() -> Result<(), iced_layershell::Error> {
 }
 
 fn update(state: &mut BarState, message: Message) -> Task<Message> {
+    let is_click_message = matches!(
+        message,
+        Message::WorkspaceClicked(_)
+            | Message::WorkspaceAppClicked { .. }
+            | Message::TopAppClicked { .. }
+            | Message::BackgroundClicked
+            | Message::GaugeClicked { .. }
+            | Message::MenuItemSelected { .. }
+    );
+    if is_click_message && !state.allow_click() {
+        return Task::none();
+    }
+
     match message {
         Message::Workspaces { workspaces, apps } => {
             state.update_workspace_focus(&workspaces);
@@ -621,6 +636,13 @@ fn update(state: &mut BarState, message: Message) -> Task<Message> {
             state.closing_dialogs.remove(&window);
         }
         Message::IcedEvent(iced::Event::Window(iced::window::Event::Unfocused)) => {
+            let recently_opened_dialog = state
+                .last_dialog_opened_at
+                .and_then(|last| Instant::now().checked_duration_since(last))
+                .is_some_and(|elapsed| elapsed < DIALOG_UNFOCUS_SUPPRESSION_WINDOW);
+            if recently_opened_dialog {
+                return Task::none();
+            }
             if let Some(window) = state.dialog_windows.keys().copied().next() {
                 state.dialog_windows.remove(&window);
                 state.closing_dialogs.insert(window);
@@ -695,7 +717,7 @@ mod tests {
     fn temp_storage_path(name: &str) -> (SettingsStorage, std::path::PathBuf) {
         let mut path = std::env::temp_dir();
         path.push(format!("grelier_main_settings_test_{}", name));
-        path.push("Settings.xresources");
+        path.push(format!("Settings-{}.xresources", env!("CARGO_PKG_VERSION")));
         (SettingsStorage::new(path.clone()), path)
     }
 

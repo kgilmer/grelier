@@ -110,7 +110,9 @@ fn read_ssid_wpa_ctrl(path: &Path) -> Option<String> {
     let temp_path = temp_socket_path()?;
     let _temp_guard = TempSocketGuard::new(&temp_path);
     let socket = UnixDatagram::bind(&temp_path).ok()?;
-    socket.set_read_timeout(Some(Duration::from_millis(250))).ok()?;
+    socket
+        .set_read_timeout(Some(Duration::from_millis(250)))
+        .ok()?;
     socket.send_to(b"STATUS", path).ok()?;
     let mut buf = [0u8; 4096];
     let size = socket.recv(&mut buf).ok()?;
@@ -125,8 +127,15 @@ fn read_ssid_wpa_ctrl(path: &Path) -> Option<String> {
 
 fn temp_socket_path() -> Option<PathBuf> {
     let mut path = std::env::temp_dir();
-    let now = SystemTime::now().duration_since(UNIX_EPOCH).ok()?.as_nanos();
-    path.push(format!("grelier_wpa_ctrl_{}_{}.sock", std::process::id(), now));
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .ok()?
+        .as_nanos();
+    path.push(format!(
+        "grelier_wpa_ctrl_{}_{}.sock",
+        std::process::id(),
+        now
+    ));
     Some(path)
 }
 

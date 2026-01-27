@@ -111,10 +111,7 @@ fn path_matches_mount(path: &str, mount_point: &str) -> bool {
     if !path.starts_with(mount_point) {
         return false;
     }
-    matches!(
-        path.as_bytes().get(mount_point.len()),
-        Some(b'/') | None
-    )
+    matches!(path.as_bytes().get(mount_point.len()), Some(b'/') | None)
 }
 
 fn format_bytes(bytes: u64) -> String {
