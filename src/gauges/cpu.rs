@@ -11,8 +11,8 @@ use std::io::{BufRead, BufReader};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-const DEFAULT_WARNING_THRESHOLD: f32 = 0.75;
-const DEFAULT_DANGER_THRESHOLD: f32 = 0.90;
+const DEFAULT_WARNING_THRESHOLD: f32 = 0.90;
+const DEFAULT_DANGER_THRESHOLD: f32 = 1.0;
 const DEFAULT_FAST_THRESHOLD: f32 = 0.50;
 const DEFAULT_FAST_INTERVAL_SECS: u64 = 1;
 const DEFAULT_SLOW_INTERVAL_SECS: u64 = 4;

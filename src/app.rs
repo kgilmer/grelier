@@ -613,7 +613,7 @@ impl BarState {
         );
 
         let ordered_gauges = self.ordered_gauges();
-        let error_icon = svg_asset("error.svg");
+        let ratio_inner_full_icon = svg_asset("ratio-inner-full.svg");
 
         let top_apps = self.top_apps.iter().fold(
             Column::new()
@@ -649,11 +649,8 @@ impl BarState {
                 .width(Length::Fill)
                 .align_x(alignment::Horizontal::Center),
             |col, gauge| {
-                let gauge_attention = if gauge.value.is_some() {
-                    gauge.attention
-                } else {
-                    GaugeValueAttention::Danger
-                };
+                let gauge_attention = gauge.attention;
+                let icon_attention = GaugeValueAttention::Nominal;
 
                 let mut gauge_column = Column::new()
                     .align_x(alignment::Horizontal::Center)
@@ -664,7 +661,7 @@ impl BarState {
                         .width(Length::Fixed(gauge_icon_size))
                         .height(Length::Fixed(gauge_icon_size))
                         .style({
-                            let attention = gauge_attention;
+                            let attention = icon_attention;
                             move |theme: &Theme, _status| svg::Style {
                                 color: Some(attention_color(attention, theme)),
                             }
@@ -699,7 +696,7 @@ impl BarState {
                             }
                         })
                         .into(),
-                    None => Svg::new(error_icon.clone())
+                    None => Svg::new(ratio_inner_full_icon.clone())
                         .width(Length::Fixed(gauge_value_icon_size))
                         .height(Length::Fixed(gauge_value_icon_size))
                         .style({

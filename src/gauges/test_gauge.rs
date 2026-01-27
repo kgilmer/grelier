@@ -1,4 +1,4 @@
-// Test gauge that cycles quantity icons and toggles attention on clicks.
+// Test gauge that shows a fixed icon with a cycling quantity value.
 use iced::futures::StreamExt;
 use iced::mouse;
 use std::sync::Mutex;
@@ -8,7 +8,7 @@ use crate::gauge::{
     GaugeClick, GaugeClickAction, GaugeValue, GaugeValueAttention, SettingSpec, fixed_interval,
 };
 use crate::gauge_registry::{GaugeSpec, GaugeStream};
-use crate::icon::icon_quantity;
+use crate::icon::{icon_quantity, svg_asset};
 use crate::info_dialog::InfoDialog;
 use std::sync::Arc;
 
@@ -20,6 +20,7 @@ const STEP: f32 = 1.0 / 9.0;
 struct BounceSequence {
     value: f32,
     descending: bool,
+    emit_none_at_top: bool,
 }
 
 impl BounceSequence {
@@ -27,11 +28,17 @@ impl BounceSequence {
         Self {
             value: 0.0,
             descending: false,
+            emit_none_at_top: false,
         }
     }
 
     /// Return the current value and advance, bouncing at both ends.
-    fn next(&mut self) -> f32 {
+    fn next(&mut self) -> Option<f32> {
+        if self.emit_none_at_top {
+            self.emit_none_at_top = false;
+            return None;
+        }
+
         let current = self.value;
         if self.descending {
             let next = (self.value - STEP).max(0.0);
@@ -43,10 +50,11 @@ impl BounceSequence {
             let next = (self.value + STEP).min(1.0);
             self.value = next;
             if next >= 1.0 {
+                self.emit_none_at_top = true;
                 self.descending = true;
             }
         }
-        current
+        Some(current)
     }
 }
 
@@ -73,14 +81,13 @@ impl QuantityState {
     }
 
     fn next(&mut self) -> (Option<GaugeValue>, GaugeValueAttention) {
-        (
-            Some(GaugeValue::Svg(icon_quantity(self.sequence.next()))),
-            self.attention,
-        )
+        let value = self.sequence.next();
+        let value = value.map(|value| GaugeValue::Svg(icon_quantity(value)));
+        (value, self.attention)
     }
 }
 
-/// Cycles over the available quantity icons, bouncing when hitting the ends.
+/// Emits a steady icon with a cycling quantity value and updates attention on clicks.
 fn test_gauge_stream() -> impl iced::futures::Stream<Item = crate::gauge::GaugeModel> {
     let state = Arc::new(Mutex::new(QuantityState::new()));
     let info_dialog = InfoDialog {
@@ -107,7 +114,7 @@ fn test_gauge_stream() -> impl iced::futures::Stream<Item = crate::gauge::GaugeM
 
     fixed_interval(
         "test_gauge",
-        None,
+        Some(svg_asset("option-checked.svg")),
         || Duration::from_secs(1),
         {
             let state = Arc::clone(&state);

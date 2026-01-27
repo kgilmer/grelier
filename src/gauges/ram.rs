@@ -11,8 +11,8 @@ use std::io::{BufRead, BufReader};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-const DEFAULT_WARNING_THRESHOLD: f32 = 0.85;
-const DEFAULT_DANGER_THRESHOLD: f32 = 0.95;
+const DEFAULT_WARNING_THRESHOLD: f32 = 0.10;
+const DEFAULT_DANGER_THRESHOLD: f32 = 0.05;
 const DEFAULT_FAST_THRESHOLD: f32 = 0.70;
 const DEFAULT_FAST_INTERVAL_SECS: u64 = 1;
 const DEFAULT_SLOW_INTERVAL_SECS: u64 = 4;
@@ -117,14 +117,14 @@ fn format_bytes(bytes: u64) -> String {
     }
 }
 
-fn attention_for(
-    utilization: f32,
+fn attention_for_free_ratio(
+    free_ratio: f32,
     warning_threshold: f32,
     danger_threshold: f32,
 ) -> GaugeValueAttention {
-    if utilization > danger_threshold {
+    if free_ratio < danger_threshold {
         GaugeValueAttention::Danger
-    } else if utilization > warning_threshold {
+    } else if free_ratio < warning_threshold {
         GaugeValueAttention::Warning
     } else {
         GaugeValueAttention::Nominal
@@ -133,16 +133,16 @@ fn attention_for(
 
 fn ram_value(
     utilization: Option<f32>,
+    free_ratio: Option<f32>,
     warning_threshold: f32,
     danger_threshold: f32,
 ) -> (Option<GaugeValue>, GaugeValueAttention) {
-    match utilization {
-        Some(util) => (
-            Some(GaugeValue::Svg(icon_quantity(util))),
-            attention_for(util, warning_threshold, danger_threshold),
-        ),
-        None => (None, GaugeValueAttention::Danger),
-    }
+    let value = utilization.map(|util| GaugeValue::Svg(icon_quantity(util)));
+    let attention = match free_ratio {
+        Some(free_ratio) => attention_for_free_ratio(free_ratio, warning_threshold, danger_threshold),
+        None => GaugeValueAttention::Danger,
+    };
+    (value, attention)
 }
 
 struct RamState {
@@ -180,14 +180,33 @@ impl RamState {
 }
 
 fn ram_stream() -> impl iced::futures::Stream<Item = crate::gauge::GaugeModel> {
-    let warning_threshold = settings::settings().get_parsed_or(
+    let warning_threshold_raw = settings::settings().get_parsed_or(
         "grelier.gauge.ram.warning_threshold",
         DEFAULT_WARNING_THRESHOLD,
     );
-    let danger_threshold = settings::settings().get_parsed_or(
+    let danger_threshold_raw = settings::settings().get_parsed_or(
         "grelier.gauge.ram.danger_threshold",
         DEFAULT_DANGER_THRESHOLD,
     );
+    // Back-compat: older configs stored "used" thresholds (high values). Convert to free ratios.
+    let (warning_threshold, danger_threshold) = {
+        let warning = if warning_threshold_raw > 0.5 {
+            (1.0 - warning_threshold_raw).clamp(0.0, 1.0)
+        } else {
+            warning_threshold_raw.clamp(0.0, 1.0)
+        };
+        let danger = if danger_threshold_raw > 0.5 {
+            (1.0 - danger_threshold_raw).clamp(0.0, 1.0)
+        } else {
+            danger_threshold_raw.clamp(0.0, 1.0)
+        };
+        // Ensure danger is not above warning for free-ratio thresholds.
+        if danger > warning {
+            (danger, warning)
+        } else {
+            (warning, danger)
+        }
+    };
     let fast_threshold = settings::settings()
         .get_parsed_or("grelier.gauge.ram.fast_threshold", DEFAULT_FAST_THRESHOLD);
     let calm_ticks =
@@ -247,8 +266,17 @@ fn ram_stream() -> impl iced::futures::Stream<Item = crate::gauge::GaugeModel> {
                         Some(utilization.clamp(0.0, 1.0))
                     }
                 });
+                let free_ratio = snapshot.as_ref().and_then(|snapshot| {
+                    if snapshot.total == 0 {
+                        None
+                    } else {
+                        let available = snapshot.available_bytes();
+                        let ratio = available as f32 / snapshot.total as f32;
+                        Some(ratio.clamp(0.0, 1.0))
+                    }
+                });
                 if let Ok(mut info) = info_state.lock() {
-                    if let Some(snapshot) = snapshot {
+                    if let Some(snapshot) = snapshot.as_ref() {
                         let available = snapshot.available_bytes();
                         let reserved = available.saturating_sub(snapshot.free);
                         let used = snapshot.total.saturating_sub(available);
@@ -274,7 +302,7 @@ fn ram_stream() -> impl iced::futures::Stream<Item = crate::gauge::GaugeModel> {
                 }
 
                 let (value, attention) =
-                    ram_value(utilization, warning_threshold, danger_threshold);
+                    ram_value(utilization, free_ratio, warning_threshold, danger_threshold);
                 Some((value, attention))
             }
         },
@@ -295,11 +323,11 @@ pub fn settings() -> &'static [SettingSpec] {
     const SETTINGS: &[SettingSpec] = &[
         SettingSpec {
             key: "grelier.gauge.ram.warning_threshold",
-            default: "0.85",
+            default: "0.10",
         },
         SettingSpec {
             key: "grelier.gauge.ram.danger_threshold",
-            default: "0.95",
+            default: "0.05",
         },
         SettingSpec {
             key: "grelier.gauge.ram.fast_threshold",
@@ -344,19 +372,19 @@ mod tests {
     #[test]
     fn attention_thresholds_match_spec() {
         assert_eq!(
-            attention_for(0.80, DEFAULT_WARNING_THRESHOLD, DEFAULT_DANGER_THRESHOLD),
+            attention_for_free_ratio(0.20, DEFAULT_WARNING_THRESHOLD, DEFAULT_DANGER_THRESHOLD),
             GaugeValueAttention::Nominal
         );
         assert_eq!(
-            attention_for(0.86, DEFAULT_WARNING_THRESHOLD, DEFAULT_DANGER_THRESHOLD),
+            attention_for_free_ratio(0.09, DEFAULT_WARNING_THRESHOLD, DEFAULT_DANGER_THRESHOLD),
             GaugeValueAttention::Warning
         );
         assert_eq!(
-            attention_for(0.95, DEFAULT_WARNING_THRESHOLD, DEFAULT_DANGER_THRESHOLD),
+            attention_for_free_ratio(0.05, DEFAULT_WARNING_THRESHOLD, DEFAULT_DANGER_THRESHOLD),
             GaugeValueAttention::Warning
         );
         assert_eq!(
-            attention_for(0.96, DEFAULT_WARNING_THRESHOLD, DEFAULT_DANGER_THRESHOLD),
+            attention_for_free_ratio(0.04, DEFAULT_WARNING_THRESHOLD, DEFAULT_DANGER_THRESHOLD),
             GaugeValueAttention::Danger
         );
     }
@@ -401,7 +429,7 @@ mod tests {
     #[test]
     fn returns_none_on_missing_utilization() {
         let (value, attention) =
-            ram_value(None, DEFAULT_WARNING_THRESHOLD, DEFAULT_DANGER_THRESHOLD);
+            ram_value(None, None, DEFAULT_WARNING_THRESHOLD, DEFAULT_DANGER_THRESHOLD);
         assert!(value.is_none());
         assert_eq!(attention, GaugeValueAttention::Danger);
     }
