@@ -235,7 +235,7 @@ pub fn info_view<'a, Message: 'a>(dialog: &'a InfoDialog) -> Element<'a, Message
         dialog_cfg.container_padding_x as u16,
     ])
     .width(Length::Fill)
-    .height(Length::Shrink)
+    .height(Length::Fill)
     .style(|theme: &Theme| container::Style {
         background: Some(theme.extended_palette().background.base.color.into()),
         ..container::Style::default()
@@ -335,7 +335,7 @@ pub fn info_view<'a, Message: 'a>(dialog: &'a InfoDialog) -> Element<'a, Message
 
     Stack::new()
         .width(Length::Fill)
-        .height(Length::Shrink)
+        .height(Length::Fill)
         .push(content)
         .push(top_border)
         .push(bottom_border)
