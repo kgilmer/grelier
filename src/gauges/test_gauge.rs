@@ -177,22 +177,22 @@ mod tests {
     }
 
     #[test]
-    fn pie_sequence_bounces() {
+    fn quantity_sequence_bounces() {
         let mut seq = BounceSequence::new();
         let produced: Vec<_> = (0..10).map(|_| seq.next()).collect();
         assert_eq!(
             produced,
             vec![
-                0.0,
-                1.0 / 9.0,
-                2.0 / 9.0,
-                3.0 / 9.0,
-                4.0 / 9.0,
-                5.0 / 9.0,
-                6.0 / 9.0,
-                7.0 / 9.0,
-                8.0 / 9.0,
-                1.0
+                Some(0.0),
+                Some(1.0 / 9.0),
+                Some(2.0 / 9.0),
+                Some(3.0 / 9.0),
+                Some(4.0 / 9.0),
+                Some(5.0 / 9.0),
+                Some(6.0 / 9.0),
+                Some(7.0 / 9.0),
+                Some(8.0 / 9.0),
+                None
             ]
         );
     }

@@ -54,6 +54,17 @@ pub enum Message {
         gauge_id: String,
         item_id: String,
     },
+    MenuItemHoverEnter {
+        window: iced::window::Id,
+        item_id: String,
+    },
+    MenuItemHoverExit {
+        window: iced::window::Id,
+        item_id: String,
+    },
+    WindowFocusChanged {
+        focused: bool,
+    },
     MenuDismissed(iced::window::Id),
     WindowClosed(iced::window::Id),
     CacheRefreshed(Result<(Vec<AppDescriptor>, Vec<AppDescriptor>), String>),
@@ -228,6 +239,7 @@ pub enum GaugeDialog {
 pub struct GaugeDialogWindow {
     pub gauge_id: String,
     pub dialog: GaugeDialog,
+    pub hovered_item: Option<String>,
 }
 
 impl BarState {
@@ -335,6 +347,7 @@ impl BarState {
             GaugeDialogWindow {
                 gauge_id: gauge_id.to_string(),
                 dialog,
+                hovered_item: None,
             },
         );
         self.last_dialog_opened_at = Some(Instant::now());
@@ -485,11 +498,23 @@ impl BarState {
             let window_id = window;
             return match &dialog_window.dialog {
                 GaugeDialog::Menu(menu) => {
-                    menu_view(menu, move |item_id| Message::MenuItemSelected {
-                        window: window_id,
-                        gauge_id: gauge_id.clone(),
-                        item_id,
-                    })
+                    menu_view(
+                        menu,
+                        dialog_window.hovered_item.as_deref(),
+                        move |item_id| Message::MenuItemSelected {
+                            window: window_id,
+                            gauge_id: gauge_id.clone(),
+                            item_id,
+                        },
+                        move |item_id| Message::MenuItemHoverEnter {
+                            window: window_id,
+                            item_id,
+                        },
+                        move |item_id| Message::MenuItemHoverExit {
+                            window: window_id,
+                            item_id,
+                        },
+                    )
                 }
                 GaugeDialog::Info(dialog) => info_view(dialog),
             };

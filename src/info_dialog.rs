@@ -1,5 +1,6 @@
 // Info dialog sizing and rendering for gauge popup dialogs.
-// Consumes Settings: grelier.info_dialog.*.
+// Consumes Settings: grelier.dialog.*, grelier.info_dialog.*.
+use crate::dialog_settings;
 use crate::settings;
 use iced::alignment;
 use iced::font::Weight;
@@ -47,7 +48,7 @@ impl InfoDialogSettings {
                 DEFAULT_MAX_CHARS_PER_LINE,
             ),
             header_font_size: settings.get_parsed_or(
-                "grelier.info_dialog.header_font_size",
+                "grelier.dialog.header_font_size",
                 DEFAULT_HEADER_FONT_SIZE,
             ),
             body_font_size: settings
@@ -55,17 +56,17 @@ impl InfoDialogSettings {
             header_spacing: settings
                 .get_parsed_or("grelier.info_dialog.header_spacing", DEFAULT_HEADER_SPACING),
             header_bottom_spacing: settings.get_parsed_or(
-                "grelier.info_dialog.header_bottom_spacing",
+                "grelier.dialog.header_bottom_spacing",
                 DEFAULT_HEADER_BOTTOM_SPACING,
             ),
             line_spacing: settings
                 .get_parsed_or("grelier.info_dialog.line_spacing", DEFAULT_LINE_SPACING),
             container_padding_y: settings.get_parsed_or(
-                "grelier.info_dialog.container_padding_y",
+                "grelier.dialog.container_padding_y",
                 DEFAULT_CONTAINER_PADDING_Y,
             ),
             container_padding_x: settings.get_parsed_or(
-                "grelier.info_dialog.container_padding_x",
+                "grelier.dialog.container_padding_x",
                 DEFAULT_CONTAINER_PADDING_X,
             ),
             bottom_padding_extra: settings.get_parsed_or(
@@ -123,11 +124,11 @@ pub struct InfoDialog {
 
 /// Calculate a reasonable window size for an info dialog based on line count and length.
 pub fn dialog_dimensions(dialog: &InfoDialog) -> (u32, u32) {
-    let dialog_settings = InfoDialogSettings::load();
-    let mut char_width = dialog_settings.char_width;
-    let estimated_char_width = ((dialog_settings
+    let dialog_cfg = InfoDialogSettings::load();
+    let mut char_width = dialog_cfg.char_width;
+    let estimated_char_width = ((dialog_cfg
         .header_font_size
-        .max(dialog_settings.body_font_size) as f32)
+        .max(dialog_cfg.body_font_size) as f32)
         * 0.6)
         .ceil() as u32;
     if char_width < estimated_char_width {
@@ -142,10 +143,10 @@ pub fn dialog_dimensions(dialog: &InfoDialog) -> (u32, u32) {
         .max()
         .unwrap_or(0);
     let target_chars = max_line_chars
-        .min(dialog_settings.max_chars_per_line.max(1))
+        .min(dialog_cfg.max_chars_per_line.max(1))
         .max(1);
-    let width = ((target_chars + 2) * char_width + dialog_settings.container_padding_x * 2)
-        .clamp(dialog_settings.min_width, dialog_settings.max_width);
+    let width = ((target_chars + 2) * char_width + dialog_cfg.container_padding_x * 2)
+        .clamp(dialog_cfg.min_width, dialog_cfg.max_width);
 
     let header_rows = (dialog.title.chars().count() as u32)
         .max(1)
@@ -159,37 +160,37 @@ pub fn dialog_dimensions(dialog: &InfoDialog) -> (u32, u32) {
         })
         .sum::<u32>()
         .max(1);
-    let header_height = header_rows * (dialog_settings.header_font_size as f32 * 1.2).ceil() as u32
-        + dialog_settings.header_spacing;
-    let line_height = (dialog_settings.body_font_size as f32 * 1.2).ceil() as u32;
+    let header_height = header_rows * (dialog_cfg.header_font_size as f32 * 1.2).ceil() as u32
+        + dialog_cfg.header_spacing;
+    let line_height = (dialog_cfg.body_font_size as f32 * 1.2).ceil() as u32;
     let body_height = rows * line_height
-        + dialog_settings
+        + dialog_cfg
             .line_spacing
             .saturating_mul(dialog.lines.len().saturating_sub(1) as u32);
-    let safety_height = (dialog_settings.body_font_size as f32 * 0.6).ceil() as u32;
+    let safety_height = (dialog_cfg.body_font_size as f32 * 0.6).ceil() as u32;
     let height = header_height
-        + dialog_settings.header_bottom_spacing
+        + dialog_cfg.header_bottom_spacing
         + body_height
-        + dialog_settings.container_padding_y * 2
-        + dialog_settings.bottom_padding_extra
+        + dialog_cfg.container_padding_y * 2
+        + dialog_cfg.bottom_padding_extra
         + safety_height;
 
     (width, height)
 }
 
 pub fn info_view<'a, Message: 'a>(dialog: &'a InfoDialog) -> Element<'a, Message> {
-    let dialog_settings = InfoDialogSettings::load();
+    let dialog_cfg = InfoDialogSettings::load();
     let border_settings = BorderSettings::load();
 
     let header = Column::new()
         .width(Length::Fill)
-        .spacing(dialog_settings.header_spacing)
+        .spacing(dialog_cfg.header_spacing)
         .push(
             Container::new(
                 Text::new(dialog.title.clone())
-                    .size(dialog_settings.header_font_size)
+                    .size(dialog_cfg.header_font_size)
                     .width(Length::Fill)
-                    .align_x(alignment::Horizontal::Center)
+                    .align_x(dialog_settings::title_alignment())
                     .style(|theme: &Theme| text::Style {
                         color: Some(theme.extended_palette().background.base.color),
                     })
@@ -198,22 +199,23 @@ pub fn info_view<'a, Message: 'a>(dialog: &'a InfoDialog) -> Element<'a, Message
                         ..Font::DEFAULT
                     }),
             )
+            .padding([0, 6])
             .width(Length::Fill)
             .style(|theme: &Theme| container::Style {
                 background: Some(theme.extended_palette().primary.base.color.into()),
                 ..container::Style::default()
             }),
         )
-        .push(Space::new().height(Length::Fixed(dialog_settings.header_bottom_spacing as f32)));
+        .push(Space::new().height(Length::Fixed(dialog_cfg.header_bottom_spacing as f32)));
 
     let lines = dialog.lines.iter().fold(
         Column::new()
             .width(Length::Fill)
-            .spacing(dialog_settings.line_spacing),
+            .spacing(dialog_cfg.line_spacing),
         |col, line| {
             col.push(
                 Text::new(line.clone())
-                    .size(dialog_settings.body_font_size)
+                    .size(dialog_cfg.body_font_size)
                     .width(Length::Fill),
             )
         },
@@ -223,14 +225,14 @@ pub fn info_view<'a, Message: 'a>(dialog: &'a InfoDialog) -> Element<'a, Message
         Column::new()
             .width(Length::Fill)
             .height(Length::Fill)
-            .spacing(dialog_settings.header_spacing)
+            .spacing(dialog_cfg.header_spacing)
             .push(header)
             .push(lines)
-            .push(Space::new().height(Length::Fixed(dialog_settings.bottom_padding_extra as f32))),
+            .push(Space::new().height(Length::Fixed(dialog_cfg.bottom_padding_extra as f32))),
     )
     .padding([
-        dialog_settings.container_padding_y as u16,
-        dialog_settings.container_padding_x as u16,
+        dialog_cfg.container_padding_y as u16,
+        dialog_cfg.container_padding_x as u16,
     ])
     .width(Length::Fill)
     .height(Length::Shrink)

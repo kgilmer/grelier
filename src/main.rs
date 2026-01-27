@@ -22,6 +22,7 @@ mod gauges {
 mod gauge;
 mod gauge_registry;
 mod icon;
+mod dialog_settings;
 mod info_dialog;
 mod menu_dialog;
 mod settings;
@@ -104,6 +105,26 @@ fn base_setting_specs(default_gauges: &'static str) -> Vec<SettingSpec> {
         SettingSpec {
             key: "grelier.bar.border_alpha_3",
             default: "0.9",
+        },
+        SettingSpec {
+            key: "grelier.dialog.header_font_size",
+            default: "14",
+        },
+        SettingSpec {
+            key: "grelier.dialog.title_align",
+            default: "center",
+        },
+        SettingSpec {
+            key: "grelier.dialog.header_bottom_spacing",
+            default: "4",
+        },
+        SettingSpec {
+            key: "grelier.dialog.container_padding_y",
+            default: "10",
+        },
+        SettingSpec {
+            key: "grelier.dialog.container_padding_x",
+            default: "10",
         },
         SettingSpec {
             key: "grelier.app.gauge_anchor_offset_icon",
@@ -610,6 +631,25 @@ fn update(state: &mut BarState, message: Message) -> Task<Message> {
             }
             return Task::done(Message::RemoveWindow(window));
         }
+        Message::MenuItemHoverEnter { window, item_id } => {
+            if let Some(dialog_window) = state.dialog_windows.get_mut(&window) {
+                dialog_window.hovered_item = Some(item_id);
+            }
+        }
+        Message::MenuItemHoverExit { window, item_id } => {
+            if let Some(dialog_window) = state.dialog_windows.get_mut(&window) {
+                if dialog_window
+                    .hovered_item
+                    .as_ref()
+                    .is_some_and(|hovered| hovered == &item_id)
+                {
+                    dialog_window.hovered_item = None;
+                }
+            }
+        }
+        Message::WindowFocusChanged { focused } => {
+            return handle_window_focus_change(state, focused);
+        }
         Message::MenuDismissed(window) => {
             state.dialog_windows.remove(&window);
             state.closing_dialogs.remove(&window);
@@ -636,18 +676,7 @@ fn update(state: &mut BarState, message: Message) -> Task<Message> {
             state.closing_dialogs.remove(&window);
         }
         Message::IcedEvent(iced::Event::Window(iced::window::Event::Unfocused)) => {
-            let recently_opened_dialog = state
-                .last_dialog_opened_at
-                .and_then(|last| Instant::now().checked_duration_since(last))
-                .is_some_and(|elapsed| elapsed < DIALOG_UNFOCUS_SUPPRESSION_WINDOW);
-            if recently_opened_dialog {
-                return Task::none();
-            }
-            if let Some(window) = state.dialog_windows.keys().copied().next() {
-                state.dialog_windows.remove(&window);
-                state.closing_dialogs.insert(window);
-                return Task::done(Message::RemoveWindow(window));
-            }
+            return Task::done(Message::WindowFocusChanged { focused: false });
         }
         Message::IcedEvent(_) => {}
         Message::NewLayerShell { id, .. } => {
@@ -673,6 +702,28 @@ fn update(state: &mut BarState, message: Message) -> Task<Message> {
         | Message::NewInputPanel { .. }
         | Message::RemoveWindow(_)
         | Message::ForgetLastOutput => {}
+    }
+
+    Task::none()
+}
+
+fn handle_window_focus_change(state: &mut BarState, focused: bool) -> Task<Message> {
+    if focused {
+        return Task::none();
+    }
+
+    let recently_opened_dialog = state
+        .last_dialog_opened_at
+        .and_then(|last| Instant::now().checked_duration_since(last))
+        .is_some_and(|elapsed| elapsed < DIALOG_UNFOCUS_SUPPRESSION_WINDOW);
+    if recently_opened_dialog {
+        return Task::none();
+    }
+
+    if let Some(window) = state.dialog_windows.keys().copied().next() {
+        state.dialog_windows.remove(&window);
+        state.closing_dialogs.insert(window);
+        return Task::done(Message::RemoveWindow(window));
     }
 
     Task::none()
@@ -800,6 +851,7 @@ mod tests {
                     items: Vec::new(),
                     on_select: None,
                 }),
+                hovered_item: None,
             },
         );
 
@@ -857,6 +909,7 @@ mod tests {
                     items: Vec::new(),
                     on_select: None,
                 }),
+                hovered_item: None,
             },
         );
         state.gauges.push(GaugeModel {
@@ -906,6 +959,7 @@ mod tests {
                     items: Vec::new(),
                     on_select: None,
                 }),
+                hovered_item: None,
             },
         );
         state.dialog_windows.insert(
@@ -917,6 +971,7 @@ mod tests {
                     items: Vec::new(),
                     on_select: None,
                 }),
+                hovered_item: None,
             },
         );
 
@@ -980,6 +1035,7 @@ mod tests {
                     items: Vec::new(),
                     on_select: None,
                 }),
+                hovered_item: None,
             },
         );
         state.closing_dialogs.insert(window);
@@ -997,6 +1053,36 @@ mod tests {
     }
 
     #[test]
+    fn window_unfocus_can_be_injected_for_tests() {
+        let mut state = BarState::default();
+        let window = window::Id::unique();
+        state.dialog_windows.insert(
+            window,
+            GaugeDialogWindow {
+                gauge_id: "audio_out".to_string(),
+                dialog: GaugeDialog::Menu(GaugeMenu {
+                    title: "Test".into(),
+                    items: Vec::new(),
+                    on_select: None,
+                }),
+                hovered_item: None,
+            },
+        );
+        state.last_dialog_opened_at = Some(Instant::now());
+
+        let task = update(
+            &mut state,
+            Message::WindowFocusChanged { focused: false },
+        );
+
+        assert!(
+            state.dialog_windows.contains_key(&window),
+            "recently opened dialog should remain visible"
+        );
+        assert_eq!(task.units(), 0, "suppressed unfocus should do nothing");
+    }
+
+    #[test]
     fn gauge_click_closes_existing_dialog_without_reopening() {
         let mut state = BarState::default();
         let window = window::Id::unique();
@@ -1009,6 +1095,7 @@ mod tests {
                     items: Vec::new(),
                     on_select: None,
                 }),
+                hovered_item: None,
             },
         );
 
