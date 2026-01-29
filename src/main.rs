@@ -570,17 +570,6 @@ fn update(state: &mut BarState, message: Message) -> Task<Message> {
                 return state.open_menu(&id, menu, anchor_y);
             }
 
-            if matches!(input, GaugeInput::Button(iced::mouse::Button::Middle))
-                && let Some(dialog) = gauge_info
-            {
-                let anchor_y = state
-                    .gauge_dialog_anchor
-                    .get(&id)
-                    .copied()
-                    .or_else(|| state.gauge_anchor_y(target));
-                return state.open_info_dialog(&id, dialog, anchor_y);
-            }
-
             if matches!(input, GaugeInput::Button(iced::mouse::Button::Left))
                 && matches!(
                     id.as_str(),
