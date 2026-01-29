@@ -133,11 +133,6 @@ pub fn fixed_interval(
 
         loop {
             if let Some((value, attention)) = tick() {
-                let attention = if value.is_some() {
-                    attention
-                } else {
-                    GaugeValueAttention::Danger
-                };
                 let _ = sender.try_send(GaugeModel {
                     id,
                     icon: icon.clone(),

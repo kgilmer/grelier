@@ -1,0 +1,15 @@
+<svg xmlns="http://www.w3.org/2000/svg"
+     width="22"
+     height="22"
+     viewBox="0 0 22 22">
+
+  <!-- Inner oval only (matches interior of ratio-* icons) -->
+  <rect x="3"
+        y="8"
+        width="16"
+        height="6"
+        rx="2"
+        ry="2"
+        fill="currentColor"/>
+
+</svg>

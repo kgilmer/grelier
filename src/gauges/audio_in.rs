@@ -5,7 +5,8 @@ use crate::gauge::{
     MenuSelectAction, SettingSpec, event_stream,
 };
 use crate::gauge_registry::{GaugeSpec, GaugeStream};
-use crate::icon::svg_asset;
+use crate::icon::{icon_quantity, svg_asset};
+use crate::info_dialog::InfoDialog;
 use crate::settings;
 use libpulse_binding as pulse;
 use pulse::callbacks::ListResult;
@@ -23,16 +24,19 @@ use std::time::Duration;
 const IDLE_WAIT: Duration = Duration::from_millis(25);
 const DEFAULT_STEP_PERCENT: i8 = 5;
 
-fn format_percent(value: u8) -> String {
-    format!("{:02}", value.min(99))
-}
-
 fn format_level(percent: Option<u8>) -> (Option<GaugeValue>, GaugeValueAttention) {
     match percent {
-        Some(value) => (
-            Some(GaugeValue::Text(format_percent(value))),
-            GaugeValueAttention::Nominal,
-        ),
+        Some(value) => {
+            let ratio = if value == 0 {
+                0.0
+            } else {
+                value.min(99) as f32 / 99.0
+            };
+            (
+                Some(GaugeValue::Svg(icon_quantity(ratio))),
+                GaugeValueAttention::Nominal,
+            )
+        }
         None => (None, GaugeValueAttention::Danger),
     }
 }
@@ -244,6 +248,17 @@ fn truncate_label(raw: String) -> String {
     truncated
 }
 
+fn device_label_for_source(entries: Option<&[SourceMenuEntry]>, source: &str) -> String {
+    if let Some(entries) = entries
+        && let Some(entry) = entries.iter().find(|entry| entry.name == source)
+        && let Some(description) = &entry.description
+    {
+        return description.clone();
+    }
+
+    source.split(" - ").last().unwrap_or(source).to_string()
+}
+
 fn handle_command(
     command: InputCommand,
     last_status: &Option<SourceStatus>,
@@ -297,7 +312,7 @@ fn audio_in_stream() -> impl iced::futures::Stream<Item = crate::gauge::GaugeMod
     let on_click: GaugeClickAction = {
         let command_tx = command_tx.clone();
         Arc::new(move |click: GaugeClick| match click.input {
-            crate::gauge::GaugeInput::Button(iced::mouse::Button::Left) => {
+            crate::gauge::GaugeInput::Button(iced::mouse::Button::Middle) => {
                 let _ = command_tx.send(InputCommand::ToggleMute);
             }
             crate::gauge::GaugeInput::ScrollUp => {
@@ -323,58 +338,70 @@ fn audio_in_stream() -> impl iced::futures::Stream<Item = crate::gauge::GaugeMod
             let icon_unmuted = svg_asset("microphone.svg");
             let icon_muted = svg_asset("microphone-disabled.svg");
 
-            let mut send_value =
-                |status: Option<SourceStatus>, menu_items: Option<Vec<GaugeMenuItem>>| {
-                    let (value, attention) = format_level(status.map(|s| s.percent));
+            let mut send_value = |status: Option<SourceStatus>,
+                                  menu_items: Option<Vec<GaugeMenuItem>>,
+                                  device_label: Option<String>| {
+                let (value, attention) = format_level(status.map(|s| s.percent));
 
-                    let icon = status
-                        .map(|s| {
-                            if s.muted {
-                                icon_muted.clone()
-                            } else {
-                                icon_unmuted.clone()
-                            }
-                        })
-                        .unwrap_or_else(|| icon_unmuted.clone());
+                let icon = status
+                    .map(|s| {
+                        if s.muted {
+                            icon_muted.clone()
+                        } else {
+                            icon_unmuted.clone()
+                        }
+                    })
+                    .unwrap_or_else(|| icon_unmuted.clone());
 
-                    let menu = menu_items.map(|items| GaugeMenu {
-                        title: "Input Devices".to_string(),
-                        items,
-                        on_select: Some(menu_select.clone()),
-                    });
+                let menu = menu_items.map(|items| GaugeMenu {
+                    title: "Input Devices".to_string(),
+                    items,
+                    on_select: Some(menu_select.clone()),
+                });
 
-                    let _ = sender.try_send(crate::gauge::GaugeModel {
-                        id: "audio_in",
-                        icon: Some(icon),
-                        value,
-                        attention,
-                        on_click: Some(on_click.clone()),
-                        menu,
-                        info: None,
-                    });
+                let info = InfoDialog {
+                    title: "Audio In".to_string(),
+                    lines: vec![
+                        device_label.unwrap_or_else(|| "No input device".to_string()),
+                        match status {
+                            Some(status) => format!("Level: {}%", status.percent),
+                            None => "Level: N/A".to_string(),
+                        },
+                    ],
                 };
+
+                let _ = sender.try_send(crate::gauge::GaugeModel {
+                    id: "audio_in",
+                    icon: Some(icon),
+                    value,
+                    attention,
+                    on_click: Some(on_click.clone()),
+                    menu,
+                    info: Some(info),
+                });
+            };
 
             let mut mainloop = match Mainloop::new() {
                 Some(m) => m,
                 None => {
-                    send_value(None, None);
+                    send_value(None, None, None);
                     return;
                 }
             };
             let mut context = match Context::new(&mainloop, "grelier-audio-in") {
                 Some(c) => c,
                 None => {
-                    send_value(None, None);
+                    send_value(None, None, None);
                     return;
                 }
             };
             if context.connect(None, FlagSet::NOFLAGS, None).is_err() {
-                send_value(None, None);
+                send_value(None, None, None);
                 return;
             }
 
             if wait_for_context_ready(&mut mainloop, &context).is_none() {
-                send_value(None, None);
+                send_value(None, None, None);
                 return;
             }
 
@@ -405,6 +432,7 @@ fn audio_in_stream() -> impl iced::futures::Stream<Item = crate::gauge::GaugeMod
 
                 if refresh_needed.replace(false) {
                     let source = default_source_name(&mut mainloop, &context);
+                    let current_entries = collect_sources(&mut mainloop, &context);
                     let status = source
                         .as_deref()
                         .and_then(|name| read_source_status(&mut mainloop, &context, name));
@@ -412,8 +440,9 @@ fn audio_in_stream() -> impl iced::futures::Stream<Item = crate::gauge::GaugeMod
                         last_status = status;
                     }
 
-                    let current_items = collect_sources(&mut mainloop, &context)
-                        .map(|entries| sources_to_menu_items(&entries, source.as_deref()));
+                    let current_items = current_entries
+                        .as_ref()
+                        .map(|entries| sources_to_menu_items(entries, source.as_deref()));
 
                     if let Some(items) = current_items.clone() {
                         last_menu_items = Some(items);
@@ -423,19 +452,23 @@ fn audio_in_stream() -> impl iced::futures::Stream<Item = crate::gauge::GaugeMod
                         .or_else(|| last_menu_items.clone())
                         .unwrap_or_default();
 
-                    send_value(status, Some(menu_snapshot));
+                    let device_label = source
+                        .as_deref()
+                        .map(|name| device_label_for_source(current_entries.as_deref(), name));
+
+                    send_value(status, Some(menu_snapshot), device_label);
                 }
 
                 if matches!(
                     context.get_state(),
                     ContextState::Failed | ContextState::Terminated
                 ) {
-                    send_value(None, None);
+                    send_value(None, None, None);
                     break;
                 }
 
                 if iterate(&mut mainloop).is_none() {
-                    send_value(None, None);
+                    send_value(None, None, None);
                     break;
                 }
 
@@ -449,7 +482,7 @@ fn audio_in_stream() -> impl iced::futures::Stream<Item = crate::gauge::GaugeMod
                     ),
                     Err(RecvTimeoutError::Timeout) => {}
                     Err(RecvTimeoutError::Disconnected) => {
-                        send_value(None, None);
+                        send_value(None, None, None);
                         break;
                     }
                 }
@@ -514,10 +547,15 @@ mod tests {
     }
 
     #[test]
-    fn formats_with_two_digits() {
-        assert_eq!(format_percent(0), "00");
-        assert_eq!(format_percent(7), "07");
-        assert_eq!(format_percent(99), "99");
+    fn level_uses_ratio_icon() {
+        let (value, attention) = format_level(Some(50));
+        assert_eq!(attention, GaugeValueAttention::Nominal);
+        match value {
+            Some(GaugeValue::Svg(handle)) => {
+                assert_eq!(handle, icon_quantity(50.0 / 99.0));
+            }
+            _ => panic!("expected svg value for level"),
+        }
     }
 
     #[test]

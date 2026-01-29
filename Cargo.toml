@@ -11,10 +11,12 @@ iced_anim = "0.3.1"
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
 udev = "0.7"
 argh = "0.1"
+battery = "0.7"
 
 swayipc = "3"
 libpulse-binding = "2.28"
 inventory = "0.3"
+zbus = { version = "4", features = ["blocking"] }
 
 elbey_cache = { package = "elbey-cache", version = "0.8.2" }
 freedesktop-desktop-entry = "0.8.1"

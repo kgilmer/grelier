@@ -4,7 +4,7 @@ A desktop bar for Sway on Linux
 
 ## Overview
 
-This program displays a fixed bar on the left or right-hand side of the screen.  It shows a list of all workspaces at the top, a selection of frequently launched apps in the center, and a user-configurable set of gauges at the bottom.  A gauge is something that displays system information or provides some action to change system state.  The program can take configuration parameters from CLI arguments or use Xresource-style key-value pairs specified in `$HOME/.config/grelier/Settings.xresources`.
+This program displays a fixed bar on the left or right-hand side of the screen.  It shows a list of all workspaces at the top, a selection of frequently launched apps in the center, and a user-configurable set of gauges at the bottom.  A gauge is something that displays system information or provides some action to change system state.  The program can take configuration parameters from CLI arguments or use Xresource-style key-value pairs specified in `$HOME/.config/grelier/Settings-<version>.xresources`.
 
 ### Status
 
@@ -27,7 +27,7 @@ Options:
 
 ## Configuration
 
-Grelier reads from `$HOME/.config/grelier/Settings.xresources` on start for it's configuration.  Any configuration changes made interactively are immediately saved back to this file.  The file is regenerated each time, so any manual edits will be destroyed.  `grelier --list-settings` can be used to see all supported settings.  `grelier --list-gauges` will print all available gauges with descriptions.
+Grelier reads from `$HOME/.config/grelier/Settings-<version>.xresources` on start for its configuration.  Any configuration changes made interactively are immediately saved back to this file.  The file is regenerated each time, so any manual edits will be destroyed.  `grelier --list-settings` can be used to see all supported settings.  `grelier --list-gauges` will print all available gauges with descriptions.
 
 ### Workspace styling
 
@@ -37,7 +37,7 @@ Grelier reads from `$HOME/.config/grelier/Settings.xresources` on start for it's
 
 ### Gauge layout
 
-- `grelier.gauge.spacing` (default `18`): Sets the vertical space between gauges.
+- `grelier.gauge.spacing` (default `7`): Sets the vertical space between gauges.
 
 ### Bar Settings
 
@@ -195,5 +195,5 @@ Internal gauge for cycling quantity icons and attention states. Uses synthetic v
 ```shell
 cargo build --release
 ./target/release/grelier &
-cat ~/.config/grelier/Settings.xresources
+cat ~/.config/grelier/Settings-<version>.xresources
 ```

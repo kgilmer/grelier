@@ -299,38 +299,6 @@ impl FakeConnection {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn reuses_single_connection_for_fetch_and_focus() {
-        // Ensure clean log before starting.
-        let _ = take_log();
-
-        fetch_workspaces().expect("fetch succeeds");
-        focus_workspace("1").expect("focus succeeds");
-
-        let log = take_log();
-        assert!(
-            !log.is_empty(),
-            "expected calls to be recorded; got empty log"
-        );
-
-        let ids: Vec<usize> = log.iter().map(|(id, _)| *id).collect();
-        assert!(
-            ids.windows(2).all(|w| w[0] == w[1]),
-            "expected same connection id, got {ids:?}"
-        );
-
-        let calls: Vec<&str> = log.iter().map(|(_, name)| *name).collect();
-        assert!(
-            calls.contains(&"get_workspaces") && calls.contains(&"run_command"),
-            "expected both fetch and focus calls; got {calls:?}"
-        );
-    }
-}
-
-#[cfg(test)]
 fn empty_node() -> swayipc::Node {
     let rect = serde_json::json!({
         "x": 0,
@@ -380,4 +348,36 @@ fn empty_node() -> swayipc::Node {
         "output": null
     }))
     .expect("empty swayipc node should deserialize")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn reuses_single_connection_for_fetch_and_focus() {
+        // Ensure clean log before starting.
+        let _ = take_log();
+
+        fetch_workspaces().expect("fetch succeeds");
+        focus_workspace("1").expect("focus succeeds");
+
+        let log = take_log();
+        assert!(
+            !log.is_empty(),
+            "expected calls to be recorded; got empty log"
+        );
+
+        let ids: Vec<usize> = log.iter().map(|(id, _)| *id).collect();
+        assert!(
+            ids.windows(2).all(|w| w[0] == w[1]),
+            "expected same connection id, got {ids:?}"
+        );
+
+        let calls: Vec<&str> = log.iter().map(|(_, name)| *name).collect();
+        assert!(
+            calls.contains(&"get_workspaces") && calls.contains(&"run_command"),
+            "expected both fetch and focus calls; got {calls:?}"
+        );
+    }
 }

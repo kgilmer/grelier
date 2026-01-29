@@ -3,7 +3,11 @@
 use crate::gauge::{GaugeModel, GaugeValue, GaugeValueAttention, SettingSpec, event_stream};
 use crate::gauge_registry::{GaugeSpec, GaugeStream};
 use crate::icon::svg_asset;
+use crate::info_dialog::InfoDialog;
 use crate::settings;
+use battery::State as BatteryState;
+use battery::units::{energy::watt_hour, time::second};
+use std::sync::{Arc, Mutex};
 
 const DEFAULT_WARNING_PERCENT: u8 = 49;
 const DEFAULT_DANGER_PERCENT: u8 = 19;
@@ -19,8 +23,24 @@ fn battery_stream() -> impl iced::futures::Stream<Item = GaugeModel> {
             "grelier.gauge.battery.danger_percent",
             DEFAULT_DANGER_PERCENT,
         );
+        let manager = battery::Manager::new().ok();
+        let info_state = Arc::new(Mutex::new(InfoDialog {
+            title: "Battery".to_string(),
+            lines: vec![
+                "Total: Unknown".to_string(),
+                "Current: Unknown".to_string(),
+                "ETA: Unknown".to_string(),
+                "Discharge rate: Unknown".to_string(),
+            ],
+        }));
         // Send current state so the UI shows something before the first event.
-        send_snapshot(&mut sender, warning_percent, danger_percent);
+        send_snapshot(
+            &mut sender,
+            warning_percent,
+            danger_percent,
+            &info_state,
+            &manager,
+        );
 
         // Try to open a udev monitor; if it fails, just exit the worker.
         let monitor = match udev::MonitorBuilder::new()
@@ -40,6 +60,8 @@ fn battery_stream() -> impl iced::futures::Stream<Item = GaugeModel> {
                 continue;
             }
 
+            update_info_state(&info_state, battery_info_dialog(&device, manager.as_ref()));
+
             if let Some((value, attention)) =
                 battery_value(&device, warning_percent, danger_percent)
             {
@@ -55,7 +77,7 @@ fn battery_stream() -> impl iced::futures::Stream<Item = GaugeModel> {
                     attention,
                     on_click: None,
                     menu: None,
-                    info: None,
+                    info: info_state.lock().ok().map(|info| info.clone()),
                 });
             }
         }
@@ -66,6 +88,8 @@ fn send_snapshot(
     sender: &mut iced::futures::channel::mpsc::Sender<GaugeModel>,
     warning_percent: u8,
     danger_percent: u8,
+    info_state: &Arc<Mutex<InfoDialog>>,
+    manager: &Option<battery::Manager>,
 ) {
     let mut enumerator = match udev::Enumerator::new() {
         Ok(e) => e,
@@ -95,6 +119,7 @@ fn send_snapshot(
             continue;
         }
         found_battery = true;
+        update_info_state(info_state, battery_info_dialog(&dev, manager.as_ref()));
         if let Some((value, attention)) = battery_value(&dev, warning_percent, danger_percent) {
             let icon = if value.is_some() {
                 None
@@ -108,12 +133,24 @@ fn send_snapshot(
                 attention,
                 on_click: None,
                 menu: None,
-                info: None,
+                info: info_state.lock().ok().map(|info| info.clone()),
             });
         }
     }
 
     if !found_battery {
+        update_info_state(
+            info_state,
+            InfoDialog {
+                title: "Battery".to_string(),
+                lines: vec![
+                    "Total: Unknown".to_string(),
+                    "Current: Unknown".to_string(),
+                    "ETA: Unknown".to_string(),
+                    "Discharge rate: Unknown".to_string(),
+                ],
+            },
+        );
         let _ = sender.try_send(GaugeModel {
             id: "battery",
             icon: Some(svg_asset("battery-alert-variant.svg")),
@@ -121,7 +158,7 @@ fn send_snapshot(
             attention: GaugeValueAttention::Danger,
             on_click: None,
             menu: None,
-            info: None,
+            info: info_state.lock().ok().map(|info| info.clone()),
         });
     }
 }
@@ -185,6 +222,204 @@ fn battery_value_from_strings(
     }
 
     Some((None, GaugeValueAttention::Danger))
+}
+
+fn update_info_state(info_state: &Arc<Mutex<InfoDialog>>, dialog: InfoDialog) {
+    if let Ok(mut info) = info_state.lock() {
+        *info = dialog;
+    }
+}
+
+fn battery_info_dialog(dev: &udev::Device, manager: Option<&battery::Manager>) -> InfoDialog {
+    let status = property_str(dev, "POWER_SUPPLY_STATUS");
+    let rate_line = discharge_rate_line(status.as_deref(), discharge_rate_watts_from_udev(dev));
+    if let Some(mut dialog) = manager.and_then(battery_info_dialog_from_manager) {
+        dialog.lines.push(rate_line);
+        return dialog;
+    }
+    let mut dialog = battery_info_dialog_from_udev(dev, status.as_deref());
+    dialog.lines.push(rate_line);
+    dialog
+}
+
+fn battery_info_dialog_from_manager(manager: &battery::Manager) -> Option<InfoDialog> {
+    let mut batteries = manager.batteries().ok()?;
+    let battery = batteries.next()?.ok()?;
+    let total = battery.energy_full().get::<watt_hour>() as f64;
+    let current = battery.energy().get::<watt_hour>() as f64;
+    let eta_seconds = battery
+        .time_to_empty()
+        .map(|time| time.get::<second>())
+        .and_then(|value| {
+            if value > 0.0 {
+                Some(value.round() as u64)
+            } else {
+                None
+            }
+        });
+    let eta_line = match eta_seconds {
+        Some(seconds) => format!("ETA: {}", format_duration(seconds)),
+        None => match battery.state() {
+            BatteryState::Charging => "ETA: Charging".to_string(),
+            BatteryState::Full => "ETA: Full".to_string(),
+            _ => "ETA: Unknown".to_string(),
+        },
+    };
+
+    Some(InfoDialog {
+        title: "Battery".to_string(),
+        lines: vec![
+            format!("Total: {}", format_quantity(Some(total), Some("Wh"))),
+            format!("Current: {}", format_quantity(Some(current), Some("Wh"))),
+            eta_line,
+        ],
+    })
+}
+
+fn battery_info_dialog_from_udev(dev: &udev::Device, status: Option<&str>) -> InfoDialog {
+    let (total, current, unit) = battery_charge_values(dev);
+    let eta_seconds = time_to_empty_seconds(dev);
+    let is_charging = is_charging_status(status);
+    let eta_line = match eta_seconds {
+        Some(seconds) if seconds > 0 => format!("ETA: {}", format_duration(seconds)),
+        _ if is_charging => "ETA: Charging".to_string(),
+        _ => "ETA: Unknown".to_string(),
+    };
+
+    InfoDialog {
+        title: "Battery".to_string(),
+        lines: vec![
+            format!("Total: {}", format_quantity(total, unit)),
+            format!("Current: {}", format_quantity(current, unit)),
+            eta_line,
+        ],
+    }
+}
+
+fn battery_charge_values(dev: &udev::Device) -> (Option<f64>, Option<f64>, Option<&'static str>) {
+    let energy_full = property_num(dev, "POWER_SUPPLY_ENERGY_FULL")
+        .or_else(|| property_num(dev, "ENERGY_FULL"))
+        .or_else(|| property_num(dev, "POWER_SUPPLY_ENERGY_FULL_DESIGN"))
+        .or_else(|| property_num(dev, "ENERGY_FULL_DESIGN"));
+    let energy_now =
+        property_num(dev, "POWER_SUPPLY_ENERGY_NOW").or_else(|| property_num(dev, "ENERGY_NOW"));
+    if energy_full.is_some() || energy_now.is_some() {
+        return (
+            energy_full.map(|value| value / 1_000_000.0),
+            energy_now.map(|value| value / 1_000_000.0),
+            Some("Wh"),
+        );
+    }
+
+    let charge_full = property_num(dev, "POWER_SUPPLY_CHARGE_FULL")
+        .or_else(|| property_num(dev, "CHARGE_FULL"))
+        .or_else(|| property_num(dev, "POWER_SUPPLY_CHARGE_FULL_DESIGN"))
+        .or_else(|| property_num(dev, "CHARGE_FULL_DESIGN"));
+    let charge_now =
+        property_num(dev, "POWER_SUPPLY_CHARGE_NOW").or_else(|| property_num(dev, "CHARGE_NOW"));
+    if charge_full.is_some() || charge_now.is_some() {
+        return (
+            charge_full.map(|value| value / 1_000_000.0),
+            charge_now.map(|value| value / 1_000_000.0),
+            Some("Ah"),
+        );
+    }
+
+    (None, None, None)
+}
+
+fn discharge_rate_watts_from_udev(dev: &udev::Device) -> Option<f64> {
+    let power = property_num(dev, "POWER_SUPPLY_POWER_NOW")
+        .or_else(|| property_num(dev, "POWER_NOW"))
+        .map(|value| value / 1_000_000.0);
+    if power.is_some() {
+        return power;
+    }
+
+    let current = property_num(dev, "POWER_SUPPLY_CURRENT_NOW")
+        .or_else(|| property_num(dev, "CURRENT_NOW"))?;
+    let voltage = property_num(dev, "POWER_SUPPLY_VOLTAGE_NOW")
+        .or_else(|| property_num(dev, "VOLTAGE_NOW"))?;
+    Some((current / 1_000_000.0) * (voltage / 1_000_000.0))
+}
+
+fn discharge_rate_line(status: Option<&str>, rate_watts: Option<f64>) -> String {
+    if status
+        .map(|value| value.eq_ignore_ascii_case("Charging"))
+        .unwrap_or(false)
+    {
+        return "Discharge rate: Charging".to_string();
+    }
+    if status
+        .map(|value| value.eq_ignore_ascii_case("Full"))
+        .unwrap_or(false)
+    {
+        return "Discharge rate: Full".to_string();
+    }
+    match rate_watts {
+        Some(rate) => format!(
+            "Discharge rate: {}",
+            format_quantity(Some(rate.abs()), Some("W"))
+        ),
+        None => "Discharge rate: Unknown".to_string(),
+    }
+}
+
+fn time_to_empty_seconds(dev: &udev::Device) -> Option<u64> {
+    property_num(dev, "POWER_SUPPLY_TIME_TO_EMPTY_NOW")
+        .or_else(|| property_num(dev, "TIME_TO_EMPTY_NOW"))
+        .or_else(|| property_num(dev, "POWER_SUPPLY_TIME_TO_EMPTY_AVG"))
+        .or_else(|| property_num(dev, "TIME_TO_EMPTY_AVG"))
+        .and_then(|value| {
+            if value <= 0.0 {
+                None
+            } else {
+                Some(value.round() as u64)
+            }
+        })
+}
+
+fn is_charging_status(status: Option<&str>) -> bool {
+    status
+        .map(|value| value.eq_ignore_ascii_case("Charging") || value.eq_ignore_ascii_case("Full"))
+        .unwrap_or(false)
+}
+
+fn format_quantity(value: Option<f64>, unit: Option<&'static str>) -> String {
+    match value {
+        Some(value) => {
+            let formatted = format_number(value);
+            match unit {
+                Some(unit) => format!("{formatted} {unit}"),
+                None => formatted,
+            }
+        }
+        None => "Unknown".to_string(),
+    }
+}
+
+fn format_number(value: f64) -> String {
+    if value >= 100.0 {
+        format!("{value:.0}")
+    } else if value >= 10.0 {
+        format!("{value:.1}")
+    } else {
+        format!("{value:.2}")
+    }
+}
+
+fn format_duration(seconds: u64) -> String {
+    let hours = seconds / 3600;
+    let minutes = (seconds % 3600) / 60;
+    if hours > 0 {
+        format!("{hours}h {minutes}m")
+    } else {
+        format!("{minutes}m")
+    }
+}
+
+fn property_num(dev: &udev::Device, key: &str) -> Option<f64> {
+    property_str(dev, key).and_then(|value| value.parse::<f64>().ok())
 }
 
 fn battery_icon(percent: u8, is_charging: bool) -> &'static str {
