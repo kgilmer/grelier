@@ -89,6 +89,17 @@ fn attention_color(attention: GaugeValueAttention, theme: &Theme) -> Color {
     }
 }
 
+fn attention_color_at_level(level: f32, theme: &Theme) -> Color {
+    let normal = theme.palette().text;
+    let warning = theme.extended_palette().warning.base.color;
+    let danger = theme.extended_palette().danger.base.color;
+    if level <= 1.0 {
+        lerp_color(normal, warning, level.clamp(0.0, 1.0))
+    } else {
+        lerp_color(warning, danger, (level - 1.0).clamp(0.0, 1.0))
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum Orientation {
     #[default]
@@ -711,16 +722,43 @@ impl BarState {
                     .width(Length::Fill);
 
                 if let Some(icon) = &gauge.icon {
-                    let icon_view = Svg::new(icon.clone())
-                        .width(Length::Fixed(gauge_icon_size))
-                        .height(Length::Fixed(gauge_icon_size))
-                        .style({
-                            let attention = icon_attention;
-                            move |theme: &Theme, _status| svg::Style {
-                                color: Some(attention_color(attention, theme)),
-                            }
-                        });
-                    let centered_icon: Element<'_, Message> = container(icon_view)
+                    let dialog_open = self
+                        .dialog_windows
+                        .values()
+                        .any(|window| window.gauge_id == gauge.id);
+                    let attention = icon_attention;
+                    let icon_handle = icon.clone();
+                    let icon_box: Element<'_, Message> = AnimationBuilder::new(
+                        if dialog_open { 1.0 } else { 0.0 },
+                        move |t| {
+                            let icon_view = Svg::new(icon_handle.clone())
+                                .width(Length::Fixed(gauge_icon_size))
+                                .height(Length::Fixed(gauge_icon_size))
+                                .style(move |theme: &Theme, _status| {
+                                    let normal = attention_color(attention, theme);
+                                    let inverted = theme.palette().background;
+                                    svg::Style {
+                                        color: Some(lerp_color(normal, inverted, t)),
+                                    }
+                                });
+
+                            container(icon_view)
+                                .width(Length::Fixed(gauge_icon_size))
+                                .height(Length::Fixed(gauge_icon_size))
+                                .style(move |theme: &Theme| {
+                                    let target = theme.palette().text;
+                                    let transparent = Color { a: 0.0, ..target };
+                                    container::Style {
+                                        background: Some(lerp_color(transparent, target, t).into()),
+                                        ..container::Style::default()
+                                    }
+                                })
+                                .into()
+                        },
+                    )
+                    .animation(Easing::EASE_IN_OUT.very_quick())
+                    .into();
+                    let centered_icon: Element<'_, Message> = container(icon_box)
                         .width(Length::Fill)
                         .align_x(alignment::Horizontal::Center)
                         .into();
@@ -731,35 +769,58 @@ impl BarState {
 
                 let value: Element<'_, Message> = match &gauge.value {
                     Some(GaugeValue::Text(value)) => {
-                        let attention = gauge_attention;
-                        Text::new(value.clone())
-                            .width(Length::Fill)
-                            .align_x(text::Alignment::Center)
-                            .style(move |theme: &Theme| text::Style {
-                                color: Some(attention_color(attention, theme)),
-                            })
-                            .into()
+                        let attention_level = match gauge_attention {
+                            GaugeValueAttention::Nominal => 0.0,
+                            GaugeValueAttention::Warning => 1.0,
+                            GaugeValueAttention::Danger => 2.0,
+                        };
+                        let value = value.clone();
+                        AnimationBuilder::new(attention_level, move |level| {
+                            Text::new(value.clone())
+                                .width(Length::Fill)
+                                .align_x(text::Alignment::Center)
+                                .style(move |theme: &Theme| text::Style {
+                                    color: Some(attention_color_at_level(level, theme)),
+                                })
+                                .into()
+                        })
+                        .animation(Easing::EASE_IN_OUT.very_quick())
+                        .into()
                     }
-                    Some(GaugeValue::Svg(handle)) => Svg::new(handle.clone())
-                        .width(Length::Fixed(gauge_value_icon_size))
-                        .height(Length::Fixed(gauge_value_icon_size))
-                        .style({
-                            let attention = gauge_attention;
-                            move |theme: &Theme, _status| svg::Style {
-                                color: Some(attention_color(attention, theme)),
-                            }
+                    Some(GaugeValue::Svg(handle)) => {
+                        let attention_level = match gauge_attention {
+                            GaugeValueAttention::Nominal => 0.0,
+                            GaugeValueAttention::Warning => 1.0,
+                            GaugeValueAttention::Danger => 2.0,
+                        };
+                        let handle = handle.clone();
+                        AnimationBuilder::new(attention_level, move |level| {
+                            Svg::new(handle.clone())
+                                .width(Length::Fixed(gauge_value_icon_size))
+                                .height(Length::Fixed(gauge_value_icon_size))
+                                .style(move |theme: &Theme, _status| svg::Style {
+                                    color: Some(attention_color_at_level(level, theme)),
+                                })
+                                .into()
                         })
-                        .into(),
-                    None => Svg::new(ratio_inner_full_icon.clone())
-                        .width(Length::Fixed(gauge_value_icon_size))
-                        .height(Length::Fixed(gauge_value_icon_size))
-                        .style({
-                            let attention = GaugeValueAttention::Danger;
-                            move |theme: &Theme, _status| svg::Style {
-                                color: Some(attention_color(attention, theme)),
-                            }
+                        .animation(Easing::EASE_IN_OUT.very_quick())
+                        .into()
+                    }
+                    None => {
+                        let attention_level = 2.0;
+                        let ratio_inner_full_icon = ratio_inner_full_icon.clone();
+                        AnimationBuilder::new(attention_level, move |level| {
+                            Svg::new(ratio_inner_full_icon.clone())
+                                .width(Length::Fixed(gauge_value_icon_size))
+                                .height(Length::Fixed(gauge_value_icon_size))
+                                .style(move |theme: &Theme, _status| svg::Style {
+                                    color: Some(attention_color_at_level(level, theme)),
+                                })
+                                .into()
                         })
-                        .into(),
+                        .animation(Easing::EASE_IN_OUT.very_quick())
+                        .into()
+                    }
                 };
 
                 let centered_value: Element<'_, Message> = container(value)
