@@ -19,10 +19,10 @@ mod gauges {
     pub mod test_gauge;
     pub mod wifi;
 }
+mod dialog_settings;
 mod gauge;
 mod gauge_registry;
 mod icon;
-mod dialog_settings;
 mod info_dialog;
 mod menu_dialog;
 mod settings;
@@ -626,14 +626,13 @@ fn update(state: &mut BarState, message: Message) -> Task<Message> {
             }
         }
         Message::MenuItemHoverExit { window, item_id } => {
-            if let Some(dialog_window) = state.dialog_windows.get_mut(&window) {
-                if dialog_window
+            if let Some(dialog_window) = state.dialog_windows.get_mut(&window)
+                && dialog_window
                     .hovered_item
                     .as_ref()
                     .is_some_and(|hovered| hovered == &item_id)
-                {
-                    dialog_window.hovered_item = None;
-                }
+            {
+                dialog_window.hovered_item = None;
             }
         }
         Message::WindowFocusChanged { focused } => {
@@ -1059,10 +1058,7 @@ mod tests {
         );
         state.last_dialog_opened_at = Some(Instant::now());
 
-        let task = update(
-            &mut state,
-            Message::WindowFocusChanged { focused: false },
-        );
+        let task = update(&mut state, Message::WindowFocusChanged { focused: false });
 
         assert!(
             state.dialog_windows.contains_key(&window),

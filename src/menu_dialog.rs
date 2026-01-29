@@ -78,10 +78,8 @@ pub fn dialog_dimensions(menu: &GaugeMenu) -> (u32, u32) {
         settings::settings().get_parsed_or("grelier.menu_dialog.char_width", DEFAULT_CHAR_WIDTH);
     let label_padding = settings::settings()
         .get_parsed_or("grelier.menu_dialog.label_padding", DEFAULT_LABEL_PADDING);
-    let header_font_size = settings::settings().get_parsed_or(
-        "grelier.dialog.header_font_size",
-        DEFAULT_HEADER_FONT_SIZE,
-    );
+    let header_font_size = settings::settings()
+        .get_parsed_or("grelier.dialog.header_font_size", DEFAULT_HEADER_FONT_SIZE);
     let item_font_size = settings::settings()
         .get_parsed_or("grelier.menu_dialog.item_font_size", DEFAULT_ITEM_FONT_SIZE);
     let indicator_size = settings::settings()
@@ -141,10 +139,8 @@ pub fn menu_view<'a, Message: Clone + 'a>(
     let border_settings = BorderSettings::load();
     let checked_icon = svg_asset("option-checked.svg");
     let empty_icon = svg_asset("option-empty.svg");
-    let header_font_size = settings::settings().get_parsed_or(
-        "grelier.dialog.header_font_size",
-        DEFAULT_HEADER_FONT_SIZE,
-    );
+    let header_font_size = settings::settings()
+        .get_parsed_or("grelier.dialog.header_font_size", DEFAULT_HEADER_FONT_SIZE);
     let item_font_size = settings::settings()
         .get_parsed_or("grelier.menu_dialog.item_font_size", DEFAULT_ITEM_FONT_SIZE);
     let indicator_size = settings::settings()
@@ -222,7 +218,6 @@ pub fn menu_view<'a, Message: Clone + 'a>(
         .width(Length::Fixed(indicator_size as f32))
         .height(Length::Fixed(indicator_size as f32))
         .style({
-            let is_hovered = is_hovered;
             move |theme: &Theme, status| {
                 let palette = theme.extended_palette();
                 let hovered = is_hovered || matches!(status, svg::Status::Hovered);
@@ -254,9 +249,7 @@ pub fn menu_view<'a, Message: Clone + 'a>(
             .style(|theme: &Theme, status| {
                 let highlight = theme.extended_palette().primary.weak.color;
                 let background = match status {
-                    button::Status::Hovered | button::Status::Pressed => {
-                        Some(highlight.into())
-                    }
+                    button::Status::Hovered | button::Status::Pressed => Some(highlight.into()),
                     button::Status::Active | button::Status::Disabled => None,
                 };
 

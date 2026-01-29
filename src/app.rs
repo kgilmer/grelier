@@ -508,25 +508,23 @@ impl BarState {
             let gauge_id = dialog_window.gauge_id.clone();
             let window_id = window;
             return match &dialog_window.dialog {
-                GaugeDialog::Menu(menu) => {
-                    menu_view(
-                        menu,
-                        dialog_window.hovered_item.as_deref(),
-                        move |item_id| Message::MenuItemSelected {
-                            window: window_id,
-                            gauge_id: gauge_id.clone(),
-                            item_id,
-                        },
-                        move |item_id| Message::MenuItemHoverEnter {
-                            window: window_id,
-                            item_id,
-                        },
-                        move |item_id| Message::MenuItemHoverExit {
-                            window: window_id,
-                            item_id,
-                        },
-                    )
-                }
+                GaugeDialog::Menu(menu) => menu_view(
+                    menu,
+                    dialog_window.hovered_item.as_deref(),
+                    move |item_id| Message::MenuItemSelected {
+                        window: window_id,
+                        gauge_id: gauge_id.clone(),
+                        item_id,
+                    },
+                    move |item_id| Message::MenuItemHoverEnter {
+                        window: window_id,
+                        item_id,
+                    },
+                    move |item_id| Message::MenuItemHoverExit {
+                        window: window_id,
+                        item_id,
+                    },
+                ),
                 GaugeDialog::Info(dialog) => info_view(dialog),
             };
         }
@@ -728,9 +726,8 @@ impl BarState {
                         .any(|window| window.gauge_id == gauge.id);
                     let attention = icon_attention;
                     let icon_handle = icon.clone();
-                    let icon_box: Element<'_, Message> = AnimationBuilder::new(
-                        if dialog_open { 1.0 } else { 0.0 },
-                        move |t| {
+                    let icon_box: Element<'_, Message> =
+                        AnimationBuilder::new(if dialog_open { 1.0 } else { 0.0 }, move |t| {
                             let icon_view = Svg::new(icon_handle.clone())
                                 .width(Length::Fixed(gauge_icon_size))
                                 .height(Length::Fixed(gauge_icon_size))
@@ -754,10 +751,9 @@ impl BarState {
                                     }
                                 })
                                 .into()
-                        },
-                    )
-                    .animation(Easing::EASE_IN_OUT.very_quick())
-                    .into();
+                        })
+                        .animation(Easing::EASE_IN_OUT.very_quick())
+                        .into();
                     let centered_icon: Element<'_, Message> = container(icon_box)
                         .width(Length::Fill)
                         .align_x(alignment::Horizontal::Center)

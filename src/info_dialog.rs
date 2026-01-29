@@ -47,10 +47,8 @@ impl InfoDialogSettings {
                 "grelier.info_dialog.max_chars_per_line",
                 DEFAULT_MAX_CHARS_PER_LINE,
             ),
-            header_font_size: settings.get_parsed_or(
-                "grelier.dialog.header_font_size",
-                DEFAULT_HEADER_FONT_SIZE,
-            ),
+            header_font_size: settings
+                .get_parsed_or("grelier.dialog.header_font_size", DEFAULT_HEADER_FONT_SIZE),
             body_font_size: settings
                 .get_parsed_or("grelier.info_dialog.body_font_size", DEFAULT_BODY_FONT_SIZE),
             header_spacing: settings
@@ -126,11 +124,8 @@ pub struct InfoDialog {
 pub fn dialog_dimensions(dialog: &InfoDialog) -> (u32, u32) {
     let dialog_cfg = InfoDialogSettings::load();
     let mut char_width = dialog_cfg.char_width;
-    let estimated_char_width = ((dialog_cfg
-        .header_font_size
-        .max(dialog_cfg.body_font_size) as f32)
-        * 0.6)
-        .ceil() as u32;
+    let estimated_char_width =
+        ((dialog_cfg.header_font_size.max(dialog_cfg.body_font_size) as f32) * 0.6).ceil() as u32;
     if char_width < estimated_char_width {
         char_width = estimated_char_width;
     }
