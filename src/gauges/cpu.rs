@@ -1,20 +1,18 @@
-// CPU utilization gauge with adaptive polling and quantity-style icons.
+// CPU utilization gauge with adaptive polling and quantity icons.
 // Consumes Settings: grelier.gauge.cpu.*.
-use crate::gauge::{
-    GaugeClick, GaugeClickAction, GaugeInput, GaugeValue, GaugeValueAttention, SettingSpec,
-    fixed_interval,
-};
+use crate::gauge::{GaugeValue, GaugeValueAttention, SettingSpec, fixed_interval};
 use crate::gauge_registry::{GaugeSpec, GaugeStream};
-use crate::icon::{QuantityStyle, icon_quantity, svg_asset};
+use crate::icon::{icon_quantity, svg_asset};
+use crate::info_dialog::InfoDialog;
 use crate::settings;
-use iced::mouse;
+use iced::futures::StreamExt;
 use std::fs::File;
 use std::io::{BufRead, BufReader};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-const DEFAULT_WARNING_THRESHOLD: f32 = 0.75;
-const DEFAULT_DANGER_THRESHOLD: f32 = 0.90;
+const DEFAULT_WARNING_THRESHOLD: f32 = 0.90;
+const DEFAULT_DANGER_THRESHOLD: f32 = 1.0;
 const DEFAULT_FAST_THRESHOLD: f32 = 0.50;
 const DEFAULT_FAST_INTERVAL_SECS: u64 = 1;
 const DEFAULT_SLOW_INTERVAL_SECS: u64 = 4;
@@ -69,6 +67,19 @@ fn read_cpu_time() -> Option<CpuTime> {
     Some(CpuTime { idle, non_idle })
 }
 
+fn read_cpu_model() -> Option<String> {
+    let file = File::open("/proc/cpuinfo").ok()?;
+    for line in BufReader::new(file).lines() {
+        let line = line.ok()?;
+        if let Some(rest) = line.strip_prefix("model name") {
+            return rest
+                .split_once(':')
+                .map(|(_, value)| value.trim().to_string());
+        }
+    }
+    None
+}
+
 fn attention_for(
     utilization: f32,
     warning_threshold: f32,
@@ -87,7 +98,6 @@ struct CpuState {
     previous: Option<CpuTime>,
     fast_interval: bool,
     below_threshold_streak: u8,
-    quantity_style: QuantityStyle,
     fast_threshold: f32,
     calm_ticks: u8,
     fast_interval_duration: Duration,
@@ -122,13 +132,12 @@ impl CpuState {
 
 fn cpu_value(
     utilization: Option<f32>,
-    style: QuantityStyle,
     warning_threshold: f32,
     danger_threshold: f32,
 ) -> (Option<GaugeValue>, GaugeValueAttention) {
     match utilization {
         Some(util) => (
-            Some(GaugeValue::Svg(icon_quantity(style, util))),
+            Some(GaugeValue::Svg(icon_quantity(util))),
             attention_for(util, warning_threshold, danger_threshold),
         ),
         None => (None, GaugeValueAttention::Danger),
@@ -136,8 +145,6 @@ fn cpu_value(
 }
 
 fn cpu_stream() -> impl iced::futures::Stream<Item = crate::gauge::GaugeModel> {
-    let style_value = settings::settings().get_or("grelier.gauge.cpu.quantitystyle", "grid");
-    let style = QuantityStyle::parse_setting("grelier.gauge.cpu.quantitystyle", &style_value);
     let warning_threshold = settings::settings().get_parsed_or(
         "grelier.gauge.cpu.warning_threshold",
         DEFAULT_WARNING_THRESHOLD,
@@ -158,8 +165,12 @@ fn cpu_stream() -> impl iced::futures::Stream<Item = crate::gauge::GaugeModel> {
         "grelier.gauge.cpu.slow_interval_secs",
         DEFAULT_SLOW_INTERVAL_SECS,
     );
+    let cpu_model = read_cpu_model().unwrap_or_else(|| "Unknown CPU".to_string());
+    let info_state = Arc::new(Mutex::new(InfoDialog {
+        title: "CPU".to_string(),
+        lines: vec![cpu_model.clone(), "Load: N/A".to_string()],
+    }));
     let state = Arc::new(Mutex::new(CpuState {
-        quantity_style: style,
         fast_threshold,
         calm_ticks,
         fast_interval_duration: Duration::from_secs(fast_interval_secs),
@@ -171,21 +182,6 @@ fn cpu_stream() -> impl iced::futures::Stream<Item = crate::gauge::GaugeModel> {
         below_threshold_streak: 0,
     }));
     let interval_state = Arc::clone(&state);
-    let on_click: GaugeClickAction = {
-        let state = Arc::clone(&state);
-        Arc::new(move |click: GaugeClick| {
-            if matches!(click.input, GaugeInput::Button(mouse::Button::Left))
-                && let Ok(mut state) = state.lock()
-            {
-                state.quantity_style = state.quantity_style.toggle();
-                settings::settings().update(
-                    "grelier.gauge.cpu.quantitystyle",
-                    state.quantity_style.as_setting_value(),
-                );
-            }
-        })
-    };
-
     fixed_interval(
         "cpu",
         Some(svg_asset("microchip.svg")),
@@ -195,63 +191,72 @@ fn cpu_stream() -> impl iced::futures::Stream<Item = crate::gauge::GaugeModel> {
                 .map(|s| s.interval())
                 .unwrap_or(Duration::from_secs(2))
         },
-        move || {
-            let now = match read_cpu_time() {
-                Some(now) => now,
-                None => {
-                    return Some(cpu_value(
-                        None,
-                        QuantityStyle::Grid,
-                        warning_threshold,
-                        danger_threshold,
-                    ));
-                }
-            };
+        {
+            let info_state = Arc::clone(&info_state);
+            move || {
+                let now = match read_cpu_time() {
+                    Some(now) => now,
+                    None => {
+                        if let Ok(mut info) = info_state.lock() {
+                            info.lines = vec![cpu_model.clone(), "Load: N/A".to_string()];
+                        }
+                        return Some(cpu_value(None, warning_threshold, danger_threshold));
+                    }
+                };
 
-            let mut state = match state.lock() {
-                Ok(state) => state,
-                Err(_) => {
-                    return Some(cpu_value(
-                        None,
-                        QuantityStyle::Grid,
-                        warning_threshold,
-                        danger_threshold,
-                    ));
-                }
-            };
-            let style = state.quantity_style;
-            let previous = match state.previous {
-                Some(prev) => prev,
-                None => {
-                    state.previous = Some(now);
-                    return Some((
-                        Some(GaugeValue::Svg(icon_quantity(style, 0.0))),
-                        GaugeValueAttention::Nominal,
-                    ));
-                }
-            };
+                let mut state = match state.lock() {
+                    Ok(state) => state,
+                    Err(_) => {
+                        if let Ok(mut info) = info_state.lock() {
+                            info.lines = vec![cpu_model.clone(), "Load: N/A".to_string()];
+                        }
+                        return Some(cpu_value(None, warning_threshold, danger_threshold));
+                    }
+                };
+                let previous = match state.previous {
+                    Some(prev) => prev,
+                    None => {
+                        state.previous = Some(now);
+                        if let Ok(mut info) = info_state.lock() {
+                            info.lines = vec![cpu_model.clone(), "Load: 0.0%".to_string()];
+                        }
+                        return Some((
+                            Some(GaugeValue::Svg(icon_quantity(0.0))),
+                            GaugeValueAttention::Nominal,
+                        ));
+                    }
+                };
 
-            let utilization = now.utilization_since(previous);
-            state.previous = Some(now);
-            state.update_interval_state(utilization);
+                let utilization = now.utilization_since(previous);
+                state.previous = Some(now);
+                state.update_interval_state(utilization);
+                if let Ok(mut info) = info_state.lock() {
+                    let percent = (utilization * 100.0).clamp(0.0, 100.0);
+                    info.lines = vec![cpu_model.clone(), format!("Load: {:.1}%", percent)];
+                }
 
-            Some(cpu_value(
-                Some(utilization),
-                style,
-                state.warning_threshold,
-                state.danger_threshold,
-            ))
+                Some(cpu_value(
+                    Some(utilization),
+                    state.warning_threshold,
+                    state.danger_threshold,
+                ))
+            }
         },
-        Some(on_click),
+        None,
     )
+    .map({
+        let info_state = Arc::clone(&info_state);
+        move |mut model| {
+            if let Ok(info) = info_state.lock() {
+                model.info = Some(info.clone());
+            }
+            model
+        }
+    })
 }
 
 pub fn settings() -> &'static [SettingSpec] {
     const SETTINGS: &[SettingSpec] = &[
-        SettingSpec {
-            key: "grelier.gauge.cpu.quantitystyle",
-            default: "grid",
-        },
         SettingSpec {
             key: "grelier.gauge.cpu.warning_threshold",
             default: "0.75",
@@ -303,7 +308,6 @@ mod tests {
     #[test]
     fn cpu_interval_speeds_up_and_recovers() {
         let mut state = CpuState {
-            quantity_style: QuantityStyle::Grid,
             fast_threshold: DEFAULT_FAST_THRESHOLD,
             calm_ticks: DEFAULT_CALM_TICKS,
             fast_interval_duration: Duration::from_secs(DEFAULT_FAST_INTERVAL_SECS),
@@ -341,12 +345,8 @@ mod tests {
 
     #[test]
     fn returns_none_on_missing_utilization() {
-        let (value, attention) = super::cpu_value(
-            None,
-            QuantityStyle::Grid,
-            DEFAULT_WARNING_THRESHOLD,
-            DEFAULT_DANGER_THRESHOLD,
-        );
+        let (value, attention) =
+            super::cpu_value(None, DEFAULT_WARNING_THRESHOLD, DEFAULT_DANGER_THRESHOLD);
         assert!(value.is_none());
         assert_eq!(attention, GaugeValueAttention::Danger);
     }

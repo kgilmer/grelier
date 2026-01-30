@@ -1,4 +1,5 @@
 // Load/save settings in an Xresources-style file under the grelier config directory.
+// The filename includes the grelier version (Settings-<version>.xresources).
 use std::collections::HashMap;
 use std::fs;
 use std::io::{BufRead, BufReader, Write};
@@ -7,6 +8,10 @@ use std::path::PathBuf;
 #[derive(Clone, Debug)]
 pub struct SettingsStorage {
     path: PathBuf,
+}
+
+fn settings_filename() -> String {
+    format!("Settings-{}.xresources", env!("CARGO_PKG_VERSION"))
 }
 
 impl SettingsStorage {
@@ -21,7 +26,7 @@ impl SettingsStorage {
         };
         path.push(".config");
         path.push("grelier");
-        path.push("Settings.xresources");
+        path.push(settings_filename());
         path
     }
 
@@ -237,7 +242,7 @@ mod tests {
         ));
         fs::create_dir_all(&dir).expect("create temp test dir");
         let mut file_path = dir.clone();
-        file_path.push("Settings.xresources");
+        file_path.push(settings_filename());
         (SettingsStorage::new(file_path), dir)
     }
 

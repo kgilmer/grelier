@@ -19,6 +19,7 @@ mod gauges {
     pub mod test_gauge;
     pub mod wifi;
 }
+mod dialog_settings;
 mod gauge;
 mod gauge_registry;
 mod icon;
@@ -39,14 +40,16 @@ use iced_layershell::reexport::{Anchor, KeyboardInteractivity, Layer};
 use iced_layershell::settings::{LayerShellSettings, Settings as LayerShellAppSettings, StartMode};
 
 use crate::app::Orientation;
-use crate::app::{AppIconCache, BarState, Message};
+use crate::app::{AppIconCache, BarState, GaugeDialog, GaugeDialogWindow, Message};
 use crate::gauge::{GaugeClick, GaugeInput, GaugeModel, SettingSpec};
 use elbey_cache::{AppDescriptor, Cache};
 use freedesktop_desktop_entry::desktop_entries;
 use locale_config::Locale;
+use std::time::{Duration, Instant};
 
 const DEFAULT_ORIENTATION: &str = "left";
 const DEFAULT_THEME: &str = "Nord";
+const DIALOG_UNFOCUS_SUPPRESSION_WINDOW: Duration = Duration::from_millis(250);
 
 /// Base settings shared by the bar regardless of which gauges are enabled.
 fn base_setting_specs(default_gauges: &'static str) -> Vec<SettingSpec> {
@@ -93,7 +96,7 @@ fn base_setting_specs(default_gauges: &'static str) -> Vec<SettingSpec> {
         },
         SettingSpec {
             key: "grelier.bar.border_alpha_1",
-            default: "0.9",
+            default: "0.6",
         },
         SettingSpec {
             key: "grelier.bar.border_alpha_2",
@@ -104,12 +107,28 @@ fn base_setting_specs(default_gauges: &'static str) -> Vec<SettingSpec> {
             default: "0.9",
         },
         SettingSpec {
-            key: "grelier.app.gauge_anchor_offset_icon",
-            default: "7.0",
+            key: "grelier.dialog.header_font_size",
+            default: "14",
         },
         SettingSpec {
-            key: "grelier.app.gauge_anchor_offset_value",
-            default: "28.0",
+            key: "grelier.dialog.title_align",
+            default: "center",
+        },
+        SettingSpec {
+            key: "grelier.dialog.header_bottom_spacing",
+            default: "4",
+        },
+        SettingSpec {
+            key: "grelier.dialog.container_padding_y",
+            default: "10",
+        },
+        SettingSpec {
+            key: "grelier.dialog.container_padding_x",
+            default: "10",
+        },
+        SettingSpec {
+            key: "grelier.app.gauge_anchor_offset_icon",
+            default: "7.0",
         },
         SettingSpec {
             key: "grelier.app.workspace_padding_x",
@@ -141,11 +160,11 @@ fn base_setting_specs(default_gauges: &'static str) -> Vec<SettingSpec> {
         },
         SettingSpec {
             key: "grelier.app.workspace_icon_size",
-            default: "14.0",
+            default: "22.0",
         },
         SettingSpec {
             key: "grelier.app.workspace_icon_spacing",
-            default: "4",
+            default: "6",
         },
         SettingSpec {
             key: "grelier.app.workspace_icon_padding_x",
@@ -165,7 +184,7 @@ fn base_setting_specs(default_gauges: &'static str) -> Vec<SettingSpec> {
         },
         SettingSpec {
             key: "grelier.app.top_apps_icon_size",
-            default: "16.0",
+            default: "20.0",
         },
         SettingSpec {
             key: "grelier.app.gauge_padding_x",
@@ -177,11 +196,11 @@ fn base_setting_specs(default_gauges: &'static str) -> Vec<SettingSpec> {
         },
         SettingSpec {
             key: "grelier.app.gauge_spacing",
-            default: "18",
+            default: "7",
         },
         SettingSpec {
             key: "grelier.app.gauge_icon_size",
-            default: "17.0",
+            default: "20.0",
         },
         SettingSpec {
             key: "grelier.app.gauge_value_icon_size",
@@ -189,7 +208,7 @@ fn base_setting_specs(default_gauges: &'static str) -> Vec<SettingSpec> {
         },
         SettingSpec {
             key: "grelier.app.gauge_icon_value_spacing",
-            default: "3.0",
+            default: "0.0",
         },
     ]
 }
@@ -448,6 +467,19 @@ fn main() -> Result<(), iced_layershell::Error> {
 }
 
 fn update(state: &mut BarState, message: Message) -> Task<Message> {
+    let is_click_message = matches!(
+        message,
+        Message::WorkspaceClicked(_)
+            | Message::WorkspaceAppClicked { .. }
+            | Message::TopAppClicked { .. }
+            | Message::BackgroundClicked
+            | Message::GaugeClicked { .. }
+            | Message::MenuItemSelected { .. }
+    );
+    if is_click_message && !state.allow_click() {
+        return Task::none();
+    }
+
     match message {
         Message::Workspaces { workspaces, apps } => {
             state.update_workspace_focus(&workspaces);
@@ -508,7 +540,8 @@ fn update(state: &mut BarState, message: Message) -> Task<Message> {
             }
         }
         Message::Gauge(gauge) => {
-            update_gauge(&mut state.gauges, gauge);
+            update_gauge(&mut state.gauges, gauge.clone());
+            refresh_info_dialogs(&mut state.dialog_windows, &gauge);
         }
         Message::GaugeClicked { id, target, input } => {
             // If any dialog is open, any click just dismisses it.
@@ -537,7 +570,20 @@ fn update(state: &mut BarState, message: Message) -> Task<Message> {
                 return state.open_menu(&id, menu, anchor_y);
             }
 
-            if matches!(input, GaugeInput::Button(iced::mouse::Button::Middle))
+            if matches!(input, GaugeInput::Button(iced::mouse::Button::Left))
+                && matches!(
+                    id.as_str(),
+                    "battery"
+                        | "audio_in"
+                        | "audio_out"
+                        | "brightness"
+                        | "cpu"
+                        | "disk"
+                        | "net_down"
+                        | "net_up"
+                        | "ram"
+                        | "wifi"
+                )
                 && let Some(dialog) = gauge_info
             {
                 let anchor_y = state
@@ -574,6 +620,24 @@ fn update(state: &mut BarState, message: Message) -> Task<Message> {
             }
             return Task::done(Message::RemoveWindow(window));
         }
+        Message::MenuItemHoverEnter { window, item_id } => {
+            if let Some(dialog_window) = state.dialog_windows.get_mut(&window) {
+                dialog_window.hovered_item = Some(item_id);
+            }
+        }
+        Message::MenuItemHoverExit { window, item_id } => {
+            if let Some(dialog_window) = state.dialog_windows.get_mut(&window)
+                && dialog_window
+                    .hovered_item
+                    .as_ref()
+                    .is_some_and(|hovered| hovered == &item_id)
+            {
+                dialog_window.hovered_item = None;
+            }
+        }
+        Message::WindowFocusChanged { focused } => {
+            return handle_window_focus_change(state, focused);
+        }
         Message::MenuDismissed(window) => {
             state.dialog_windows.remove(&window);
             state.closing_dialogs.remove(&window);
@@ -600,13 +664,19 @@ fn update(state: &mut BarState, message: Message) -> Task<Message> {
             state.closing_dialogs.remove(&window);
         }
         Message::IcedEvent(iced::Event::Window(iced::window::Event::Unfocused)) => {
-            if let Some(window) = state.dialog_windows.keys().copied().next() {
-                state.dialog_windows.remove(&window);
-                state.closing_dialogs.remove(&window);
-                return Task::done(Message::RemoveWindow(window));
-            }
+            return Task::done(Message::WindowFocusChanged { focused: false });
         }
         Message::IcedEvent(_) => {}
+        Message::NewLayerShell { id, .. } => {
+            if state.primary_window.is_none() {
+                state.primary_window = Some(id);
+            }
+        }
+        Message::NewBaseWindow { id, .. } => {
+            if state.primary_window.is_none() {
+                state.primary_window = Some(id);
+            }
+        }
         Message::AnchorChange { .. }
         | Message::SetInputRegion { .. }
         | Message::AnchorSizeChange { .. }
@@ -615,8 +685,6 @@ fn update(state: &mut BarState, message: Message) -> Task<Message> {
         | Message::SizeChange { .. }
         | Message::ExclusiveZoneChange { .. }
         | Message::VirtualKeyboardPressed { .. }
-        | Message::NewLayerShell { .. }
-        | Message::NewBaseWindow { .. }
         | Message::NewPopUp { .. }
         | Message::NewMenu { .. }
         | Message::NewInputPanel { .. }
@@ -627,11 +695,50 @@ fn update(state: &mut BarState, message: Message) -> Task<Message> {
     Task::none()
 }
 
+fn handle_window_focus_change(state: &mut BarState, focused: bool) -> Task<Message> {
+    if focused {
+        return Task::none();
+    }
+
+    let recently_opened_dialog = state
+        .last_dialog_opened_at
+        .and_then(|last| Instant::now().checked_duration_since(last))
+        .is_some_and(|elapsed| elapsed < DIALOG_UNFOCUS_SUPPRESSION_WINDOW);
+    if recently_opened_dialog {
+        return Task::none();
+    }
+
+    if let Some(window) = state.dialog_windows.keys().copied().next() {
+        state.dialog_windows.remove(&window);
+        state.closing_dialogs.insert(window);
+        return Task::done(Message::RemoveWindow(window));
+    }
+
+    Task::none()
+}
+
 fn update_gauge(gauges: &mut Vec<GaugeModel>, new: GaugeModel) {
     if let Some(existing) = gauges.iter_mut().find(|g| g.id == new.id) {
         *existing = new;
     } else {
         gauges.push(new);
+    }
+}
+
+fn refresh_info_dialogs(
+    dialog_windows: &mut std::collections::HashMap<window::Id, GaugeDialogWindow>,
+    gauge: &GaugeModel,
+) {
+    let Some(info) = gauge.info.as_ref() else {
+        return;
+    };
+
+    for dialog_window in dialog_windows.values_mut() {
+        if dialog_window.gauge_id == gauge.id
+            && let GaugeDialog::Info(dialog) = &mut dialog_window.dialog
+        {
+            *dialog = info.clone();
+        }
     }
 }
 
@@ -649,7 +756,7 @@ mod tests {
     fn temp_storage_path(name: &str) -> (SettingsStorage, std::path::PathBuf) {
         let mut path = std::env::temp_dir();
         path.push(format!("grelier_main_settings_test_{}", name));
-        path.push("Settings.xresources");
+        path.push(format!("Settings-{}.xresources", env!("CARGO_PKG_VERSION")));
         (SettingsStorage::new(path.clone()), path)
     }
 
@@ -732,6 +839,7 @@ mod tests {
                     items: Vec::new(),
                     on_select: None,
                 }),
+                hovered_item: None,
             },
         );
 
@@ -789,6 +897,7 @@ mod tests {
                     items: Vec::new(),
                     on_select: None,
                 }),
+                hovered_item: None,
             },
         );
         state.gauges.push(GaugeModel {
@@ -838,6 +947,7 @@ mod tests {
                     items: Vec::new(),
                     on_select: None,
                 }),
+                hovered_item: None,
             },
         );
         state.dialog_windows.insert(
@@ -849,6 +959,7 @@ mod tests {
                     items: Vec::new(),
                     on_select: None,
                 }),
+                hovered_item: None,
             },
         );
 
@@ -912,6 +1023,7 @@ mod tests {
                     items: Vec::new(),
                     on_select: None,
                 }),
+                hovered_item: None,
             },
         );
         state.closing_dialogs.insert(window);
@@ -929,6 +1041,33 @@ mod tests {
     }
 
     #[test]
+    fn window_unfocus_can_be_injected_for_tests() {
+        let mut state = BarState::default();
+        let window = window::Id::unique();
+        state.dialog_windows.insert(
+            window,
+            GaugeDialogWindow {
+                gauge_id: "audio_out".to_string(),
+                dialog: GaugeDialog::Menu(GaugeMenu {
+                    title: "Test".into(),
+                    items: Vec::new(),
+                    on_select: None,
+                }),
+                hovered_item: None,
+            },
+        );
+        state.last_dialog_opened_at = Some(Instant::now());
+
+        let task = update(&mut state, Message::WindowFocusChanged { focused: false });
+
+        assert!(
+            state.dialog_windows.contains_key(&window),
+            "recently opened dialog should remain visible"
+        );
+        assert_eq!(task.units(), 0, "suppressed unfocus should do nothing");
+    }
+
+    #[test]
     fn gauge_click_closes_existing_dialog_without_reopening() {
         let mut state = BarState::default();
         let window = window::Id::unique();
@@ -941,6 +1080,7 @@ mod tests {
                     items: Vec::new(),
                     on_select: None,
                 }),
+                hovered_item: None,
             },
         );
 

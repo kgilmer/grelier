@@ -2,6 +2,7 @@
 // Consumes Settings: grelier.bar.width, grelier.bar.border_*, grelier.app.*, grelier.ws.*.
 use std::collections::{HashMap, HashSet};
 use std::convert::TryInto;
+use std::time::{Duration, Instant};
 
 use crate::gauge::{
     GaugeClickTarget, GaugeInput, GaugeMenu, GaugeModel, GaugeValue, GaugeValueAttention,
@@ -24,6 +25,8 @@ use iced_anim::animation_builder::AnimationBuilder;
 use iced_anim::transition::Easing;
 use iced_layershell::actions::IcedNewPopupSettings;
 use iced_layershell::to_layer_message;
+
+const CLICK_FILTER_WINDOW: Duration = Duration::from_millis(250);
 
 #[to_layer_message(multi)]
 #[derive(Debug, Clone)]
@@ -51,6 +54,17 @@ pub enum Message {
         gauge_id: String,
         item_id: String,
     },
+    MenuItemHoverEnter {
+        window: iced::window::Id,
+        item_id: String,
+    },
+    MenuItemHoverExit {
+        window: iced::window::Id,
+        item_id: String,
+    },
+    WindowFocusChanged {
+        focused: bool,
+    },
     MenuDismissed(iced::window::Id),
     WindowClosed(iced::window::Id),
     CacheRefreshed(Result<(Vec<AppDescriptor>, Vec<AppDescriptor>), String>),
@@ -72,6 +86,17 @@ fn attention_color(attention: GaugeValueAttention, theme: &Theme) -> Color {
         GaugeValueAttention::Nominal => theme.palette().text,
         GaugeValueAttention::Warning => theme.extended_palette().warning.base.color,
         GaugeValueAttention::Danger => theme.extended_palette().danger.base.color,
+    }
+}
+
+fn attention_color_at_level(level: f32, theme: &Theme) -> Color {
+    let normal = theme.palette().text;
+    let warning = theme.extended_palette().warning.base.color;
+    let danger = theme.extended_palette().danger.base.color;
+    if level <= 1.0 {
+        lerp_color(normal, warning, level.clamp(0.0, 1.0))
+    } else {
+        lerp_color(warning, danger, (level - 1.0).clamp(0.0, 1.0))
     }
 }
 
@@ -170,6 +195,9 @@ pub struct BarState {
     pub last_cursor: Option<iced::Point>,
     pub closing_dialogs: HashSet<window::Id>,
     pub gauge_dialog_anchor: HashMap<String, i32>,
+    pub primary_window: Option<window::Id>,
+    pub last_click_at: Option<Instant>,
+    pub last_dialog_opened_at: Option<Instant>,
 }
 
 #[derive(Clone, Default)]
@@ -222,6 +250,7 @@ pub enum GaugeDialog {
 pub struct GaugeDialogWindow {
     pub gauge_id: String,
     pub dialog: GaugeDialog,
+    pub hovered_item: Option<String>,
 }
 
 impl BarState {
@@ -329,8 +358,10 @@ impl BarState {
             GaugeDialogWindow {
                 gauge_id: gauge_id.to_string(),
                 dialog,
+                hovered_item: None,
             },
         );
+        self.last_dialog_opened_at = Some(Instant::now());
         tasks.push(task);
 
         Task::batch(tasks)
@@ -351,8 +382,7 @@ impl BarState {
         // Icon is 14px tall with no padding; value sits below with a 3px spacer.
         let icon_offset =
             settings::settings().get_parsed_or("grelier.app.gauge_anchor_offset_icon", 7.0);
-        let value_offset =
-            settings::settings().get_parsed_or("grelier.app.gauge_anchor_offset_value", 28.0);
+        let value_offset = 28.0;
         let offset = match target {
             GaugeClickTarget::Icon => icon_offset, // half of icon size to reach top
             GaugeClickTarget::Value => value_offset, // approx icon+spacer+half text line
@@ -409,6 +439,28 @@ impl BarState {
         ordered.into_iter().map(|(_, gauge)| gauge).collect()
     }
 
+    pub fn allow_click(&mut self) -> bool {
+        self.allow_click_at(Instant::now())
+    }
+
+    pub(crate) fn allow_click_at(&mut self, now: Instant) -> bool {
+        let too_soon_since_click = self
+            .last_click_at
+            .and_then(|last| now.checked_duration_since(last))
+            .is_some_and(|elapsed| elapsed < CLICK_FILTER_WINDOW);
+        let too_soon_since_dialog = self
+            .last_dialog_opened_at
+            .and_then(|last| now.checked_duration_since(last))
+            .is_some_and(|elapsed| elapsed < CLICK_FILTER_WINDOW);
+
+        if too_soon_since_click || too_soon_since_dialog {
+            return false;
+        }
+
+        self.last_click_at = Some(now);
+        true
+    }
+
     pub fn view<'a>(&'a self, window: window::Id) -> Element<'a, Message> {
         let settings = settings::settings();
         let workspace_padding_x = settings.get_parsed_or("grelier.app.workspace_padding_x", 4u16);
@@ -419,14 +471,14 @@ impl BarState {
         let workspace_button_padding_y =
             settings.get_parsed_or("grelier.app.workspace_button_padding_y", 4u16);
         let workspace_corner_radius = settings.get_parsed_or("grelier.ws.corner_radius", 5.0_f32);
-        let workspace_transitions = settings.get_bool_or("grelier.ws.transitions", true);
+        let workspace_transitions = settings.get_bool_or("grelier.ws.transitions", false);
         let workspace_label_size =
             settings.get_parsed_or("grelier.app.workspace_label_size", 14u32);
-        let workspace_icon_size = settings.get_parsed_or("grelier.app.workspace_icon_size", 12.0);
-        let top_apps_icon_size =
-            settings.get_parsed_or("grelier.app.top_apps_icon_size", workspace_icon_size + 2.0);
-        let workspace_icon_spacing =
-            settings.get_parsed_or("grelier.app.workspace_icon_spacing", 4u32);
+        let workspace_icon_size = settings.get_parsed_or("grelier.app.workspace_icon_size", 22.0);
+        let top_apps_icon_size = settings.get_parsed_or("grelier.app.top_apps_icon_size", 20.0);
+        let workspace_icon_spacing = settings
+            .get_parsed_or("grelier.app.workspace_icon_spacing", 6u32)
+            .max(2);
         let workspace_icon_padding_x =
             settings.get_parsed_or("grelier.app.workspace_icon_padding_x", 2u16);
         let workspace_icon_padding_y =
@@ -436,19 +488,19 @@ impl BarState {
         let gauge_padding_y = settings.get_parsed_or("grelier.app.gauge_padding_y", 2u16);
         let gauge_spacing = settings
             .get_parsed("grelier.gauge.spacing")
-            .unwrap_or_else(|| settings.get_parsed_or("grelier.app.gauge_spacing", 18u32));
-        let gauge_icon_size = settings.get_parsed_or("grelier.app.gauge_icon_size", 16.0);
+            .unwrap_or_else(|| settings.get_parsed_or("grelier.app.gauge_spacing", 14u32));
+        let gauge_icon_size = settings.get_parsed_or("grelier.app.gauge_icon_size", 20.0);
         let gauge_value_icon_size =
             settings.get_parsed_or("grelier.app.gauge_value_icon_size", 20.0);
         let gauge_icon_value_spacing =
-            settings.get_parsed_or("grelier.app.gauge_icon_value_spacing", 3.0);
+            settings.get_parsed_or("grelier.app.gauge_icon_value_spacing", 0.0);
         let border_blend = settings.get_bool_or("grelier.bar.border_blend", true);
         let border_line_width = settings.get_parsed_or("grelier.bar.border_line_width", 1.0);
         let border_column_width = settings.get_parsed_or("grelier.bar.border_column_width", 3.0);
         let border_mix_1 = settings.get_parsed_or("grelier.bar.border_mix_1", 0.2);
         let border_mix_2 = settings.get_parsed_or("grelier.bar.border_mix_2", 0.6);
         let border_mix_3 = settings.get_parsed_or("grelier.bar.border_mix_3", 1.0);
-        let border_alpha_1 = settings.get_parsed_or("grelier.bar.border_alpha_1", 0.9);
+        let border_alpha_1 = settings.get_parsed_or("grelier.bar.border_alpha_1", 0.6);
         let border_alpha_2 = settings.get_parsed_or("grelier.bar.border_alpha_2", 0.7);
         let border_alpha_3 = settings.get_parsed_or("grelier.bar.border_alpha_3", 0.9);
 
@@ -456,15 +508,28 @@ impl BarState {
             let gauge_id = dialog_window.gauge_id.clone();
             let window_id = window;
             return match &dialog_window.dialog {
-                GaugeDialog::Menu(menu) => {
-                    menu_view(menu, move |item_id| Message::MenuItemSelected {
+                GaugeDialog::Menu(menu) => menu_view(
+                    menu,
+                    dialog_window.hovered_item.as_deref(),
+                    move |item_id| Message::MenuItemSelected {
                         window: window_id,
                         gauge_id: gauge_id.clone(),
                         item_id,
-                    })
-                }
+                    },
+                    move |item_id| Message::MenuItemHoverEnter {
+                        window: window_id,
+                        item_id,
+                    },
+                    move |item_id| Message::MenuItemHoverExit {
+                        window: window_id,
+                        item_id,
+                    },
+                ),
                 GaugeDialog::Info(dialog) => info_view(dialog),
             };
+        }
+        if self.primary_window.is_some_and(|primary| primary != window) {
+            return container(Space::new()).into();
         }
         if self.closing_dialogs.contains(&window) {
             return container(Space::new()).into();
@@ -611,7 +676,7 @@ impl BarState {
         );
 
         let ordered_gauges = self.ordered_gauges();
-        let error_icon = svg_asset("error.svg");
+        let ratio_inner_full_icon = svg_asset("ratio-inner-full.svg");
 
         let top_apps = self.top_apps.iter().fold(
             Column::new()
@@ -647,27 +712,49 @@ impl BarState {
                 .width(Length::Fill)
                 .align_x(alignment::Horizontal::Center),
             |col, gauge| {
-                let gauge_attention = if gauge.value.is_some() {
-                    gauge.attention
-                } else {
-                    GaugeValueAttention::Danger
-                };
+                let gauge_attention = gauge.attention;
+                let icon_attention = GaugeValueAttention::Nominal;
 
                 let mut gauge_column = Column::new()
                     .align_x(alignment::Horizontal::Center)
                     .width(Length::Fill);
 
                 if let Some(icon) = &gauge.icon {
-                    let icon_view = Svg::new(icon.clone())
-                        .width(Length::Fixed(gauge_icon_size))
-                        .height(Length::Fixed(gauge_icon_size))
-                        .style({
-                            let attention = gauge_attention;
-                            move |theme: &Theme, _status| svg::Style {
-                                color: Some(attention_color(attention, theme)),
-                            }
-                        });
-                    let centered_icon: Element<'_, Message> = container(icon_view)
+                    let dialog_open = self
+                        .dialog_windows
+                        .values()
+                        .any(|window| window.gauge_id == gauge.id);
+                    let attention = icon_attention;
+                    let icon_handle = icon.clone();
+                    let icon_box: Element<'_, Message> =
+                        AnimationBuilder::new(if dialog_open { 1.0 } else { 0.0 }, move |t| {
+                            let icon_view = Svg::new(icon_handle.clone())
+                                .width(Length::Fixed(gauge_icon_size))
+                                .height(Length::Fixed(gauge_icon_size))
+                                .style(move |theme: &Theme, _status| {
+                                    let normal = attention_color(attention, theme);
+                                    let inverted = theme.palette().background;
+                                    svg::Style {
+                                        color: Some(lerp_color(normal, inverted, t)),
+                                    }
+                                });
+
+                            container(icon_view)
+                                .width(Length::Fixed(gauge_icon_size))
+                                .height(Length::Fixed(gauge_icon_size))
+                                .style(move |theme: &Theme| {
+                                    let target = theme.palette().text;
+                                    let transparent = Color { a: 0.0, ..target };
+                                    container::Style {
+                                        background: Some(lerp_color(transparent, target, t).into()),
+                                        ..container::Style::default()
+                                    }
+                                })
+                                .into()
+                        })
+                        .animation(Easing::EASE_IN_OUT.very_quick())
+                        .into();
+                    let centered_icon: Element<'_, Message> = container(icon_box)
                         .width(Length::Fill)
                         .align_x(alignment::Horizontal::Center)
                         .into();
@@ -678,35 +765,58 @@ impl BarState {
 
                 let value: Element<'_, Message> = match &gauge.value {
                     Some(GaugeValue::Text(value)) => {
-                        let attention = gauge_attention;
-                        Text::new(value.clone())
-                            .width(Length::Fill)
-                            .align_x(text::Alignment::Center)
-                            .style(move |theme: &Theme| text::Style {
-                                color: Some(attention_color(attention, theme)),
-                            })
-                            .into()
+                        let attention_level = match gauge_attention {
+                            GaugeValueAttention::Nominal => 0.0,
+                            GaugeValueAttention::Warning => 1.0,
+                            GaugeValueAttention::Danger => 2.0,
+                        };
+                        let value = value.clone();
+                        AnimationBuilder::new(attention_level, move |level| {
+                            Text::new(value.clone())
+                                .width(Length::Fill)
+                                .align_x(text::Alignment::Center)
+                                .style(move |theme: &Theme| text::Style {
+                                    color: Some(attention_color_at_level(level, theme)),
+                                })
+                                .into()
+                        })
+                        .animation(Easing::EASE_IN_OUT.very_quick())
+                        .into()
                     }
-                    Some(GaugeValue::Svg(handle)) => Svg::new(handle.clone())
-                        .width(Length::Fixed(gauge_value_icon_size))
-                        .height(Length::Fixed(gauge_value_icon_size))
-                        .style({
-                            let attention = gauge_attention;
-                            move |theme: &Theme, _status| svg::Style {
-                                color: Some(attention_color(attention, theme)),
-                            }
+                    Some(GaugeValue::Svg(handle)) => {
+                        let attention_level = match gauge_attention {
+                            GaugeValueAttention::Nominal => 0.0,
+                            GaugeValueAttention::Warning => 1.0,
+                            GaugeValueAttention::Danger => 2.0,
+                        };
+                        let handle = handle.clone();
+                        AnimationBuilder::new(attention_level, move |level| {
+                            Svg::new(handle.clone())
+                                .width(Length::Fixed(gauge_value_icon_size))
+                                .height(Length::Fixed(gauge_value_icon_size))
+                                .style(move |theme: &Theme, _status| svg::Style {
+                                    color: Some(attention_color_at_level(level, theme)),
+                                })
+                                .into()
                         })
-                        .into(),
-                    None => Svg::new(error_icon.clone())
-                        .width(Length::Fixed(gauge_value_icon_size))
-                        .height(Length::Fixed(gauge_value_icon_size))
-                        .style({
-                            let attention = GaugeValueAttention::Danger;
-                            move |theme: &Theme, _status| svg::Style {
-                                color: Some(attention_color(attention, theme)),
-                            }
+                        .animation(Easing::EASE_IN_OUT.very_quick())
+                        .into()
+                    }
+                    None => {
+                        let attention_level = 2.0;
+                        let ratio_inner_full_icon = ratio_inner_full_icon.clone();
+                        AnimationBuilder::new(attention_level, move |level| {
+                            Svg::new(ratio_inner_full_icon.clone())
+                                .width(Length::Fixed(gauge_value_icon_size))
+                                .height(Length::Fixed(gauge_value_icon_size))
+                                .style(move |theme: &Theme, _status| svg::Style {
+                                    color: Some(attention_color_at_level(level, theme)),
+                                })
+                                .into()
                         })
-                        .into(),
+                        .animation(Easing::EASE_IN_OUT.very_quick())
+                        .into()
+                    }
                 };
 
                 let centered_value: Element<'_, Message> = container(value)

@@ -1,5 +1,4 @@
-// Test gauge that cycles quantity icons and toggles style/attention on clicks.
-// Consumes Settings: grelier.gauge.test_gauge.quantitystyle.
+// Test gauge that shows a fixed icon with a cycling quantity value.
 use iced::futures::StreamExt;
 use iced::mouse;
 use std::sync::Mutex;
@@ -9,25 +8,19 @@ use crate::gauge::{
     GaugeClick, GaugeClickAction, GaugeValue, GaugeValueAttention, SettingSpec, fixed_interval,
 };
 use crate::gauge_registry::{GaugeSpec, GaugeStream};
-use crate::icon::{QuantityStyle, icon_quantity};
+use crate::icon::{icon_quantity, svg_asset};
 use crate::info_dialog::InfoDialog;
-use crate::settings;
 use std::sync::Arc;
 
-// Step sized to traverse all grid icons (0-9) without skipping.
+// Step sized to traverse the full range without skipping endpoints.
 const STEP: f32 = 1.0 / 9.0;
 
-#[derive(Debug, Clone, Copy)]
-enum QuantityMode {
-    Grid,
-    Pie,
-}
-
-/// Tracks a ping-pong sequence over the pie icon indices.
+/// Tracks a ping-pong sequence over the icon indices.
 #[derive(Debug)]
 struct BounceSequence {
     value: f32,
     descending: bool,
+    emit_none_at_top: bool,
 }
 
 impl BounceSequence {
@@ -35,11 +28,17 @@ impl BounceSequence {
         Self {
             value: 0.0,
             descending: false,
+            emit_none_at_top: false,
         }
     }
 
     /// Return the current value and advance, bouncing at both ends.
-    fn next(&mut self) -> f32 {
+    fn next(&mut self) -> Option<f32> {
+        if self.emit_none_at_top {
+            self.emit_none_at_top = false;
+            return None;
+        }
+
         let current = self.value;
         if self.descending {
             let next = (self.value - STEP).max(0.0);
@@ -51,37 +50,26 @@ impl BounceSequence {
             let next = (self.value + STEP).min(1.0);
             self.value = next;
             if next >= 1.0 {
+                self.emit_none_at_top = true;
                 self.descending = true;
             }
         }
-        current
+        Some(current)
     }
 }
 
 #[derive(Debug)]
 struct QuantityState {
     sequence: BounceSequence,
-    mode: QuantityMode,
     attention: GaugeValueAttention,
 }
 
 impl QuantityState {
-    fn new(style: QuantityStyle) -> Self {
+    fn new() -> Self {
         Self {
             sequence: BounceSequence::new(),
-            mode: match style {
-                QuantityStyle::Grid => QuantityMode::Grid,
-                QuantityStyle::Pie => QuantityMode::Pie,
-            },
             attention: GaugeValueAttention::Nominal,
         }
-    }
-
-    fn cycle_mode(&mut self) {
-        self.mode = match self.mode {
-            QuantityMode::Grid => QuantityMode::Pie,
-            QuantityMode::Pie => QuantityMode::Grid,
-        };
     }
 
     fn cycle_attention(&mut self) {
@@ -93,31 +81,15 @@ impl QuantityState {
     }
 
     fn next(&mut self) -> (Option<GaugeValue>, GaugeValueAttention) {
-        match self.mode {
-            QuantityMode::Grid => (
-                Some(GaugeValue::Svg(icon_quantity(
-                    QuantityStyle::Grid,
-                    self.sequence.next(),
-                ))),
-                self.attention,
-            ),
-            QuantityMode::Pie => (
-                Some(GaugeValue::Svg(icon_quantity(
-                    QuantityStyle::Pie,
-                    self.sequence.next(),
-                ))),
-                self.attention,
-            ),
-        }
+        let value = self.sequence.next();
+        let value = value.map(|value| GaugeValue::Svg(icon_quantity(value)));
+        (value, self.attention)
     }
 }
 
-/// Cycles over pie-[0-8].svg, bouncing when hitting the ends.
+/// Emits a steady icon with a cycling quantity value and updates attention on clicks.
 fn test_gauge_stream() -> impl iced::futures::Stream<Item = crate::gauge::GaugeModel> {
-    let style_value = settings::settings().get_or("grelier.gauge.test_gauge.quantitystyle", "pie");
-    let style =
-        QuantityStyle::parse_setting("grelier.gauge.test_gauge.quantitystyle", &style_value);
-    let state = Arc::new(Mutex::new(QuantityState::new(style)));
+    let state = Arc::new(Mutex::new(QuantityState::new()));
     let info_dialog = InfoDialog {
         title: "Test Gauge Info".to_string(),
         lines: vec![
@@ -129,34 +101,20 @@ fn test_gauge_stream() -> impl iced::futures::Stream<Item = crate::gauge::GaugeM
     let on_click: GaugeClickAction = {
         let state = Arc::clone(&state);
         Arc::new(move |click: GaugeClick| {
-            let (_mode, _attention) = if let Ok(mut state) = state.lock() {
-                match click.input {
-                    crate::gauge::GaugeInput::Button(mouse::Button::Right) => {
-                        state.cycle_attention()
-                    }
-                    crate::gauge::GaugeInput::Button(mouse::Button::Left) => {
-                        state.cycle_mode();
-                        let style_value = match state.mode {
-                            QuantityMode::Grid => QuantityStyle::Grid,
-                            QuantityMode::Pie => QuantityStyle::Pie,
-                        };
-                        settings::settings().update(
-                            "grelier.gauge.test_gauge.quantitystyle",
-                            style_value.as_setting_value(),
-                        );
-                    }
-                    _ => {}
+            let _attention = if let Ok(mut state) = state.lock() {
+                if let crate::gauge::GaugeInput::Button(mouse::Button::Right) = click.input {
+                    state.cycle_attention();
                 }
-                (state.mode, state.attention)
+                state.attention
             } else {
-                (QuantityMode::Grid, GaugeValueAttention::Nominal)
+                GaugeValueAttention::Nominal
             };
         })
     };
 
     fixed_interval(
         "test_gauge",
-        None,
+        Some(svg_asset("option-checked.svg")),
         || Duration::from_secs(1),
         {
             let state = Arc::clone(&state);
@@ -178,10 +136,7 @@ fn test_gauge_stream() -> impl iced::futures::Stream<Item = crate::gauge::GaugeM
 }
 
 pub fn settings() -> &'static [SettingSpec] {
-    const SETTINGS: &[SettingSpec] = &[SettingSpec {
-        key: "grelier.gauge.test_gauge.quantitystyle",
-        default: "pie",
-    }];
+    const SETTINGS: &[SettingSpec] = &[];
     SETTINGS
 }
 
@@ -214,7 +169,7 @@ mod tests {
         INIT.call_once(|| {
             let mut path = std::env::temp_dir();
             path.push("grelier_test_gauge_settings");
-            path.push("Settings.xresources");
+            path.push(format!("Settings-{}.xresources", env!("CARGO_PKG_VERSION")));
             let storage = SettingsStorage::new(path);
             let settings = crate::settings::Settings::new(storage);
             let _ = crate::settings::init_settings(settings);
@@ -222,29 +177,29 @@ mod tests {
     }
 
     #[test]
-    fn pie_sequence_bounces() {
+    fn quantity_sequence_bounces() {
         let mut seq = BounceSequence::new();
         let produced: Vec<_> = (0..10).map(|_| seq.next()).collect();
         assert_eq!(
             produced,
             vec![
-                0.0,
-                1.0 / 9.0,
-                2.0 / 9.0,
-                3.0 / 9.0,
-                4.0 / 9.0,
-                5.0 / 9.0,
-                6.0 / 9.0,
-                7.0 / 9.0,
-                8.0 / 9.0,
-                1.0
+                Some(0.0),
+                Some(1.0 / 9.0),
+                Some(2.0 / 9.0),
+                Some(3.0 / 9.0),
+                Some(4.0 / 9.0),
+                Some(5.0 / 9.0),
+                Some(6.0 / 9.0),
+                Some(7.0 / 9.0),
+                Some(8.0 / 9.0),
+                None
             ]
         );
     }
 
     #[test]
     fn attention_cycles_on_right_click() {
-        let mut state = QuantityState::new(QuantityStyle::Pie);
+        let mut state = QuantityState::new();
         assert_eq!(state.attention, GaugeValueAttention::Nominal);
 
         state.cycle_attention();
@@ -253,17 +208,6 @@ mod tests {
         assert_eq!(state.attention, GaugeValueAttention::Danger);
         state.cycle_attention();
         assert_eq!(state.attention, GaugeValueAttention::Nominal);
-    }
-
-    #[test]
-    fn mode_cycles_between_styles() {
-        let mut state = QuantityState::new(QuantityStyle::Grid);
-
-        assert!(matches!(state.mode, QuantityMode::Grid));
-        state.cycle_mode();
-        assert!(matches!(state.mode, QuantityMode::Pie));
-        state.cycle_mode();
-        assert!(matches!(state.mode, QuantityMode::Grid));
     }
 
     #[test]
