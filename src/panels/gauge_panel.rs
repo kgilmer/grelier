@@ -14,14 +14,14 @@ use iced_anim::transition::Easing;
 
 fn attention_color(attention: GaugeValueAttention, theme: &Theme) -> Color {
     match attention {
-        GaugeValueAttention::Nominal => theme.palette().text,
+        GaugeValueAttention::Nominal => theme.extended_palette().secondary.strong.color,
         GaugeValueAttention::Warning => theme.extended_palette().warning.base.color,
         GaugeValueAttention::Danger => theme.extended_palette().danger.base.color,
     }
 }
 
 fn attention_color_at_level(level: f32, theme: &Theme) -> Color {
-    let normal = theme.palette().text;
+    let normal = theme.extended_palette().secondary.strong.color;
     let warning = theme.extended_palette().warning.base.color;
     let danger = theme.extended_palette().danger.base.color;
     if level <= 1.0 {
