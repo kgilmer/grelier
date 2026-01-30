@@ -1,5 +1,5 @@
-use crate::app::Message;
-use crate::gauge::{GaugeModel, SettingSpec};
+use crate::bar::Message;
+use crate::panels::gauges::gauge::{GaugeModel, SettingSpec};
 use crate::settings::Settings;
 use iced::Subscription;
 use iced::futures::StreamExt;
@@ -13,7 +13,6 @@ pub type GaugeValidator = fn(&Settings) -> Result<(), String>;
 /// Static metadata for a gauge implementation.
 pub struct GaugeSpec {
     pub id: &'static str,
-    pub label: &'static str,
     pub description: &'static str,
     pub default_enabled: bool,
     pub settings: fn() -> &'static [SettingSpec],

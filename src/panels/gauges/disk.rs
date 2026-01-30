@@ -1,9 +1,9 @@
 // Disk usage gauge for a configurable filesystem path.
 // Consumes Settings: grelier.gauge.disk.*.
-use crate::gauge::{GaugeValue, GaugeValueAttention, SettingSpec, fixed_interval};
-use crate::gauge_registry::{GaugeSpec, GaugeStream};
 use crate::icon::{icon_quantity, svg_asset};
 use crate::info_dialog::InfoDialog;
+use crate::panels::gauges::gauge::{GaugeValue, GaugeValueAttention, SettingSpec, fixed_interval};
+use crate::panels::gauges::gauge_registry::{GaugeSpec, GaugeStream};
 use crate::settings;
 use iced::futures::StreamExt;
 use std::cmp::Ordering;
@@ -159,7 +159,7 @@ fn disk_value(
     }
 }
 
-fn disk_stream() -> impl iced::futures::Stream<Item = crate::gauge::GaugeModel> {
+fn disk_stream() -> impl iced::futures::Stream<Item = crate::panels::gauges::gauge::GaugeModel> {
     let path = settings::settings().get_or("grelier.gauge.disk.path", DEFAULT_ROOT_PATH);
     let poll_interval_secs = settings::settings().get_parsed_or(
         "grelier.gauge.disk.poll_interval_secs",
@@ -258,7 +258,6 @@ fn stream() -> GaugeStream {
 inventory::submit! {
     GaugeSpec {
         id: "disk",
-        label: "Disk",
         description: "Disk usage gauge showing percent utilization for a configured path.",
         default_enabled: false,
         settings,

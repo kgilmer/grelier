@@ -5,11 +5,11 @@ use iced::mouse;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use crate::gauge::{
+use crate::icon::svg_asset;
+use crate::panels::gauges::gauge::{
     GaugeClick, GaugeClickAction, GaugeValue, GaugeValueAttention, SettingSpec, fixed_interval,
 };
-use crate::gauge_registry::{GaugeSpec, GaugeStream};
-use crate::icon::svg_asset;
+use crate::panels::gauges::gauge_registry::{GaugeSpec, GaugeStream};
 use crate::settings;
 
 #[derive(Debug, Clone, Copy, Default)]
@@ -49,13 +49,13 @@ fn hour_format_from_setting() -> HourFormat {
 }
 
 /// Stream of the current wall-clock hour/minute, formatted on two lines.
-fn seconds_stream() -> impl iced::futures::Stream<Item = crate::gauge::GaugeModel> {
+fn seconds_stream() -> impl iced::futures::Stream<Item = crate::panels::gauges::gauge::GaugeModel> {
     let show_seconds = settings::settings().get_bool_or("grelier.gauge.clock.showseconds", false);
     let format_state = Arc::new(Mutex::new(hour_format_from_setting()));
     let on_click: GaugeClickAction = {
         let format_state = Arc::clone(&format_state);
         Arc::new(move |click: GaugeClick| {
-            if let crate::gauge::GaugeInput::Button(button) = click.input
+            if let crate::panels::gauges::gauge::GaugeInput::Button(button) = click.input
                 && let mouse::Button::Right = button
                 && let Ok(mut format) = format_state.lock()
             {
@@ -126,7 +126,6 @@ fn stream() -> GaugeStream {
 inventory::submit! {
     GaugeSpec {
         id: "clock",
-        label: "Clock",
         description: "Clock gauge showing the local time.",
         default_enabled: true,
         settings,

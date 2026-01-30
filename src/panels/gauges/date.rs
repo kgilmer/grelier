@@ -3,9 +3,9 @@
 use chrono::Local;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
-use crate::gauge::{GaugeValue, GaugeValueAttention, SettingSpec, fixed_interval};
-use crate::gauge_registry::{GaugeSpec, GaugeStream};
 use crate::icon::svg_asset;
+use crate::panels::gauges::gauge::{GaugeValue, GaugeValueAttention, SettingSpec, fixed_interval};
+use crate::panels::gauges::gauge_registry::{GaugeSpec, GaugeStream};
 use crate::settings;
 
 const SECS_PER_DAY: u64 = 86_400;
@@ -14,7 +14,7 @@ const DEFAULT_MONTH_FORMAT: &str = "%m";
 const DEFAULT_DAY_FORMAT: &str = "%d";
 
 /// Stream of the current day (day-of-month, zero-padded) published once per day.
-fn day_stream() -> impl iced::futures::Stream<Item = crate::gauge::GaugeModel> {
+fn day_stream() -> impl iced::futures::Stream<Item = crate::panels::gauges::gauge::GaugeModel> {
     let month_format =
         settings::settings().get_or("grelier.gauge.date.month_format", DEFAULT_MONTH_FORMAT);
     let day_format =
@@ -76,7 +76,6 @@ fn stream() -> GaugeStream {
 inventory::submit! {
     GaugeSpec {
         id: "date",
-        label: "Date",
         description: "Date gauge showing the current calendar date.",
         default_enabled: true,
         settings,

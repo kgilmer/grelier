@@ -4,12 +4,12 @@ use iced::mouse;
 use std::sync::Mutex;
 use std::time::Duration;
 
-use crate::gauge::{
-    GaugeClick, GaugeClickAction, GaugeValue, GaugeValueAttention, SettingSpec, fixed_interval,
-};
-use crate::gauge_registry::{GaugeSpec, GaugeStream};
 use crate::icon::{icon_quantity, svg_asset};
 use crate::info_dialog::InfoDialog;
+use crate::panels::gauges::gauge::{
+    GaugeClick, GaugeClickAction, GaugeValue, GaugeValueAttention, SettingSpec, fixed_interval,
+};
+use crate::panels::gauges::gauge_registry::{GaugeSpec, GaugeStream};
 use std::sync::Arc;
 
 // Step sized to traverse the full range without skipping endpoints.
@@ -88,7 +88,8 @@ impl QuantityState {
 }
 
 /// Emits a steady icon with a cycling quantity value and updates attention on clicks.
-fn test_gauge_stream() -> impl iced::futures::Stream<Item = crate::gauge::GaugeModel> {
+fn test_gauge_stream() -> impl iced::futures::Stream<Item = crate::panels::gauges::gauge::GaugeModel>
+{
     let state = Arc::new(Mutex::new(QuantityState::new()));
     let info_dialog = InfoDialog {
         title: "Test Gauge Info".to_string(),
@@ -102,7 +103,9 @@ fn test_gauge_stream() -> impl iced::futures::Stream<Item = crate::gauge::GaugeM
         let state = Arc::clone(&state);
         Arc::new(move |click: GaugeClick| {
             let _attention = if let Ok(mut state) = state.lock() {
-                if let crate::gauge::GaugeInput::Button(mouse::Button::Right) = click.input {
+                if let crate::panels::gauges::gauge::GaugeInput::Button(mouse::Button::Right) =
+                    click.input
+                {
                     state.cycle_attention();
                 }
                 state.attention
@@ -147,7 +150,6 @@ fn stream() -> GaugeStream {
 inventory::submit! {
     GaugeSpec {
         id: "test_gauge",
-        label: "Test Gauge",
         description: "Test gauge emitting canned values for development.",
         default_enabled: false,
         settings,

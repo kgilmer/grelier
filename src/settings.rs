@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use std::str::FromStr;
 use std::sync::{OnceLock, RwLock};
 
-use crate::gauge::SettingSpec;
+use crate::panels::gauges::gauge::SettingSpec;
 use crate::settings_storage::SettingsStorage;
 
 #[derive(Debug)]
@@ -144,7 +144,7 @@ mod tests {
 
     #[test]
     fn parse_settings_rejects_missing_separator() {
-        let err = parse_settings_arg("grelier.theme").unwrap_err();
+        let err = parse_settings_arg("grelier.bar.theme").unwrap_err();
         assert!(err.contains("missing '=' or ':'"));
     }
 
@@ -156,7 +156,7 @@ mod tests {
 
     #[test]
     fn parse_settings_rejects_whitespace_key() {
-        let err = parse_settings_arg("grelier.theme name=Light").unwrap_err();
+        let err = parse_settings_arg("grelier.bar.theme name=Light").unwrap_err();
         assert!(err.contains("cannot contain whitespace"));
     }
 
@@ -178,11 +178,11 @@ mod tests {
 
     #[test]
     fn parse_settings_keeps_commas_in_value() {
-        let map = parse_settings_arg("grelier.theme=Dark,grelier.theme=Light")
+        let map = parse_settings_arg("grelier.bar.theme=Dark,grelier.bar.theme=Light")
             .expect("parse comma-containing value");
         assert_eq!(
-            map.get("grelier.theme").cloned(),
-            Some("Dark,grelier.theme=Light".to_string())
+            map.get("grelier.bar.theme").cloned(),
+            Some("Dark,grelier.bar.theme=Light".to_string())
         );
     }
 

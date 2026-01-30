@@ -1,12 +1,12 @@
 // Backlight brightness gauge with scroll adjustments via sysfs.
 // Consumes Settings: grelier.gauge.brightness.step_percent, grelier.gauge.brightness.refresh_interval_secs.
-use crate::gauge::{
+use crate::icon::{icon_quantity, svg_asset};
+use crate::info_dialog::InfoDialog;
+use crate::panels::gauges::gauge::{
     GaugeClick, GaugeClickAction, GaugeInput, GaugeValue, GaugeValueAttention, SettingSpec,
     event_stream,
 };
-use crate::gauge_registry::{GaugeSpec, GaugeStream};
-use crate::icon::{icon_quantity, svg_asset};
-use crate::info_dialog::InfoDialog;
+use crate::panels::gauges::gauge_registry::{GaugeSpec, GaugeStream};
 use crate::settings;
 use std::fs;
 use std::io;
@@ -120,7 +120,8 @@ enum BrightnessCommand {
     Adjust(i8),
 }
 
-fn brightness_stream() -> impl iced::futures::Stream<Item = crate::gauge::GaugeModel> {
+fn brightness_stream() -> impl iced::futures::Stream<Item = crate::panels::gauges::gauge::GaugeModel>
+{
     let (command_tx, command_rx) = mpsc::channel::<BrightnessCommand>();
     let mut step_percent = settings::settings().get_parsed_or(
         "grelier.gauge.brightness.step_percent",
@@ -183,7 +184,7 @@ fn brightness_stream() -> impl iced::futures::Stream<Item = crate::gauge::GaugeM
                     None
                 };
 
-                let _ = sender.try_send(crate::gauge::GaugeModel {
+                let _ = sender.try_send(crate::panels::gauges::gauge::GaugeModel {
                     id: "brightness",
                     icon: Some(svg_asset("brightness.svg")),
                     value,
@@ -288,7 +289,6 @@ fn stream() -> GaugeStream {
 inventory::submit! {
     GaugeSpec {
         id: "brightness",
-        label: "Brightness",
         description: "Brightness gauge controlling backlight percent level.",
         default_enabled: false,
         settings,

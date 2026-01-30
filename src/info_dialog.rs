@@ -48,23 +48,23 @@ impl InfoDialogSettings {
                 DEFAULT_MAX_CHARS_PER_LINE,
             ),
             header_font_size: settings
-                .get_parsed_or("grelier.dialog.header_font_size", DEFAULT_HEADER_FONT_SIZE),
+                .get_parsed_or("grelier.dialog.header.font_size", DEFAULT_HEADER_FONT_SIZE),
             body_font_size: settings
                 .get_parsed_or("grelier.info_dialog.body_font_size", DEFAULT_BODY_FONT_SIZE),
             header_spacing: settings
                 .get_parsed_or("grelier.info_dialog.header_spacing", DEFAULT_HEADER_SPACING),
             header_bottom_spacing: settings.get_parsed_or(
-                "grelier.dialog.header_bottom_spacing",
+                "grelier.dialog.header.bottom_spacing",
                 DEFAULT_HEADER_BOTTOM_SPACING,
             ),
             line_spacing: settings
                 .get_parsed_or("grelier.info_dialog.line_spacing", DEFAULT_LINE_SPACING),
             container_padding_y: settings.get_parsed_or(
-                "grelier.dialog.container_padding_y",
+                "grelier.dialog.container.padding_y",
                 DEFAULT_CONTAINER_PADDING_Y,
             ),
             container_padding_x: settings.get_parsed_or(
-                "grelier.dialog.container_padding_x",
+                "grelier.dialog.container.padding_x",
                 DEFAULT_CONTAINER_PADDING_X,
             ),
             bottom_padding_extra: settings.get_parsed_or(
@@ -91,15 +91,15 @@ impl BorderSettings {
     fn load() -> Self {
         let settings = settings::settings();
         Self {
-            blend: settings.get_bool_or("grelier.bar.border_blend", true),
-            line_width: settings.get_parsed_or("grelier.bar.border_line_width", 1.0),
-            column_width: settings.get_parsed_or("grelier.bar.border_column_width", 3.0),
-            mix_1: settings.get_parsed_or("grelier.bar.border_mix_1", 0.2),
-            mix_2: settings.get_parsed_or("grelier.bar.border_mix_2", 0.6),
-            mix_3: settings.get_parsed_or("grelier.bar.border_mix_3", 1.0),
-            alpha_1: settings.get_parsed_or("grelier.bar.border_alpha_1", 0.6),
-            alpha_2: settings.get_parsed_or("grelier.bar.border_alpha_2", 0.7),
-            alpha_3: settings.get_parsed_or("grelier.bar.border_alpha_3", 0.9),
+            blend: settings.get_bool_or("grelier.bar.border.blend", true),
+            line_width: settings.get_parsed_or("grelier.bar.border.line_width", 1.0),
+            column_width: settings.get_parsed_or("grelier.bar.border.column_width", 3.0),
+            mix_1: settings.get_parsed_or("grelier.bar.border.mix_1", 0.2),
+            mix_2: settings.get_parsed_or("grelier.bar.border.mix_2", 0.6),
+            mix_3: settings.get_parsed_or("grelier.bar.border.mix_3", 1.0),
+            alpha_1: settings.get_parsed_or("grelier.bar.border.alpha_1", 0.6),
+            alpha_2: settings.get_parsed_or("grelier.bar.border.alpha_2", 0.7),
+            alpha_3: settings.get_parsed_or("grelier.bar.border.alpha_3", 0.9),
         }
     }
 }

@@ -13,21 +13,23 @@ This project is in active development and should not be considered stable.
 ## Usage
 
 ```
-Usage: grelier [--settings <settings>] [--list-themes] [--list-gauges] [--list-settings]
+Usage: grelier [--settings <settings>] [--list-themes] [--list-gauges] [--list-panels] [--list-settings] [--config <config>]
 
 Workspace + gauges display
 
 Options:
-  --settings        comma-separated settings overrides (key=value,key2=value2)
+  --settings        setting override; repeat for multiple pairs (key=value or key:value)
   --list-themes     list available themes and exit
   --list-gauges     list available gauges and exit
+  --list-panels     list available panels and exit
   --list-settings   list settings for the selected gauges and exit
+  --config          override the settings file path
   --help, help      display usage information
 ```
 
 ## Configuration
 
-Grelier reads from `$HOME/.config/grelier/Settings-<version>.xresources` on start for its configuration.  Any configuration changes made interactively are immediately saved back to this file.  The file is regenerated each time, so any manual edits will be destroyed.  `grelier --list-settings` can be used to see all supported settings.  `grelier --list-gauges` will print all available gauges with descriptions.
+Grelier reads from `$HOME/.config/grelier/Settings-<version>.xresources` on start for its configuration.  Use `--config` to override the settings file path.  Any configuration changes made interactively are immediately saved back to this file.  The file is regenerated each time, so any manual edits will be destroyed.  `grelier --list-settings` can be used to see all supported settings.  `grelier --list-gauges` will print all available gauges with descriptions.  `grelier --list-panels` will list the valid panel identifiers.
 
 ### Workspace styling
 
@@ -44,18 +46,19 @@ Grelier reads from `$HOME/.config/grelier/Settings-<version>.xresources` on star
 | Setting | Default | Description |
 | --- | --- | --- |
 | `grelier.gauges` | `clock,date` | Comma-separated list of gauges to display. |
-| `grelier.orientation` | `left` | Bar placement on the screen. |
-| `grelier.theme` | `Nord` | Theme name to load. |
+| `grelier.panels` | `workspaces,top_apps,gauges` | Comma-separated panel order. |
+| `grelier.bar.orientation` | `left` | Bar placement on the screen. |
+| `grelier.bar.theme` | `Nord` | Theme name to load. |
 | `grelier.bar.width` | `28` | Bar width in columns. |
-| `grelier.bar.border_blend` | `true` | Blend border colors with the bar background. |
-| `grelier.bar.border_line_width` | `1.0` | Border line width. |
-| `grelier.bar.border_column_width` | `3.0` | Border column width. |
-| `grelier.bar.border_mix_1` | `0.2` | Border color mix level 1. |
-| `grelier.bar.border_mix_2` | `0.6` | Border color mix level 2. |
-| `grelier.bar.border_mix_3` | `1.0` | Border color mix level 3. |
-| `grelier.bar.border_alpha_1` | `0.9` | Border alpha level 1. |
-| `grelier.bar.border_alpha_2` | `0.7` | Border alpha level 2. |
-| `grelier.bar.border_alpha_3` | `0.9` | Border alpha level 3. |
+| `grelier.bar.border.blend` | `true` | Blend border colors with the bar background. |
+| `grelier.bar.border.line_width` | `1.0` | Border line width. |
+| `grelier.bar.border.column_width` | `3.0` | Border column width. |
+| `grelier.bar.border.mix_1` | `0.2` | Border color mix level 1. |
+| `grelier.bar.border.mix_2` | `0.6` | Border color mix level 2. |
+| `grelier.bar.border.mix_3` | `1.0` | Border color mix level 3. |
+| `grelier.bar.border.alpha_1` | `0.9` | Border alpha level 1. |
+| `grelier.bar.border.alpha_2` | `0.7` | Border alpha level 2. |
+| `grelier.bar.border.alpha_3` | `0.9` | Border alpha level 3. |
 
 ## Gauges
 

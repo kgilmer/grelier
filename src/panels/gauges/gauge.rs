@@ -87,12 +87,6 @@ impl fmt::Debug for GaugeModel {
 }
 
 #[derive(Debug, Clone, Copy)]
-pub enum GaugeClickTarget {
-    Icon,
-    Value,
-}
-
-#[derive(Debug, Clone, Copy)]
 pub enum GaugeInput {
     Button(mouse::Button),
     ScrollUp,
@@ -102,7 +96,6 @@ pub enum GaugeInput {
 #[derive(Debug, Clone, Copy)]
 pub struct GaugeClick {
     pub input: GaugeInput,
-    pub target: GaugeClickTarget,
 }
 
 pub type GaugeClickAction = Arc<dyn Fn(GaugeClick) + Send + Sync>;
@@ -166,36 +159,6 @@ pub fn event_stream(
     thread::spawn(move || start(sender));
 
     receiver
-}
-
-pub enum GaugeKind {
-    Interval {
-        id: &'static str,
-        icon: Option<svg::Handle>,
-        interval: Box<dyn Fn() -> Duration + Send + 'static>,
-        tick: Box<dyn Fn() -> Option<(Option<GaugeValue>, GaugeValueAttention)> + Send + 'static>,
-        on_click: Option<GaugeClickAction>,
-    },
-    Event {
-        id: &'static str,
-        icon: Option<svg::Handle>,
-        start: Box<dyn Fn(mpsc::Sender<GaugeModel>) + Send + 'static>,
-    },
-}
-
-impl GaugeKind {
-    pub fn spawn(self) -> Box<dyn iced::futures::Stream<Item = GaugeModel> + Send + Unpin> {
-        match self {
-            GaugeKind::Interval {
-                id,
-                icon,
-                interval,
-                tick,
-                on_click,
-            } => Box::new(fixed_interval(id, icon, interval, tick, on_click)),
-            GaugeKind::Event { id, icon, start } => Box::new(event_stream(id, icon, start)),
-        }
-    }
 }
 
 #[cfg(test)]
