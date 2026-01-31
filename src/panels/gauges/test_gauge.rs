@@ -7,9 +7,10 @@ use std::time::Duration;
 use crate::icon::{icon_quantity, svg_asset};
 use crate::info_dialog::InfoDialog;
 use crate::panels::gauges::gauge::{
-    GaugeClick, GaugeClickAction, GaugeValue, GaugeValueAttention, SettingSpec, fixed_interval,
+    GaugeClick, GaugeClickAction, GaugeValue, GaugeValueAttention, fixed_interval,
 };
 use crate::panels::gauges::gauge_registry::{GaugeSpec, GaugeStream};
+use crate::settings::SettingSpec;
 use std::sync::Arc;
 
 // Step sized to traverse the full range without skipping endpoints.

@@ -2,12 +2,13 @@
 // Consumes Settings: grelier.gauge.net.* (via net_common).
 use crate::icon::{icon_quantity, svg_asset};
 use crate::info_dialog::InfoDialog;
-use crate::panels::gauges::gauge::{GaugeValue, GaugeValueAttention, SettingSpec, fixed_interval};
+use crate::panels::gauges::gauge::{GaugeValue, GaugeValueAttention, fixed_interval};
 use crate::panels::gauges::gauge_registry::{GaugeSpec, GaugeStream};
 use crate::panels::gauges::net_common::{
     NetIntervalState, SlidingWindow, format_rate_per_sec, net_interval_config_from_settings,
     shared_net_sampler,
 };
+use crate::settings::SettingSpec;
 use iced::futures::StreamExt;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;

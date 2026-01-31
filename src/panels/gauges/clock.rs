@@ -7,10 +7,11 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use crate::icon::svg_asset;
 use crate::panels::gauges::gauge::{
-    GaugeClick, GaugeClickAction, GaugeValue, GaugeValueAttention, SettingSpec, fixed_interval,
+    GaugeClick, GaugeClickAction, GaugeValue, GaugeValueAttention, fixed_interval,
 };
 use crate::panels::gauges::gauge_registry::{GaugeSpec, GaugeStream};
 use crate::settings;
+use crate::settings::SettingSpec;
 
 #[derive(Debug, Clone, Copy, Default)]
 enum HourFormat {

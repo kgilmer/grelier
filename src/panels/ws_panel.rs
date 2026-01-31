@@ -123,14 +123,15 @@ pub fn view<'a>(state: &'a BarState) -> Panel<'a> {
                     .spacing(workspace_icon_spacing)
                     .align_x(alignment::Horizontal::Center);
                 if workspace_app_icons {
-                    for app_id in ws_apps {
+                    for app in ws_apps {
                         let handle = state
                             .app_icons
-                            .icon_for(app_id)
+                            .icon_for(&app.app_id)
                             .unwrap_or(&FALLBACK_ICON_HANDLE);
-                        let app_id = app_id.to_string();
+                        let app_id = app.app_id.clone();
+                        let con_id = app.con_id;
                         let icon = mouse_area(app_icon_view(handle, workspace_icon_size))
-                            .on_press(Message::WorkspaceAppClicked { app_id })
+                            .on_press(Message::WorkspaceAppClicked { con_id, app_id })
                             .interaction(mouse::Interaction::Pointer);
                         icons_column = icons_column.push(icon);
                     }

@@ -2,11 +2,10 @@
 // Consumes Settings: grelier.gauge.battery.warning_percent, grelier.gauge.battery.danger_percent.
 use crate::icon::svg_asset;
 use crate::info_dialog::InfoDialog;
-use crate::panels::gauges::gauge::{
-    GaugeModel, GaugeValue, GaugeValueAttention, SettingSpec, event_stream,
-};
+use crate::panels::gauges::gauge::{GaugeModel, GaugeValue, GaugeValueAttention, event_stream};
 use crate::panels::gauges::gauge_registry::{GaugeSpec, GaugeStream};
 use crate::settings;
+use crate::settings::SettingSpec;
 use battery::State as BatteryState;
 use battery::units::{energy::watt_hour, time::second};
 use std::sync::{Arc, Mutex};
