@@ -239,12 +239,13 @@ impl AppIconCache {
     }
 
     pub fn icon_for(&self, app_id: &str) -> Option<&IconHandle> {
+        let lower = app_id.to_ascii_lowercase();
         self.by_appid
             .get(app_id)
-            .or_else(|| self.by_appid.get(&app_id.to_ascii_lowercase()))
-            .or_else(|| self.by_lower_title.get(&app_id.to_ascii_lowercase()))
+            .or_else(|| self.by_appid.get(&lower))
+            .or_else(|| self.by_lower_title.get(&lower))
             .or_else(|| self.by_icon_name.get(app_id))
-            .or_else(|| self.by_icon_name.get(&app_id.to_ascii_lowercase()))
+            .or_else(|| self.by_icon_name.get(&lower))
     }
 }
 
@@ -330,13 +331,7 @@ impl BarState {
             .unwrap_or(height as i32);
         let max_top = (screen_height - height as i32).max(0);
         // Center the popup around the anchor and keep it on-screen vertically.
-        let mut position_y = anchor_y.saturating_sub(height as i32 / 2);
-        if position_y < 0 {
-            position_y = 0;
-        }
-        if position_y > max_top {
-            position_y = max_top;
-        }
+        let position_y = anchor_y.saturating_sub(height as i32 / 2).clamp(0, max_top);
 
         let settings = IcedNewPopupSettings {
             size: (width, height),
@@ -360,11 +355,8 @@ impl BarState {
     }
 
     pub fn close_dialogs(&mut self) -> Task<Message> {
-        let ids: Vec<window::Id> = self.dialog_windows.keys().copied().collect();
-        self.dialog_windows.clear();
-        for id in &ids {
-            self.closing_dialogs.insert(*id);
-        }
+        let ids: Vec<window::Id> = self.dialog_windows.drain().map(|(id, _)| id).collect();
+        self.closing_dialogs.extend(&ids);
         Task::batch(ids.into_iter().map(Message::RemoveWindow).map(Task::done))
     }
 
@@ -375,12 +367,10 @@ impl BarState {
     pub(crate) fn allow_click_at(&mut self, now: Instant) -> bool {
         let too_soon_since_click = self
             .last_click_at
-            .and_then(|last| now.checked_duration_since(last))
-            .is_some_and(|elapsed| elapsed < CLICK_FILTER_WINDOW);
+            .is_some_and(|last| now.saturating_duration_since(last) < CLICK_FILTER_WINDOW);
         let too_soon_since_dialog = self
             .last_dialog_opened_at
-            .and_then(|last| now.checked_duration_since(last))
-            .is_some_and(|elapsed| elapsed < CLICK_FILTER_WINDOW);
+            .is_some_and(|last| now.saturating_duration_since(last) < CLICK_FILTER_WINDOW);
 
         if too_soon_since_click || too_soon_since_dialog {
             return false;

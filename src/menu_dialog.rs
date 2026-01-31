@@ -210,7 +210,8 @@ pub fn menu_view<'a, Message: Clone + 'a>(
     } in &menu.items
     {
         let is_hovered = hovered_item.is_some_and(|hovered| hovered == id.as_str());
-        let indicator = Svg::new(if *selected {
+        let is_selected = *selected;
+        let indicator = Svg::new(if is_selected {
             checked_icon.clone()
         } else {
             empty_icon.clone()
@@ -221,7 +222,9 @@ pub fn menu_view<'a, Message: Clone + 'a>(
             move |theme: &Theme, status| {
                 let palette = theme.extended_palette();
                 let hovered = is_hovered || matches!(status, svg::Status::Hovered);
-                let color = if hovered {
+                let color = if is_selected {
+                    palette.secondary.strong.color
+                } else if hovered {
                     palette.primary.weak.text
                 } else {
                     palette.primary.weak.color

@@ -110,7 +110,7 @@ pub fn view<'a>(state: &'a BarState) -> Panel<'a> {
                             .width(Length::Fixed(gauge_icon_size))
                             .height(Length::Fixed(gauge_icon_size))
                             .style(move |theme: &Theme| {
-                                let target = theme.palette().text;
+                                let target = theme.extended_palette().secondary.strong.color;
                                 let transparent = Color { a: 0.0, ..target };
                                 container::Style {
                                     background: Some(lerp_color(transparent, target, t).into()),

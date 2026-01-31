@@ -71,16 +71,16 @@ impl fmt::Debug for GaugeModel {
                 &self
                     .menu
                     .as_ref()
-                    .map(|menu| menu.title.clone())
-                    .unwrap_or_else(|| "<none>".to_string()),
+                    .map(|menu| menu.title.as_str())
+                    .unwrap_or("<none>"),
             )
             .field(
                 "info",
                 &self
                     .info
                     .as_ref()
-                    .map(|dialog| dialog.title.clone())
-                    .unwrap_or_else(|| "<none>".to_string()),
+                    .map(|dialog| dialog.title.as_str())
+                    .unwrap_or("<none>"),
             )
             .finish_non_exhaustive()
     }
