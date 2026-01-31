@@ -24,7 +24,13 @@ pub struct WorkspaceInfo {
 #[derive(Debug, Clone)]
 pub struct WorkspaceApps {
     pub name: String,
-    pub apps: Vec<String>,
+    pub apps: Vec<WorkspaceApp>,
+}
+
+#[derive(Debug, Clone)]
+pub struct WorkspaceApp {
+    pub app_id: String,
+    pub con_id: i64,
 }
 
 #[derive(Debug, Clone)]
@@ -72,14 +78,11 @@ pub fn focus_workspace(name: &str) -> Result<(), Error> {
     })
 }
 
-/// Focus the first matching app by app_id or class.
-pub fn focus_app(app_id: &str) -> Result<(), Error> {
+/// Focus the container with the given Sway con_id.
+pub fn focus_con_id(con_id: i64) -> Result<(), Error> {
     with_command_conn(|conn| {
-        let escaped = app_id.replace('"', "\\\"");
-        let app_id_cmd = format!("[app_id=\"{escaped}\"] focus");
-        let class_cmd = format!("[class=\"{escaped}\"] focus");
-        let _ = conn.run_command(app_id_cmd)?;
-        let _ = conn.run_command(class_cmd)?;
+        let cmd = format!("[con_id={con_id}] focus");
+        let _ = conn.run_command(cmd)?;
         Ok(())
     })
 }
@@ -152,9 +155,12 @@ fn collect_workspace_apps(node: &Node, out: &mut Vec<WorkspaceApps>) {
     }
 }
 
-fn collect_app_names(node: &Node, out: &mut Vec<String>) {
+fn collect_app_names(node: &Node, out: &mut Vec<WorkspaceApp>) {
     if let Some(name) = app_name(node) {
-        out.push(name);
+        out.push(WorkspaceApp {
+            app_id: name,
+            con_id: node.id,
+        });
     }
 
     for child in node.nodes.iter().chain(node.floating_nodes.iter()) {

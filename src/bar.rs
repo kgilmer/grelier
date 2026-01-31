@@ -31,6 +31,7 @@ pub enum Message {
     },
     WorkspaceClicked(String),
     WorkspaceAppClicked {
+        con_id: i64,
         app_id: String,
     },
     TopAppClicked {
@@ -195,7 +196,7 @@ impl std::str::FromStr for Orientation {
 #[derive(Clone, Default)]
 pub struct BarState {
     pub workspaces: Vec<WorkspaceInfo>,
-    pub workspace_apps: HashMap<String, Vec<String>>,
+    pub workspace_apps: HashMap<String, Vec<crate::sway_workspace::WorkspaceApp>>,
     pub top_apps: Vec<AppDescriptor>,
     pub app_icons: AppIconCache,
     pub gauges: Vec<GaugeModel>,

@@ -464,12 +464,12 @@ fn update(state: &mut BarState, message: Message) -> Task<Message> {
                 eprintln!("Failed to focus workspace \"{name}\": {err}");
             }
         }
-        Message::WorkspaceAppClicked { app_id } => {
+        Message::WorkspaceAppClicked { con_id, app_id } => {
             if !state.dialog_windows.is_empty() {
                 return state.close_dialogs();
             }
-            if let Err(err) = sway_workspace::focus_app(&app_id) {
-                eprintln!("Failed to focus app \"{app_id}\": {err}");
+            if let Err(err) = sway_workspace::focus_con_id(con_id) {
+                eprintln!("Failed to focus app \"{app_id}\" (con_id {con_id}): {err}");
             }
         }
         Message::TopAppClicked { app_id } => {
