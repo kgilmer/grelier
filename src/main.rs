@@ -612,60 +612,15 @@ fn update(state: &mut BarState, message: Message) -> Task<Message> {
             return handle_window_focus_change(state, focused);
         }
         Message::WindowOpened(window) => {
-            if !state.dialog_windows.contains_key(&window)
-                && !state.closing_dialogs.contains(&window)
-            {
-                state.bar_windows.insert(window);
-                if state.primary_window.is_none() {
-                    state.primary_window = Some(window);
-                    state.pending_primary_window = false;
-                }
-                if let Some(primary) = state.primary_window {
-                    let mut tasks = Vec::new();
-                    let mut to_remove = Vec::new();
-                    for id in &state.bar_windows {
-                        if *id != primary {
-                            to_remove.push(*id);
-                        }
-                    }
-                    for id in to_remove {
-                        state.closing_dialogs.insert(id);
-                        state.bar_windows.remove(&id);
-                        tasks.push(Task::done(Message::RemoveWindow(id)));
-                    }
-                    if !tasks.is_empty() {
-                        return Task::batch(tasks);
-                    }
-                }
+            if let Some(task) = track_bar_window(state, window) {
+                return task;
             }
         }
         Message::WindowEvent(window, event) => {
             if event != iced::window::Event::Closed
-                && !state.dialog_windows.contains_key(&window)
-                && !state.closing_dialogs.contains(&window)
+                && let Some(task) = track_bar_window(state, window)
             {
-                state.bar_windows.insert(window);
-                if state.primary_window.is_none() {
-                    state.primary_window = Some(window);
-                    state.pending_primary_window = false;
-                }
-                if let Some(primary) = state.primary_window {
-                    let mut tasks = Vec::new();
-                    let mut to_remove = Vec::new();
-                    for id in &state.bar_windows {
-                        if *id != primary {
-                            to_remove.push(*id);
-                        }
-                    }
-                    for id in to_remove {
-                        state.closing_dialogs.insert(id);
-                        state.bar_windows.remove(&id);
-                        tasks.push(Task::done(Message::RemoveWindow(id)));
-                    }
-                    if !tasks.is_empty() {
-                        return Task::batch(tasks);
-                    }
-                }
+                return task;
             }
         }
         Message::MenuDismissed(window) => {
@@ -761,6 +716,39 @@ fn update(state: &mut BarState, message: Message) -> Task<Message> {
     }
 
     Task::none()
+}
+
+fn track_bar_window(state: &mut BarState, window: window::Id) -> Option<Task<Message>> {
+    if state.dialog_windows.contains_key(&window) || state.closing_dialogs.contains(&window) {
+        return None;
+    }
+
+    state.bar_windows.insert(window);
+    if state.primary_window.is_none() {
+        state.primary_window = Some(window);
+        state.pending_primary_window = false;
+    }
+
+    let primary = state.primary_window?;
+
+    let mut tasks = Vec::new();
+    let mut to_remove = Vec::new();
+    for id in &state.bar_windows {
+        if *id != primary {
+            to_remove.push(*id);
+        }
+    }
+    for id in to_remove {
+        state.closing_dialogs.insert(id);
+        state.bar_windows.remove(&id);
+        tasks.push(Task::done(Message::RemoveWindow(id)));
+    }
+
+    if tasks.is_empty() {
+        None
+    } else {
+        Some(Task::batch(tasks))
+    }
 }
 
 fn layershell_reopen_settings() -> NewLayerShellSettings {
