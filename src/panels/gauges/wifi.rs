@@ -4,10 +4,11 @@ use crate::icon::{icon_quantity, svg_asset};
 use crate::info_dialog::InfoDialog;
 use crate::panels::gauges::gauge::{
     GaugeMenu, GaugeMenuItem, GaugeModel, GaugeValue, GaugeValueAttention, MenuSelectAction,
-    SettingSpec, event_stream,
+    event_stream,
 };
 use crate::panels::gauges::gauge_registry::{GaugeSpec, GaugeStream};
 use crate::settings;
+use crate::settings::SettingSpec;
 use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::os::unix::net::UnixDatagram;

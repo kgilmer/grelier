@@ -4,10 +4,11 @@ use crate::icon::{icon_quantity, svg_asset};
 use crate::info_dialog::InfoDialog;
 use crate::panels::gauges::gauge::{
     GaugeClick, GaugeClickAction, GaugeMenu, GaugeMenuItem, GaugeValue, GaugeValueAttention,
-    MenuSelectAction, SettingSpec, event_stream,
+    MenuSelectAction, event_stream,
 };
 use crate::panels::gauges::gauge_registry::{GaugeSpec, GaugeStream};
 use crate::settings;
+use crate::settings::SettingSpec;
 use libpulse_binding as pulse;
 use pulse::callbacks::ListResult;
 use pulse::context::subscribe::{Facility, InterestMaskSet};

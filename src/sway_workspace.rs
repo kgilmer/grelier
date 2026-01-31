@@ -53,6 +53,11 @@ pub fn fetch_workspace_apps() -> Result<Vec<WorkspaceApps>, Error> {
     })
 }
 
+/// Fetch the current Sway outputs.
+pub fn fetch_outputs() -> Result<Vec<swayipc::Output>, Error> {
+    with_command_conn(|conn| conn.get_outputs())
+}
+
 /// Subscribe to workspace-related events.
 pub fn subscribe_workspace_events() -> Result<EventStream, Error> {
     Connection::new()?.subscribe([EventType::Workspace, EventType::Window])
@@ -276,6 +281,11 @@ impl FakeConnection {
 
     fn get_tree(&mut self) -> Result<swayipc::Node, Error> {
         Ok(empty_node())
+    }
+
+    fn get_outputs(&mut self) -> Result<Vec<swayipc::Output>, Error> {
+        log_call(self.id, "get_outputs");
+        Ok(Vec::new())
     }
 }
 

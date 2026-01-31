@@ -2,9 +2,10 @@
 // Consumes Settings: grelier.gauge.ram.*.
 use crate::icon::{icon_quantity, svg_asset};
 use crate::info_dialog::InfoDialog;
-use crate::panels::gauges::gauge::{GaugeValue, GaugeValueAttention, SettingSpec, fixed_interval};
+use crate::panels::gauges::gauge::{GaugeValue, GaugeValueAttention, fixed_interval};
 use crate::panels::gauges::gauge_registry::{GaugeSpec, GaugeStream};
 use crate::settings;
+use crate::settings::SettingSpec;
 use iced::futures::StreamExt;
 use std::fs::{File, read_to_string};
 use std::io::{BufRead, BufReader};

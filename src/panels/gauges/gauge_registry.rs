@@ -1,6 +1,6 @@
 use crate::bar::Message;
-use crate::panels::gauges::gauge::{GaugeModel, SettingSpec};
-use crate::settings::Settings;
+use crate::panels::gauges::gauge::GaugeModel;
+use crate::settings::{SettingSpec, Settings};
 use iced::Subscription;
 use iced::futures::StreamExt;
 use std::sync::OnceLock;

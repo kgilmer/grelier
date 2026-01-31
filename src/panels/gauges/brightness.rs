@@ -3,11 +3,11 @@
 use crate::icon::{icon_quantity, svg_asset};
 use crate::info_dialog::InfoDialog;
 use crate::panels::gauges::gauge::{
-    GaugeClick, GaugeClickAction, GaugeInput, GaugeValue, GaugeValueAttention, SettingSpec,
-    event_stream,
+    GaugeClick, GaugeClickAction, GaugeInput, GaugeValue, GaugeValueAttention, event_stream,
 };
 use crate::panels::gauges::gauge_registry::{GaugeSpec, GaugeStream};
 use crate::settings;
+use crate::settings::SettingSpec;
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};

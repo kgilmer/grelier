@@ -3,8 +3,187 @@ use std::collections::HashMap;
 use std::str::FromStr;
 use std::sync::{OnceLock, RwLock};
 
-use crate::panels::gauges::gauge::SettingSpec;
 use crate::settings_storage::SettingsStorage;
+
+/// Static settings metadata for defaults and help output.
+#[derive(Debug, Clone, Copy)]
+pub struct SettingSpec {
+    pub key: &'static str,
+    pub default: &'static str,
+}
+
+pub const NO_SETTINGS: &[SettingSpec] = &[];
+
+/// Base settings shared by the bar regardless of which gauges are enabled.
+pub fn base_setting_specs(
+    default_gauges: &'static str,
+    default_panels: &'static str,
+    default_orientation: &'static str,
+    default_theme: &'static str,
+) -> Vec<SettingSpec> {
+    vec![
+        SettingSpec {
+            key: "grelier.gauges",
+            default: default_gauges,
+        },
+        SettingSpec {
+            key: "grelier.panels",
+            default: default_panels,
+        },
+        SettingSpec {
+            key: "grelier.bar.orientation",
+            default: default_orientation,
+        },
+        SettingSpec {
+            key: "grelier.bar.theme",
+            default: default_theme,
+        },
+        SettingSpec {
+            key: "grelier.bar.width",
+            default: "28",
+        },
+        SettingSpec {
+            key: "grelier.bar.border.blend",
+            default: "true",
+        },
+        SettingSpec {
+            key: "grelier.bar.border.line_width",
+            default: "1.0",
+        },
+        SettingSpec {
+            key: "grelier.bar.border.column_width",
+            default: "3.0",
+        },
+        SettingSpec {
+            key: "grelier.bar.border.mix_1",
+            default: "0.2",
+        },
+        SettingSpec {
+            key: "grelier.bar.border.mix_2",
+            default: "0.6",
+        },
+        SettingSpec {
+            key: "grelier.bar.border.mix_3",
+            default: "1.0",
+        },
+        SettingSpec {
+            key: "grelier.bar.border.alpha_1",
+            default: "0.6",
+        },
+        SettingSpec {
+            key: "grelier.bar.border.alpha_2",
+            default: "0.7",
+        },
+        SettingSpec {
+            key: "grelier.bar.border.alpha_3",
+            default: "0.9",
+        },
+        SettingSpec {
+            key: "grelier.dialog.header.font_size",
+            default: "14",
+        },
+        SettingSpec {
+            key: "grelier.dialog.title_align",
+            default: "center",
+        },
+        SettingSpec {
+            key: "grelier.dialog.header.bottom_spacing",
+            default: "4",
+        },
+        SettingSpec {
+            key: "grelier.dialog.container.padding_y",
+            default: "10",
+        },
+        SettingSpec {
+            key: "grelier.dialog.container.padding_x",
+            default: "10",
+        },
+        SettingSpec {
+            key: "grelier.gauge.ui.anchor_offset_icon",
+            default: "7.0",
+        },
+        SettingSpec {
+            key: "grelier.app.workspace.padding_x",
+            default: "4",
+        },
+        SettingSpec {
+            key: "grelier.app.workspace.padding_y",
+            default: "2",
+        },
+        SettingSpec {
+            key: "grelier.app.workspace.spacing",
+            default: "2",
+        },
+        SettingSpec {
+            key: "grelier.app.workspace.button_padding_x",
+            default: "4",
+        },
+        SettingSpec {
+            key: "grelier.app.workspace.button_padding_y",
+            default: "4",
+        },
+        SettingSpec {
+            key: "grelier.app.workspace.corner_radius",
+            default: "5.0",
+        },
+        SettingSpec {
+            key: "grelier.app.workspace.label_size",
+            default: "14",
+        },
+        SettingSpec {
+            key: "grelier.app.workspace.icon_size",
+            default: "22.0",
+        },
+        SettingSpec {
+            key: "grelier.app.workspace.icon_spacing",
+            default: "6",
+        },
+        SettingSpec {
+            key: "grelier.app.workspace.icon_padding_x",
+            default: "2",
+        },
+        SettingSpec {
+            key: "grelier.app.workspace.icon_padding_y",
+            default: "2",
+        },
+        SettingSpec {
+            key: "grelier.app.workspace.app_icons",
+            default: "true",
+        },
+        SettingSpec {
+            key: "grelier.app.top_apps.count",
+            default: "6",
+        },
+        SettingSpec {
+            key: "grelier.app.top_apps.icon_size",
+            default: "20.0",
+        },
+        SettingSpec {
+            key: "grelier.gauge.ui.padding_x",
+            default: "2",
+        },
+        SettingSpec {
+            key: "grelier.gauge.ui.padding_y",
+            default: "2",
+        },
+        SettingSpec {
+            key: "grelier.gauge.ui.spacing",
+            default: "7",
+        },
+        SettingSpec {
+            key: "grelier.gauge.ui.icon_size",
+            default: "20.0",
+        },
+        SettingSpec {
+            key: "grelier.gauge.ui.value_icon_size",
+            default: "20.0",
+        },
+        SettingSpec {
+            key: "grelier.gauge.ui.icon_value_spacing",
+            default: "0.0",
+        },
+    ]
+}
 
 #[derive(Debug)]
 pub struct Settings {

@@ -4,9 +4,10 @@ use chrono::Local;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use crate::icon::svg_asset;
-use crate::panels::gauges::gauge::{GaugeValue, GaugeValueAttention, SettingSpec, fixed_interval};
+use crate::panels::gauges::gauge::{GaugeValue, GaugeValueAttention, fixed_interval};
 use crate::panels::gauges::gauge_registry::{GaugeSpec, GaugeStream};
 use crate::settings;
+use crate::settings::SettingSpec;
 
 const SECS_PER_DAY: u64 = 86_400;
 const DAY_LENGTH: Duration = Duration::from_secs(SECS_PER_DAY);

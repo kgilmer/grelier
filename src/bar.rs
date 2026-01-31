@@ -496,7 +496,7 @@ impl BarState {
         mouse_area(layered)
             .on_press(Message::BackgroundClicked)
             .on_right_press(Message::BackgroundClicked)
-            .interaction(mouse::Interaction::Pointer)
+            .interaction(mouse::Interaction::None)
             .into()
     }
 }
