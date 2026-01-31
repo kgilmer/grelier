@@ -422,10 +422,13 @@ fn build_forward_args(args: &Args) -> Vec<OsString> {
 }
 
 fn app_subscription(_state: &BarState, gauges: &[String]) -> Subscription<Message> {
-    let mut subs = Vec::new();
-    subs.push(sway_workspace::workspace_subscription());
-    subs.push(event::listen().map(Message::IcedEvent));
-    subs.push(window::close_events().map(Message::WindowClosed));
+    let mut subs = vec![
+        sway_workspace::workspace_subscription(),
+        event::listen().map(Message::IcedEvent),
+        window::open_events().map(Message::WindowOpened),
+        window::events().map(|(id, event)| Message::WindowEvent(id, event)),
+        window::close_events().map(Message::WindowClosed),
+    ];
     for gauge in gauges {
         if let Some(spec) = gauge_registry::find(gauge) {
             subs.push(gauge_registry::subscription_for(spec));
@@ -608,6 +611,63 @@ fn update(state: &mut BarState, message: Message) -> Task<Message> {
         Message::WindowFocusChanged { focused } => {
             return handle_window_focus_change(state, focused);
         }
+        Message::WindowOpened(window) => {
+            if !state.dialog_windows.contains_key(&window)
+                && !state.closing_dialogs.contains(&window)
+            {
+                state.bar_windows.insert(window);
+                if state.primary_window.is_none() {
+                    state.primary_window = Some(window);
+                    state.pending_primary_window = false;
+                }
+                if let Some(primary) = state.primary_window {
+                    let mut tasks = Vec::new();
+                    let mut to_remove = Vec::new();
+                    for id in &state.bar_windows {
+                        if *id != primary {
+                            to_remove.push(*id);
+                        }
+                    }
+                    for id in to_remove {
+                        state.closing_dialogs.insert(id);
+                        state.bar_windows.remove(&id);
+                        tasks.push(Task::done(Message::RemoveWindow(id)));
+                    }
+                    if !tasks.is_empty() {
+                        return Task::batch(tasks);
+                    }
+                }
+            }
+        }
+        Message::WindowEvent(window, event) => {
+            if event != iced::window::Event::Closed
+                && !state.dialog_windows.contains_key(&window)
+                && !state.closing_dialogs.contains(&window)
+            {
+                state.bar_windows.insert(window);
+                if state.primary_window.is_none() {
+                    state.primary_window = Some(window);
+                    state.pending_primary_window = false;
+                }
+                if let Some(primary) = state.primary_window {
+                    let mut tasks = Vec::new();
+                    let mut to_remove = Vec::new();
+                    for id in &state.bar_windows {
+                        if *id != primary {
+                            to_remove.push(*id);
+                        }
+                    }
+                    for id in to_remove {
+                        state.closing_dialogs.insert(id);
+                        state.bar_windows.remove(&id);
+                        tasks.push(Task::done(Message::RemoveWindow(id)));
+                    }
+                    if !tasks.is_empty() {
+                        return Task::batch(tasks);
+                    }
+                }
+            }
+        }
         Message::MenuDismissed(window) => {
             state.dialog_windows.remove(&window);
             state.closing_dialogs.remove(&window);
@@ -635,8 +695,10 @@ fn update(state: &mut BarState, message: Message) -> Task<Message> {
                 .is_some_and(|primary| primary == window);
             state.dialog_windows.remove(&window);
             state.closing_dialogs.remove(&window);
+            state.bar_windows.remove(&window);
             if is_primary {
                 state.primary_window = None;
+                state.pending_primary_window = true;
                 let mut tasks = vec![state.close_dialogs()];
                 let id = window::Id::unique();
                 let task = Task::done(Message::NewLayerShell {
@@ -656,29 +718,29 @@ fn update(state: &mut BarState, message: Message) -> Task<Message> {
             if recently_handled {
                 return Task::none();
             }
-            state.last_output_change_at = Some(Instant::now());
-
-            let mut tasks = vec![state.close_dialogs(), Task::done(Message::ForgetLastOutput)];
-            if let Some(primary) = state.primary_window.take() {
-                tasks.push(Task::done(Message::RemoveWindow(primary)));
+            if state.pending_primary_window && state.primary_window.is_none() {
+                return Task::none();
             }
-            let id = window::Id::unique();
-            tasks.push(Task::done(Message::NewLayerShell {
-                settings: layershell_reopen_settings(),
-                id,
-            }));
-            return Task::batch(tasks);
+            if state.primary_window.is_none() {
+                return Task::none();
+            }
+            state.last_output_change_at = Some(Instant::now());
+            // On resume/hotplug, let existing windows settle. Forcing a reopen here
+            // can leave a stale blank window behind on some compositors.
+            return Task::none();
         }
         Message::IcedEvent(iced::Event::Window(iced::window::Event::Unfocused)) => {
             return Task::done(Message::WindowFocusChanged { focused: false });
         }
         Message::IcedEvent(_) => {}
         Message::NewLayerShell { id, .. } => {
+            state.pending_primary_window = false;
             if state.primary_window.is_none() {
                 state.primary_window = Some(id);
             }
         }
         Message::NewBaseWindow { id, .. } => {
+            state.pending_primary_window = false;
             if state.primary_window.is_none() {
                 state.primary_window = Some(id);
             }
