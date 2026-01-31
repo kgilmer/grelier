@@ -61,6 +61,7 @@ pub enum Message {
     MenuDismissed(iced::window::Id),
     WindowClosed(iced::window::Id),
     CacheRefreshed(Result<(Vec<AppDescriptor>, Vec<AppDescriptor>), String>),
+    OutputChanged,
     IcedEvent(iced::Event),
 }
 
@@ -209,6 +210,7 @@ pub struct BarState {
     pub primary_window: Option<window::Id>,
     pub last_click_at: Option<Instant>,
     pub last_dialog_opened_at: Option<Instant>,
+    pub last_output_change_at: Option<Instant>,
 }
 
 /// Lookup cache for app icon handles by app id or title.
