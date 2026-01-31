@@ -16,7 +16,9 @@ use iced::Task;
 use iced::{Subscription, event, mouse, window};
 
 use iced_layershell::daemon;
-use iced_layershell::reexport::{Anchor, KeyboardInteractivity, Layer};
+use iced_layershell::reexport::{
+    Anchor, KeyboardInteractivity, Layer, NewLayerShellSettings, OutputOption,
+};
 use iced_layershell::settings::{LayerShellSettings, Settings as LayerShellAppSettings, StartMode};
 
 use crate::bar::Orientation;
@@ -33,6 +35,7 @@ use std::time::{Duration, Instant};
 const DEFAULT_ORIENTATION: &str = "left";
 const DEFAULT_THEME: &str = "Nord";
 const DIALOG_UNFOCUS_SUPPRESSION_WINDOW: Duration = Duration::from_millis(250);
+const OUTPUT_REOPEN_SUPPRESSION_WINDOW: Duration = Duration::from_millis(750);
 
 #[derive(FromArgs, Debug)]
 /// Workspace + gauges display
@@ -627,8 +630,44 @@ fn update(state: &mut BarState, message: Message) -> Task<Message> {
             }
         },
         Message::WindowClosed(window) => {
+            let is_primary = state
+                .primary_window
+                .is_some_and(|primary| primary == window);
             state.dialog_windows.remove(&window);
             state.closing_dialogs.remove(&window);
+            if is_primary {
+                state.primary_window = None;
+                let mut tasks = vec![state.close_dialogs()];
+                let id = window::Id::unique();
+                let task = Task::done(Message::NewLayerShell {
+                    settings: layershell_reopen_settings(),
+                    id,
+                });
+                tasks.push(Task::done(Message::ForgetLastOutput));
+                tasks.push(task);
+                return Task::batch(tasks);
+            }
+        }
+        Message::OutputChanged => {
+            let recently_handled = state
+                .last_output_change_at
+                .and_then(|last| Instant::now().checked_duration_since(last))
+                .is_some_and(|elapsed| elapsed < OUTPUT_REOPEN_SUPPRESSION_WINDOW);
+            if recently_handled {
+                return Task::none();
+            }
+            state.last_output_change_at = Some(Instant::now());
+
+            let mut tasks = vec![state.close_dialogs(), Task::done(Message::ForgetLastOutput)];
+            if let Some(primary) = state.primary_window.take() {
+                tasks.push(Task::done(Message::RemoveWindow(primary)));
+            }
+            let id = window::Id::unique();
+            tasks.push(Task::done(Message::NewLayerShell {
+                settings: layershell_reopen_settings(),
+                id,
+            }));
+            return Task::batch(tasks);
         }
         Message::IcedEvent(iced::Event::Window(iced::window::Event::Unfocused)) => {
             return Task::done(Message::WindowFocusChanged { focused: false });
@@ -660,6 +699,35 @@ fn update(state: &mut BarState, message: Message) -> Task<Message> {
     }
 
     Task::none()
+}
+
+fn layershell_reopen_settings() -> NewLayerShellSettings {
+    let settings = settings::settings();
+    let bar_width = settings.get_parsed_or("grelier.bar.width", 28u32);
+    let orientation_raw = settings.get_or("grelier.bar.orientation", DEFAULT_ORIENTATION);
+    let orientation = match orientation_raw.parse::<Orientation>() {
+        Ok(value) => value,
+        Err(err) => {
+            eprintln!("{err}; defaulting to {DEFAULT_ORIENTATION}");
+            Orientation::Left
+        }
+    };
+    let anchor = match orientation {
+        Orientation::Left => Anchor::Left,
+        Orientation::Right => Anchor::Right,
+    };
+
+    NewLayerShellSettings {
+        size: Some((bar_width, 0)),
+        layer: Layer::Top,
+        anchor,
+        exclusive_zone: Some(bar_width as i32),
+        margin: Some((0, 0, 0, 0)),
+        keyboard_interactivity: KeyboardInteractivity::OnDemand,
+        output_option: OutputOption::None,
+        events_transparent: false,
+        namespace: Some(BarState::namespace()),
+    }
 }
 
 fn handle_window_focus_change(state: &mut BarState, focused: bool) -> Task<Message> {

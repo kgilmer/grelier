@@ -66,7 +66,7 @@ pub fn fetch_outputs() -> Result<Vec<swayipc::Output>, Error> {
 
 /// Subscribe to workspace-related events.
 pub fn subscribe_workspace_events() -> Result<EventStream, Error> {
-    Connection::new()?.subscribe([EventType::Workspace, EventType::Window])
+    Connection::new()?.subscribe([EventType::Workspace, EventType::Window, EventType::Output])
 }
 
 /// Focus the workspace with the given name.
@@ -225,6 +225,10 @@ fn workspace_stream() -> impl iced::futures::Stream<Item = Message> {
             match event {
                 Ok(Event::Workspace(_)) => send_workspaces(&mut sender),
                 Ok(Event::Window(_)) => send_workspaces(&mut sender),
+                Ok(Event::Output(_)) => {
+                    let _ = sender.try_send(Message::OutputChanged);
+                    send_workspaces(&mut sender);
+                }
                 Ok(_) => {}
                 Err(err) => {
                     eprintln!("Workspace event stream error: {err}");
