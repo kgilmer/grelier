@@ -59,6 +59,8 @@ pub enum Message {
     WindowFocusChanged {
         focused: bool,
     },
+    WindowOpened(iced::window::Id),
+    WindowEvent(iced::window::Id, iced::window::Event),
     MenuDismissed(iced::window::Id),
     WindowClosed(iced::window::Id),
     CacheRefreshed(Result<(Vec<AppDescriptor>, Vec<AppDescriptor>), String>),
@@ -209,6 +211,8 @@ pub struct BarState {
     pub closing_dialogs: HashSet<window::Id>,
     pub gauge_dialog_anchor: HashMap<String, i32>,
     pub primary_window: Option<window::Id>,
+    pub pending_primary_window: bool,
+    pub bar_windows: HashSet<window::Id>,
     pub last_click_at: Option<Instant>,
     pub last_dialog_opened_at: Option<Instant>,
     pub last_output_change_at: Option<Instant>,
