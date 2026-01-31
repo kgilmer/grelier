@@ -13,17 +13,19 @@ This project is in active development and should not be considered stable.
 ## Usage
 
 ```
-Usage: grelier [--settings <settings>] [--list-themes] [--list-gauges] [--list-panels] [--list-settings] [--config <config>]
+Usage: grelier [-s <settings>] [--list-themes] [--list-gauges] [--list-panels] [-c <config>] [--list-settings] [--list-monitors] [--on-monitors <on-monitors>]
 
 Workspace + gauges display
 
 Options:
-  --settings        setting override; repeat for multiple pairs (key=value or key:value)
+  -s, --settings    setting override; repeat for multiple pairs (key=value or key:value)
   --list-themes     list available themes and exit
   --list-gauges     list available gauges and exit
   --list-panels     list available panels and exit
-  --list-settings   list settings for the selected gauges and exit
-  --config          override the settings file path
+  -c, --config      override the settings file path
+  --list-settings   list app settings and exit
+  --list-monitors   list available monitors and exit
+  --on-monitors     limit bar to specific monitors by name (comma-separated)
   --help, help      display usage information
 ```
 
