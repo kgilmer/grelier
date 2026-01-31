@@ -1,21 +1,68 @@
 // Battery gauge driven by udev power_supply events and snapshots.
 // Consumes Settings: grelier.gauge.battery.warning_percent, grelier.gauge.battery.danger_percent.
-use crate::icon::svg_asset;
+use crate::icon::{icon_quantity, svg_asset};
 use crate::info_dialog::InfoDialog;
-use crate::panels::gauges::gauge::{GaugeModel, GaugeValue, GaugeValueAttention, event_stream};
+use crate::panels::gauges::gauge::{
+    GaugeMenu, GaugeMenuItem, GaugeModel, GaugeValue, GaugeValueAttention, MenuSelectAction,
+    event_stream,
+};
 use crate::panels::gauges::gauge_registry::{GaugeSpec, GaugeStream};
 use crate::settings;
 use crate::settings::SettingSpec;
 use battery::State as BatteryState;
 use battery::units::{energy::watt_hour, time::second};
+use std::collections::{HashMap, HashSet};
+use std::fs;
+use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
+use std::thread;
+use std::time::Duration;
+use zbus::blocking::{Connection, Proxy};
+use zbus::zvariant::OwnedValue;
 
 const DEFAULT_WARNING_PERCENT: u8 = 49;
 const DEFAULT_DANGER_PERCENT: u8 = 19;
+const DEFAULT_REFRESH_INTERVAL_SECS: u64 = 5;
+const PPD_SERVICE: &str = "net.hadess.PowerProfiles";
+const PPD_PATH: &str = "/net/hadess/PowerProfiles";
+const PPD_IFACE: &str = "net.hadess.PowerProfiles";
+const SYS_PLATFORM_PROFILE: &str = "/sys/firmware/acpi/platform_profile";
+const SYS_PLATFORM_PROFILE_CHOICES: &str = "/sys/firmware/acpi/platform_profile_choices";
+
+#[derive(Debug)]
+enum BatteryCommand {
+    SetPowerProfile(String),
+}
+
+#[derive(Debug)]
+struct PowerProfilesSnapshot {
+    profiles: Vec<String>,
+    active: String,
+}
 
 /// Stream battery information via udev power_supply events.
 fn battery_stream() -> impl iced::futures::Stream<Item = GaugeModel> {
-    event_stream("battery", None, |mut sender| {
+    let (command_tx, command_rx) = mpsc::channel::<BatteryCommand>();
+    let menu_select: MenuSelectAction = {
+        let command_tx = command_tx.clone();
+        Arc::new(move |profile: String| {
+            let _ = command_tx.send(BatteryCommand::SetPowerProfile(profile));
+        })
+    };
+
+    thread::spawn(move || {
+        while let Ok(command) = command_rx.recv() {
+            match command {
+                BatteryCommand::SetPowerProfile(profile) => {
+                    if !set_active_power_profile(&profile) {
+                        eprintln!("battery gauge: failed to set power profile to '{profile}'");
+                    }
+                }
+            }
+        }
+    });
+
+    event_stream("battery", None, move |mut sender| {
         let warning_percent = settings::settings().get_parsed_or(
             "grelier.gauge.battery.warning_percent",
             DEFAULT_WARNING_PERCENT,
@@ -25,6 +72,10 @@ fn battery_stream() -> impl iced::futures::Stream<Item = GaugeModel> {
             DEFAULT_DANGER_PERCENT,
         );
         let manager = battery::Manager::new().ok();
+        let refresh_interval_secs = settings::settings().get_parsed_or(
+            "grelier.gauge.battery.refresh_interval_secs",
+            DEFAULT_REFRESH_INTERVAL_SECS,
+        );
         let info_state = Arc::new(Mutex::new(InfoDialog {
             title: "Battery".to_string(),
             lines: vec![
@@ -40,7 +91,8 @@ fn battery_stream() -> impl iced::futures::Stream<Item = GaugeModel> {
             warning_percent,
             danger_percent,
             &info_state,
-            &manager,
+            manager.as_ref(),
+            Some(menu_select.clone()),
         );
 
         // Try to open a udev monitor; if it fails, just exit the worker.
@@ -55,31 +107,48 @@ fn battery_stream() -> impl iced::futures::Stream<Item = GaugeModel> {
             }
         };
 
-        for event in monitor.iter() {
-            let device = event.device();
-            if !is_battery(&device) {
-                continue;
+        let mut poll_sender = sender.clone();
+        let poll_info_state = Arc::clone(&info_state);
+        let poll_menu_select = menu_select.clone();
+        thread::spawn(move || {
+            loop {
+                thread::sleep(Duration::from_secs(refresh_interval_secs));
+                if let Some(model) = snapshot_model(
+                    warning_percent,
+                    danger_percent,
+                    &poll_info_state,
+                    None,
+                    Some(&poll_menu_select),
+                ) {
+                    let _ = poll_sender.try_send(model);
+                }
             }
+        });
 
-            update_info_state(&info_state, battery_info_dialog(&device, manager.as_ref()));
-
-            if let Some((value, attention)) =
-                battery_value(&device, warning_percent, danger_percent)
-            {
-                let icon = if value.is_some() {
-                    None
-                } else {
-                    Some(svg_asset("battery-alert-variant.svg"))
-                };
-                let _ = sender.try_send(GaugeModel {
-                    id: "battery",
-                    icon,
-                    value,
-                    attention,
-                    on_click: None,
-                    menu: None,
-                    info: info_state.lock().ok().map(|info| info.clone()),
-                });
+        for event in monitor.iter() {
+            let dev = event.device();
+            if is_mains(&dev) {
+                let online = mains_online(&dev);
+                let status = property_str(&dev, "POWER_SUPPLY_STATUS");
+                eprintln!(
+                    "battery gauge: power_supply event mains online={online:?} status={status:?}"
+                );
+            } else if is_battery(&dev) {
+                let status = property_str(&dev, "POWER_SUPPLY_STATUS");
+                let capacity = property_str(&dev, "POWER_SUPPLY_CAPACITY")
+                    .or_else(|| property_str(&dev, "CAPACITY"));
+                eprintln!(
+                    "battery gauge: power_supply event battery status={status:?} capacity={capacity:?}"
+                );
+            }
+            if let Some(model) = snapshot_model(
+                warning_percent,
+                danger_percent,
+                &info_state,
+                manager.as_ref(),
+                Some(&menu_select),
+            ) {
+                let _ = sender.try_send(model);
             }
         }
     })
@@ -90,77 +159,17 @@ fn send_snapshot(
     warning_percent: u8,
     danger_percent: u8,
     info_state: &Arc<Mutex<InfoDialog>>,
-    manager: &Option<battery::Manager>,
+    manager: Option<&battery::Manager>,
+    menu_select: Option<MenuSelectAction>,
 ) {
-    let mut enumerator = match udev::Enumerator::new() {
-        Ok(e) => e,
-        Err(err) => {
-            eprintln!("battery gauge: failed to enumerate devices: {err}");
-            return;
-        }
-    };
-
-    if enumerator.match_subsystem("power_supply").is_err() {
-        eprintln!("battery gauge: failed to set subsystem filter");
-        return;
-    }
-
-    let devices = match enumerator.scan_devices() {
-        Ok(list) => list,
-        Err(err) => {
-            eprintln!("battery gauge: failed to scan devices: {err}");
-            return;
-        }
-    };
-
-    let mut found_battery = false;
-
-    for dev in devices {
-        if !is_battery(&dev) {
-            continue;
-        }
-        found_battery = true;
-        update_info_state(info_state, battery_info_dialog(&dev, manager.as_ref()));
-        if let Some((value, attention)) = battery_value(&dev, warning_percent, danger_percent) {
-            let icon = if value.is_some() {
-                None
-            } else {
-                Some(svg_asset("battery-alert-variant.svg"))
-            };
-            let _ = sender.try_send(GaugeModel {
-                id: "battery",
-                icon,
-                value,
-                attention,
-                on_click: None,
-                menu: None,
-                info: info_state.lock().ok().map(|info| info.clone()),
-            });
-        }
-    }
-
-    if !found_battery {
-        update_info_state(
-            info_state,
-            InfoDialog {
-                title: "Battery".to_string(),
-                lines: vec![
-                    "Total: Unknown".to_string(),
-                    "Current: Unknown".to_string(),
-                    "ETA: Unknown".to_string(),
-                    "Discharge rate: Unknown".to_string(),
-                ],
-            },
-        );
-        let _ = sender.try_send(GaugeModel {
-            id: "battery",
-            icon: Some(svg_asset("battery-alert-variant.svg")),
-            value: None,
-            attention: GaugeValueAttention::Danger,
-            on_click: None,
-            menu: None,
-            info: info_state.lock().ok().map(|info| info.clone()),
-        });
+    if let Some(model) = snapshot_model(
+        warning_percent,
+        danger_percent,
+        info_state,
+        manager,
+        menu_select.as_ref(),
+    ) {
+        let _ = sender.try_send(model);
     }
 }
 
@@ -169,6 +178,112 @@ fn is_battery(dev: &udev::Device) -> bool {
         .and_then(|v| v.to_str())
         .map(|v| v.eq_ignore_ascii_case("Battery"))
         .unwrap_or(false)
+}
+
+fn is_mains(dev: &udev::Device) -> bool {
+    dev.property_value("POWER_SUPPLY_TYPE")
+        .and_then(|v| v.to_str())
+        .map(|v| v.eq_ignore_ascii_case("Mains"))
+        .unwrap_or(false)
+}
+
+fn mains_online(dev: &udev::Device) -> Option<bool> {
+    property_str(dev, "POWER_SUPPLY_ONLINE")
+        .or_else(|| property_str(dev, "ONLINE"))
+        .and_then(|value| match value.trim() {
+            "1" => Some(true),
+            "0" => Some(false),
+            _ => None,
+        })
+}
+
+fn snapshot_model(
+    warning_percent: u8,
+    danger_percent: u8,
+    info_state: &Arc<Mutex<InfoDialog>>,
+    manager: Option<&battery::Manager>,
+    menu_select: Option<&MenuSelectAction>,
+) -> Option<GaugeModel> {
+    let mut enumerator = match udev::Enumerator::new() {
+        Ok(e) => e,
+        Err(err) => {
+            eprintln!("battery gauge: failed to enumerate devices: {err}");
+            return None;
+        }
+    };
+
+    if enumerator.match_subsystem("power_supply").is_err() {
+        eprintln!("battery gauge: failed to set subsystem filter");
+        return None;
+    }
+
+    let devices = match enumerator.scan_devices() {
+        Ok(list) => list,
+        Err(err) => {
+            eprintln!("battery gauge: failed to scan devices: {err}");
+            return None;
+        }
+    };
+
+    let mut battery_dev: Option<udev::Device> = None;
+    let mut ac_online: Option<bool> = None;
+
+    for dev in devices {
+        if battery_dev.is_none() && is_battery(&dev) {
+            battery_dev = Some(dev);
+            continue;
+        }
+        if ac_online.is_none() && is_mains(&dev) {
+            ac_online = mains_online(&dev);
+        }
+        if battery_dev.is_some() && ac_online.is_some() {
+            break;
+        }
+    }
+
+    if let Some(dev) = battery_dev {
+        update_info_state(info_state, battery_info_dialog(&dev, manager));
+        if ac_online.is_none() {
+            let status = property_str(&dev, "POWER_SUPPLY_STATUS");
+            ac_online = ac_online_from_status(status.as_deref());
+        }
+        if let Some((value, attention)) = battery_value(&dev, warning_percent, danger_percent) {
+            let icon = Some(svg_asset(power_icon_for_state(ac_online)));
+            let menu = menu_select.and_then(|select| power_profile_menu(select.clone()));
+            return Some(GaugeModel {
+                id: "battery",
+                icon,
+                value,
+                attention,
+                on_click: None,
+                menu,
+                info: info_state.lock().ok().map(|info| info.clone()),
+            });
+        }
+    }
+
+    update_info_state(
+        info_state,
+        InfoDialog {
+            title: "Battery".to_string(),
+            lines: vec![
+                "Total: Unknown".to_string(),
+                "Current: Unknown".to_string(),
+                "ETA: Unknown".to_string(),
+                "Discharge rate: Unknown".to_string(),
+            ],
+        },
+    );
+    let menu = menu_select.and_then(|select| power_profile_menu(select.clone()));
+    Some(GaugeModel {
+        id: "battery",
+        icon: Some(svg_asset("power.svg")),
+        value: None,
+        attention: GaugeValueAttention::Danger,
+        on_click: None,
+        menu,
+        info: info_state.lock().ok().map(|info| info.clone()),
+    })
 }
 
 fn battery_value(
@@ -193,18 +308,11 @@ fn battery_value_from_strings(
     warning_percent: u8,
     danger_percent: u8,
 ) -> Option<(Option<GaugeValue>, GaugeValueAttention)> {
-    let is_charging = status
-        .map(|value| value.eq_ignore_ascii_case("Charging"))
-        .unwrap_or(false);
-
     if let Some(cap) = capacity {
         if let Ok(percent) = cap.parse::<u8>() {
             let attention = attention_for_capacity(percent, warning_percent, danger_percent);
             return Some((
-                Some(GaugeValue::Svg(svg_asset(battery_icon(
-                    percent,
-                    is_charging,
-                )))),
+                Some(GaugeValue::Svg(icon_quantity(percent as f32 / 100.0))),
                 attention,
             ));
         }
@@ -423,42 +531,26 @@ fn property_num(dev: &udev::Device, key: &str) -> Option<f64> {
     property_str(dev, key).and_then(|value| value.parse::<f64>().ok())
 }
 
-fn battery_icon(percent: u8, is_charging: bool) -> &'static str {
-    let step = battery_icon_step(percent, is_charging);
-    match (is_charging, step) {
-        (true, 10) => "battery-charging-10.svg",
-        (true, 20) => "battery-charging-20.svg",
-        (true, 30) => "battery-charging-30.svg",
-        (true, 40) => "battery-charging-40.svg",
-        (true, 50) => "battery-charging-50.svg",
-        (true, 60) => "battery-charging-60.svg",
-        (true, 70) => "battery-charging-70.svg",
-        (true, 80) => "battery-charging-80.svg",
-        (true, 90) => "battery-charging-90.svg",
-        (true, _) => "battery-charging-100.svg",
-        (false, 10) => "battery-10.svg",
-        (false, 20) => "battery-20.svg",
-        (false, 30) => "battery-30.svg",
-        (false, 40) => "battery-40.svg",
-        (false, 50) => "battery-50.svg",
-        (false, 60) => "battery-60.svg",
-        (false, 70) => "battery-70.svg",
-        (false, 80) => "battery-80.svg",
-        (false, 90) => "battery-90.svg",
-        (false, _) => "battery.svg",
+fn power_icon_for_state(ac_online: Option<bool>) -> &'static str {
+    match ac_online {
+        Some(true) => "power-ac.svg",
+        Some(false) => "power-battery.svg",
+        None => "power.svg",
     }
 }
 
-fn battery_icon_step(percent: u8, allow_full: bool) -> u8 {
-    let mut step = u16::from(percent).div_ceil(10) * 10;
-    if step < 10 {
-        step = 10;
+fn ac_online_from_status(status: Option<&str>) -> Option<bool> {
+    match status {
+        Some(value) if value.eq_ignore_ascii_case("Discharging") => Some(false),
+        Some(value)
+            if value.eq_ignore_ascii_case("Charging")
+                || value.eq_ignore_ascii_case("Full")
+                || value.eq_ignore_ascii_case("Not charging") =>
+        {
+            Some(true)
+        }
+        _ => None,
     }
-    let max_step = if allow_full { 100 } else { 90 };
-    if step > max_step {
-        step = max_step;
-    }
-    step as u8
 }
 
 fn attention_for_capacity(
@@ -486,6 +578,173 @@ fn property_str(dev: &udev::Device, key: &str) -> Option<String> {
         })
 }
 
+fn power_profile_menu(on_select: MenuSelectAction) -> Option<GaugeMenu> {
+    let snapshot = power_profiles_snapshot()?;
+    if snapshot.profiles.is_empty() {
+        return None;
+    }
+    let mut items: Vec<GaugeMenuItem> = snapshot
+        .profiles
+        .iter()
+        .map(|profile| GaugeMenuItem {
+            id: profile.clone(),
+            label: power_profile_label(profile),
+            selected: profile == &snapshot.active,
+        })
+        .collect();
+    items.sort_by(|a, b| a.label.cmp(&b.label));
+    Some(GaugeMenu {
+        title: "Power Mode".to_string(),
+        items,
+        on_select: Some(on_select),
+    })
+}
+
+fn power_profiles_snapshot() -> Option<PowerProfilesSnapshot> {
+    if let Some(snapshot) = power_profiles_snapshot_ppd() {
+        return Some(snapshot);
+    }
+    power_profiles_snapshot_platform()
+}
+
+fn power_profiles_snapshot_ppd() -> Option<PowerProfilesSnapshot> {
+    let connection = Connection::system().ok()?;
+    let proxy = Proxy::new(&connection, PPD_SERVICE, PPD_PATH, PPD_IFACE).ok()?;
+    let active: String = proxy.get_property("ActiveProfile").ok()?;
+    let profiles: Vec<HashMap<String, OwnedValue>> = proxy.get_property("Profiles").ok()?;
+    let mut supported = HashSet::new();
+    for entry in profiles {
+        if let Some(profile) = power_profile_id(&entry) {
+            supported.insert(profile);
+        }
+    }
+    let mut profiles: Vec<String> = supported.into_iter().collect();
+    profiles.sort();
+    Some(PowerProfilesSnapshot { profiles, active })
+}
+
+fn power_profiles_snapshot_platform() -> Option<PowerProfilesSnapshot> {
+    let active = fs::read_to_string(SYS_PLATFORM_PROFILE).ok()?;
+    let active = active.trim().to_string();
+    if active.is_empty() {
+        return None;
+    }
+    let choices = fs::read_to_string(SYS_PLATFORM_PROFILE_CHOICES).ok()?;
+    let profiles: Vec<String> = choices
+        .split_whitespace()
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+        .collect();
+    if profiles.is_empty() {
+        return None;
+    }
+    Some(PowerProfilesSnapshot { profiles, active })
+}
+
+fn set_active_power_profile(profile: &str) -> bool {
+    if set_active_power_profile_ppd(profile) {
+        return true;
+    }
+    set_active_power_profile_platform(profile)
+}
+
+fn set_active_power_profile_ppd(profile: &str) -> bool {
+    let connection = match Connection::system() {
+        Ok(connection) => connection,
+        Err(err) => {
+            eprintln!("battery gauge: power profiles daemon connection error: {err}");
+            return false;
+        }
+    };
+    let proxy = match Proxy::new(&connection, PPD_SERVICE, PPD_PATH, PPD_IFACE) {
+        Ok(proxy) => proxy,
+        Err(err) => {
+            eprintln!("battery gauge: power profiles daemon proxy error: {err}");
+            return false;
+        }
+    };
+    let profiles: Vec<HashMap<String, OwnedValue>> = match proxy.get_property("Profiles") {
+        Ok(profiles) => profiles,
+        Err(err) => {
+            eprintln!("battery gauge: power profiles daemon profiles error: {err}");
+            return false;
+        }
+    };
+    let supported = profiles
+        .iter()
+        .filter_map(power_profile_id)
+        .any(|id| id == profile);
+    if !supported {
+        eprintln!("battery gauge: power profiles daemon does not support '{profile}'");
+        return false;
+    }
+    match proxy.set_property("ActiveProfile", profile) {
+        Ok(()) => true,
+        Err(err) => {
+            eprintln!("battery gauge: power profiles daemon failed to set '{profile}': {err}");
+            false
+        }
+    }
+}
+
+fn set_active_power_profile_platform(profile: &str) -> bool {
+    let choices = match fs::read_to_string(SYS_PLATFORM_PROFILE_CHOICES) {
+        Ok(choices) => choices,
+        Err(err) => {
+            eprintln!("battery gauge: platform profile choices read error: {err}");
+            return false;
+        }
+    };
+    let supported = choices
+        .split_whitespace()
+        .any(|value| value.trim() == profile);
+    if !supported {
+        eprintln!(
+            "battery gauge: platform profile does not support '{profile}' (choices: {choices})"
+        );
+        return false;
+    }
+    match fs::write(SYS_PLATFORM_PROFILE, profile) {
+        Ok(()) => true,
+        Err(err) => {
+            eprintln!("battery gauge: platform profile failed to set '{profile}': {err}");
+            false
+        }
+    }
+}
+
+fn power_profile_id(entry: &HashMap<String, OwnedValue>) -> Option<String> {
+    entry
+        .get("Profile")
+        .or_else(|| entry.get("profile"))
+        .and_then(|value| value.try_clone().ok())
+        .and_then(|value| value.try_into().ok())
+}
+
+fn power_profile_label(profile: &str) -> String {
+    match profile {
+        "power-saver" => "Power Saver".to_string(),
+        "balanced" => "Balanced".to_string(),
+        "performance" => "Performance".to_string(),
+        other => title_case_profile(other),
+    }
+}
+
+fn title_case_profile(profile: &str) -> String {
+    let mut out = String::new();
+    for (idx, word) in profile.split('-').enumerate() {
+        if idx > 0 {
+            out.push(' ');
+        }
+        let mut chars = word.chars();
+        if let Some(first) = chars.next() {
+            out.push(first.to_ascii_uppercase());
+            out.push_str(chars.as_str());
+        }
+    }
+    out
+}
+
 pub fn settings() -> &'static [SettingSpec] {
     const SETTINGS: &[SettingSpec] = &[
         SettingSpec {
@@ -495,6 +754,10 @@ pub fn settings() -> &'static [SettingSpec] {
         SettingSpec {
             key: "grelier.gauge.battery.danger_percent",
             default: "19",
+        },
+        SettingSpec {
+            key: "grelier.gauge.battery.refresh_interval_secs",
+            default: "5",
         },
     ];
     SETTINGS
@@ -520,10 +783,20 @@ mod tests {
     use super::*;
 
     #[test]
-    fn battery_icon_step_clamps_by_mode() {
-        assert_eq!(battery_icon_step(1, false), 10);
-        assert_eq!(battery_icon_step(95, false), 90);
-        assert_eq!(battery_icon_step(95, true), 100);
+    fn power_icon_tracks_state() {
+        assert_eq!(power_icon_for_state(Some(true)), "power-ac.svg");
+        assert_eq!(power_icon_for_state(Some(false)), "power-battery.svg");
+        assert_eq!(power_icon_for_state(None), "power.svg");
+    }
+
+    #[test]
+    fn ac_online_tracks_status() {
+        assert_eq!(ac_online_from_status(Some("Discharging")), Some(false));
+        assert_eq!(ac_online_from_status(Some("Charging")), Some(true));
+        assert_eq!(ac_online_from_status(Some("Full")), Some(true));
+        assert_eq!(ac_online_from_status(Some("Not charging")), Some(true));
+        assert_eq!(ac_online_from_status(Some("Unknown")), None);
+        assert_eq!(ac_online_from_status(None), None);
     }
 
     #[test]

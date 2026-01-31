@@ -1,0 +1,33 @@
+<!-- plug-bolt-cutout-balanced.svg -->
+<svg xmlns="http://www.w3.org/2000/svg"
+     width="24" height="24"
+     viewBox="0 0 24 24"
+     fill="none"
+     aria-hidden="true">
+
+  <path fill="currentColor"
+        fill-rule="evenodd"
+        clip-rule="evenodd"
+        d="
+          M6 0 H11 V6 H6 Z
+          M13 0 H18 V6 H13 Z
+
+          M4 7 H20
+          V18
+          Q20 21 17 21
+          H7
+          Q4 21 4 18
+          Z
+
+          M10 21 H14 V24 H10 Z
+
+          M15.5 7
+          L7.5 16
+          H12
+          L9.8 23
+          L19 11
+          H14.8
+          L17 7
+          Z
+        "/>
+</svg>
