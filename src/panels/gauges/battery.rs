@@ -13,8 +13,8 @@ use battery::State as BatteryState;
 use battery::units::{energy::watt_hour, time::second};
 use std::collections::{HashMap, HashSet};
 use std::fs;
-use std::sync::{Arc, Mutex};
 use std::sync::mpsc;
+use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::Duration;
 use zbus::blocking::{Connection, Proxy};
@@ -55,9 +55,7 @@ fn battery_stream() -> impl iced::futures::Stream<Item = GaugeModel> {
             match command {
                 BatteryCommand::SetPowerProfile(profile) => {
                     if !set_active_power_profile(&profile) {
-                        eprintln!(
-                            "battery gauge: failed to set power profile to '{profile}'"
-                        );
+                        eprintln!("battery gauge: failed to set power profile to '{profile}'");
                     }
                 }
             }
@@ -112,16 +110,18 @@ fn battery_stream() -> impl iced::futures::Stream<Item = GaugeModel> {
         let mut poll_sender = sender.clone();
         let poll_info_state = Arc::clone(&info_state);
         let poll_menu_select = menu_select.clone();
-        thread::spawn(move || loop {
-            thread::sleep(Duration::from_secs(refresh_interval_secs));
-            if let Some(model) = snapshot_model(
-                warning_percent,
-                danger_percent,
-                &poll_info_state,
-                None,
-                Some(&poll_menu_select),
-            ) {
-                let _ = poll_sender.try_send(model);
+        thread::spawn(move || {
+            loop {
+                thread::sleep(Duration::from_secs(refresh_interval_secs));
+                if let Some(model) = snapshot_model(
+                    warning_percent,
+                    danger_percent,
+                    &poll_info_state,
+                    None,
+                    Some(&poll_menu_select),
+                ) {
+                    let _ = poll_sender.try_send(model);
+                }
             }
         });
 
@@ -135,21 +135,19 @@ fn battery_stream() -> impl iced::futures::Stream<Item = GaugeModel> {
                 );
             } else if is_battery(&dev) {
                 let status = property_str(&dev, "POWER_SUPPLY_STATUS");
-                let capacity =
-                    property_str(&dev, "POWER_SUPPLY_CAPACITY").or_else(|| property_str(&dev, "CAPACITY"));
+                let capacity = property_str(&dev, "POWER_SUPPLY_CAPACITY")
+                    .or_else(|| property_str(&dev, "CAPACITY"));
                 eprintln!(
                     "battery gauge: power_supply event battery status={status:?} capacity={capacity:?}"
                 );
             }
-            if let Some(model) =
-                snapshot_model(
-                    warning_percent,
-                    danger_percent,
-                    &info_state,
-                    manager.as_ref(),
-                    Some(&menu_select),
-                )
-            {
+            if let Some(model) = snapshot_model(
+                warning_percent,
+                danger_percent,
+                &info_state,
+                manager.as_ref(),
+                Some(&menu_select),
+            ) {
                 let _ = sender.try_send(model);
             }
         }
@@ -677,17 +675,13 @@ fn set_active_power_profile_ppd(profile: &str) -> bool {
         .filter_map(power_profile_id)
         .any(|id| id == profile);
     if !supported {
-        eprintln!(
-            "battery gauge: power profiles daemon does not support '{profile}'"
-        );
+        eprintln!("battery gauge: power profiles daemon does not support '{profile}'");
         return false;
     }
     match proxy.set_property("ActiveProfile", profile) {
         Ok(()) => true,
         Err(err) => {
-            eprintln!(
-                "battery gauge: power profiles daemon failed to set '{profile}': {err}"
-            );
+            eprintln!("battery gauge: power profiles daemon failed to set '{profile}': {err}");
             false
         }
     }
@@ -697,9 +691,7 @@ fn set_active_power_profile_platform(profile: &str) -> bool {
     let choices = match fs::read_to_string(SYS_PLATFORM_PROFILE_CHOICES) {
         Ok(choices) => choices,
         Err(err) => {
-            eprintln!(
-                "battery gauge: platform profile choices read error: {err}"
-            );
+            eprintln!("battery gauge: platform profile choices read error: {err}");
             return false;
         }
     };
@@ -715,9 +707,7 @@ fn set_active_power_profile_platform(profile: &str) -> bool {
     match fs::write(SYS_PLATFORM_PROFILE, profile) {
         Ok(()) => true,
         Err(err) => {
-            eprintln!(
-                "battery gauge: platform profile failed to set '{profile}': {err}"
-            );
+            eprintln!("battery gauge: platform profile failed to set '{profile}': {err}");
             false
         }
     }
