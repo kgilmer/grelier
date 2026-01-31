@@ -1,8 +1,8 @@
 // Menu sizing and rendering for gauge popup dialogs.
 // Consumes Settings: grelier.dialog.*, grelier.menu_dialog.*.
 use crate::dialog_settings;
-use crate::gauge::{GaugeMenu, GaugeMenuItem};
 use crate::icon::svg_asset;
+use crate::panels::gauges::gauge::{GaugeMenu, GaugeMenuItem};
 use crate::settings;
 use iced::alignment;
 use iced::font::Weight;
@@ -45,15 +45,15 @@ impl BorderSettings {
     fn load() -> Self {
         let settings = settings::settings();
         Self {
-            blend: settings.get_bool_or("grelier.bar.border_blend", true),
-            line_width: settings.get_parsed_or("grelier.bar.border_line_width", 1.0),
-            column_width: settings.get_parsed_or("grelier.bar.border_column_width", 3.0),
-            mix_1: settings.get_parsed_or("grelier.bar.border_mix_1", 0.2),
-            mix_2: settings.get_parsed_or("grelier.bar.border_mix_2", 0.6),
-            mix_3: settings.get_parsed_or("grelier.bar.border_mix_3", 1.0),
-            alpha_1: settings.get_parsed_or("grelier.bar.border_alpha_1", 0.6),
-            alpha_2: settings.get_parsed_or("grelier.bar.border_alpha_2", 0.7),
-            alpha_3: settings.get_parsed_or("grelier.bar.border_alpha_3", 0.9),
+            blend: settings.get_bool_or("grelier.bar.border.blend", true),
+            line_width: settings.get_parsed_or("grelier.bar.border.line_width", 1.0),
+            column_width: settings.get_parsed_or("grelier.bar.border.column_width", 3.0),
+            mix_1: settings.get_parsed_or("grelier.bar.border.mix_1", 0.2),
+            mix_2: settings.get_parsed_or("grelier.bar.border.mix_2", 0.6),
+            mix_3: settings.get_parsed_or("grelier.bar.border.mix_3", 1.0),
+            alpha_1: settings.get_parsed_or("grelier.bar.border.alpha_1", 0.6),
+            alpha_2: settings.get_parsed_or("grelier.bar.border.alpha_2", 0.7),
+            alpha_3: settings.get_parsed_or("grelier.bar.border.alpha_3", 0.9),
         }
     }
 }
@@ -79,7 +79,7 @@ pub fn dialog_dimensions(menu: &GaugeMenu) -> (u32, u32) {
     let label_padding = settings::settings()
         .get_parsed_or("grelier.menu_dialog.label_padding", DEFAULT_LABEL_PADDING);
     let header_font_size = settings::settings()
-        .get_parsed_or("grelier.dialog.header_font_size", DEFAULT_HEADER_FONT_SIZE);
+        .get_parsed_or("grelier.dialog.header.font_size", DEFAULT_HEADER_FONT_SIZE);
     let item_font_size = settings::settings()
         .get_parsed_or("grelier.menu_dialog.item_font_size", DEFAULT_ITEM_FONT_SIZE);
     let indicator_size = settings::settings()
@@ -89,7 +89,7 @@ pub fn dialog_dimensions(menu: &GaugeMenu) -> (u32, u32) {
         DEFAULT_BUTTON_PADDING_Y,
     );
     let header_bottom_spacing = settings::settings().get_parsed_or(
-        "grelier.dialog.header_bottom_spacing",
+        "grelier.dialog.header.bottom_spacing",
         DEFAULT_HEADER_BOTTOM_SPACING,
     );
     let list_spacing = settings::settings()
@@ -99,7 +99,7 @@ pub fn dialog_dimensions(menu: &GaugeMenu) -> (u32, u32) {
         DEFAULT_HEADER_LIST_SPACING,
     );
     let container_padding_y = settings::settings().get_parsed_or(
-        "grelier.dialog.container_padding_y",
+        "grelier.dialog.container.padding_y",
         DEFAULT_CONTAINER_PADDING_Y,
     );
 
@@ -140,7 +140,7 @@ pub fn menu_view<'a, Message: Clone + 'a>(
     let checked_icon = svg_asset("option-checked.svg");
     let empty_icon = svg_asset("option-empty.svg");
     let header_font_size = settings::settings()
-        .get_parsed_or("grelier.dialog.header_font_size", DEFAULT_HEADER_FONT_SIZE);
+        .get_parsed_or("grelier.dialog.header.font_size", DEFAULT_HEADER_FONT_SIZE);
     let item_font_size = settings::settings()
         .get_parsed_or("grelier.menu_dialog.item_font_size", DEFAULT_ITEM_FONT_SIZE);
     let indicator_size = settings::settings()
@@ -156,11 +156,11 @@ pub fn menu_view<'a, Message: Clone + 'a>(
         DEFAULT_HEADER_LIST_SPACING,
     );
     let container_padding_y = settings::settings().get_parsed_or(
-        "grelier.dialog.container_padding_y",
+        "grelier.dialog.container.padding_y",
         DEFAULT_CONTAINER_PADDING_Y,
     );
     let header_bottom_spacing = settings::settings().get_parsed_or(
-        "grelier.dialog.header_bottom_spacing",
+        "grelier.dialog.header.bottom_spacing",
         DEFAULT_HEADER_BOTTOM_SPACING,
     );
     let indicator_spacing = settings::settings().get_parsed_or(
@@ -172,7 +172,7 @@ pub fn menu_view<'a, Message: Clone + 'a>(
         DEFAULT_BUTTON_PADDING_X,
     );
     let container_padding_x = settings::settings().get_parsed_or(
-        "grelier.dialog.container_padding_x",
+        "grelier.dialog.container.padding_x",
         DEFAULT_CONTAINER_PADDING_X,
     );
 
@@ -210,7 +210,8 @@ pub fn menu_view<'a, Message: Clone + 'a>(
     } in &menu.items
     {
         let is_hovered = hovered_item.is_some_and(|hovered| hovered == id.as_str());
-        let indicator = Svg::new(if *selected {
+        let is_selected = *selected;
+        let indicator = Svg::new(if is_selected {
             checked_icon.clone()
         } else {
             empty_icon.clone()
@@ -221,7 +222,9 @@ pub fn menu_view<'a, Message: Clone + 'a>(
             move |theme: &Theme, status| {
                 let palette = theme.extended_palette();
                 let hovered = is_hovered || matches!(status, svg::Status::Hovered);
-                let color = if hovered {
+                let color = if is_selected {
+                    palette.secondary.strong.color
+                } else if hovered {
                     palette.primary.weak.text
                 } else {
                     palette.primary.weak.color

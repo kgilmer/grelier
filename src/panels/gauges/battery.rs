@@ -1,9 +1,11 @@
 // Battery gauge driven by udev power_supply events and snapshots.
 // Consumes Settings: grelier.gauge.battery.warning_percent, grelier.gauge.battery.danger_percent.
-use crate::gauge::{GaugeModel, GaugeValue, GaugeValueAttention, SettingSpec, event_stream};
-use crate::gauge_registry::{GaugeSpec, GaugeStream};
 use crate::icon::svg_asset;
 use crate::info_dialog::InfoDialog;
+use crate::panels::gauges::gauge::{
+    GaugeModel, GaugeValue, GaugeValueAttention, SettingSpec, event_stream,
+};
+use crate::panels::gauges::gauge_registry::{GaugeSpec, GaugeStream};
 use crate::settings;
 use battery::State as BatteryState;
 use battery::units::{energy::watt_hour, time::second};
@@ -506,7 +508,6 @@ fn stream() -> GaugeStream {
 inventory::submit! {
     GaugeSpec {
         id: "battery",
-        label: "Battery",
         description: "Battery gauge reporting percent charge and charging status.",
         default_enabled: false,
         settings,

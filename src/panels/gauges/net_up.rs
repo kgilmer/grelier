@@ -1,13 +1,13 @@
 // Upload rate gauge backed by the shared network sampler.
 // Consumes Settings: grelier.gauge.net.* (via net_common).
-use crate::gauge::{GaugeValue, GaugeValueAttention, SettingSpec, fixed_interval};
-use crate::gauge_registry::{GaugeSpec, GaugeStream};
-use crate::gauges::net_common::{
+use crate::icon::{icon_quantity, svg_asset};
+use crate::info_dialog::InfoDialog;
+use crate::panels::gauges::gauge::{GaugeValue, GaugeValueAttention, SettingSpec, fixed_interval};
+use crate::panels::gauges::gauge_registry::{GaugeSpec, GaugeStream};
+use crate::panels::gauges::net_common::{
     NetIntervalState, SlidingWindow, format_rate_per_sec, net_interval_config_from_settings,
     shared_net_sampler,
 };
-use crate::icon::{icon_quantity, svg_asset};
-use crate::info_dialog::InfoDialog;
 use iced::futures::StreamExt;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -31,7 +31,7 @@ fn map_rate(
     }
 }
 
-fn net_up_stream() -> impl iced::futures::Stream<Item = crate::gauge::GaugeModel> {
+fn net_up_stream() -> impl iced::futures::Stream<Item = crate::panels::gauges::gauge::GaugeModel> {
     let sampler = shared_net_sampler();
     let interval_state = Arc::new(Mutex::new(NetIntervalState::new(
         net_interval_config_from_settings(),
@@ -154,7 +154,6 @@ fn stream() -> GaugeStream {
 inventory::submit! {
     GaugeSpec {
         id: "net_up",
-        label: "Net Up",
         description: "Network upload rate gauge displaying a relative icon.",
         default_enabled: false,
         settings,

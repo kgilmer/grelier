@@ -1,30 +1,10 @@
 // Entry point wiring CLI args, settings initialization, and gauge subscriptions for the bar.
-// Consumes Settings: grelier.bar.width.
-#![allow(dead_code)] // workspace handling will be re-enabled later
-mod app;
-mod gauges {
-    pub mod audio_in;
-    pub mod audio_out;
-    pub mod battery;
-    pub mod brightness;
-    pub mod clock;
-    pub mod cpu;
-    pub mod date;
-    pub mod disk;
-    pub mod net_common;
-    pub mod net_down;
-    pub mod net_up;
-    pub mod ram;
-    #[cfg(debug_assertions)]
-    pub mod test_gauge;
-    pub mod wifi;
-}
+mod bar;
 mod dialog_settings;
-mod gauge;
-mod gauge_registry;
 mod icon;
 mod info_dialog;
 mod menu_dialog;
+mod panels;
 mod settings;
 mod settings_storage;
 mod sway_workspace;
@@ -39,9 +19,10 @@ use iced_layershell::daemon;
 use iced_layershell::reexport::{Anchor, KeyboardInteractivity, Layer};
 use iced_layershell::settings::{LayerShellSettings, Settings as LayerShellAppSettings, StartMode};
 
-use crate::app::Orientation;
-use crate::app::{AppIconCache, BarState, GaugeDialog, GaugeDialogWindow, Message};
-use crate::gauge::{GaugeClick, GaugeInput, GaugeModel, SettingSpec};
+use crate::bar::Orientation;
+use crate::bar::{AppIconCache, BarState, DEFAULT_PANELS, GaugeDialog, GaugeDialogWindow, Message};
+use crate::panels::gauges::gauge::{GaugeClick, GaugeInput, GaugeModel, SettingSpec};
+use crate::panels::gauges::gauge_registry;
 use elbey_cache::{AppDescriptor, Cache};
 use freedesktop_desktop_entry::desktop_entries;
 use locale_config::Locale;
@@ -59,11 +40,15 @@ fn base_setting_specs(default_gauges: &'static str) -> Vec<SettingSpec> {
             default: default_gauges,
         },
         SettingSpec {
-            key: "grelier.orientation",
+            key: "grelier.panels",
+            default: DEFAULT_PANELS,
+        },
+        SettingSpec {
+            key: "grelier.bar.orientation",
             default: DEFAULT_ORIENTATION,
         },
         SettingSpec {
-            key: "grelier.theme",
+            key: "grelier.bar.theme",
             default: DEFAULT_THEME,
         },
         SettingSpec {
@@ -71,43 +56,43 @@ fn base_setting_specs(default_gauges: &'static str) -> Vec<SettingSpec> {
             default: "28",
         },
         SettingSpec {
-            key: "grelier.bar.border_blend",
+            key: "grelier.bar.border.blend",
             default: "true",
         },
         SettingSpec {
-            key: "grelier.bar.border_line_width",
+            key: "grelier.bar.border.line_width",
             default: "1.0",
         },
         SettingSpec {
-            key: "grelier.bar.border_column_width",
+            key: "grelier.bar.border.column_width",
             default: "3.0",
         },
         SettingSpec {
-            key: "grelier.bar.border_mix_1",
+            key: "grelier.bar.border.mix_1",
             default: "0.2",
         },
         SettingSpec {
-            key: "grelier.bar.border_mix_2",
+            key: "grelier.bar.border.mix_2",
             default: "0.6",
         },
         SettingSpec {
-            key: "grelier.bar.border_mix_3",
+            key: "grelier.bar.border.mix_3",
             default: "1.0",
         },
         SettingSpec {
-            key: "grelier.bar.border_alpha_1",
+            key: "grelier.bar.border.alpha_1",
             default: "0.6",
         },
         SettingSpec {
-            key: "grelier.bar.border_alpha_2",
+            key: "grelier.bar.border.alpha_2",
             default: "0.7",
         },
         SettingSpec {
-            key: "grelier.bar.border_alpha_3",
+            key: "grelier.bar.border.alpha_3",
             default: "0.9",
         },
         SettingSpec {
-            key: "grelier.dialog.header_font_size",
+            key: "grelier.dialog.header.font_size",
             default: "14",
         },
         SettingSpec {
@@ -115,99 +100,99 @@ fn base_setting_specs(default_gauges: &'static str) -> Vec<SettingSpec> {
             default: "center",
         },
         SettingSpec {
-            key: "grelier.dialog.header_bottom_spacing",
+            key: "grelier.dialog.header.bottom_spacing",
             default: "4",
         },
         SettingSpec {
-            key: "grelier.dialog.container_padding_y",
+            key: "grelier.dialog.container.padding_y",
             default: "10",
         },
         SettingSpec {
-            key: "grelier.dialog.container_padding_x",
+            key: "grelier.dialog.container.padding_x",
             default: "10",
         },
         SettingSpec {
-            key: "grelier.app.gauge_anchor_offset_icon",
+            key: "grelier.gauge.ui.anchor_offset_icon",
             default: "7.0",
         },
         SettingSpec {
-            key: "grelier.app.workspace_padding_x",
+            key: "grelier.app.workspace.padding_x",
             default: "4",
         },
         SettingSpec {
-            key: "grelier.app.workspace_padding_y",
+            key: "grelier.app.workspace.padding_y",
             default: "2",
         },
         SettingSpec {
-            key: "grelier.app.workspace_spacing",
+            key: "grelier.app.workspace.spacing",
             default: "2",
         },
         SettingSpec {
-            key: "grelier.app.workspace_button_padding_x",
+            key: "grelier.app.workspace.button_padding_x",
             default: "4",
         },
         SettingSpec {
-            key: "grelier.app.workspace_button_padding_y",
+            key: "grelier.app.workspace.button_padding_y",
             default: "4",
         },
         SettingSpec {
-            key: "grelier.app.workspace_corner_radius",
+            key: "grelier.app.workspace.corner_radius",
             default: "5.0",
         },
         SettingSpec {
-            key: "grelier.app.workspace_label_size",
+            key: "grelier.app.workspace.label_size",
             default: "14",
         },
         SettingSpec {
-            key: "grelier.app.workspace_icon_size",
+            key: "grelier.app.workspace.icon_size",
             default: "22.0",
         },
         SettingSpec {
-            key: "grelier.app.workspace_icon_spacing",
+            key: "grelier.app.workspace.icon_spacing",
             default: "6",
         },
         SettingSpec {
-            key: "grelier.app.workspace_icon_padding_x",
+            key: "grelier.app.workspace.icon_padding_x",
             default: "2",
         },
         SettingSpec {
-            key: "grelier.app.workspace_icon_padding_y",
+            key: "grelier.app.workspace.icon_padding_y",
             default: "2",
         },
         SettingSpec {
-            key: "grelier.app.workspace_app_icons",
+            key: "grelier.app.workspace.app_icons",
             default: "true",
         },
         SettingSpec {
-            key: "grelier.app.top_apps_count",
+            key: "grelier.app.top_apps.count",
             default: "6",
         },
         SettingSpec {
-            key: "grelier.app.top_apps_icon_size",
+            key: "grelier.app.top_apps.icon_size",
             default: "20.0",
         },
         SettingSpec {
-            key: "grelier.app.gauge_padding_x",
+            key: "grelier.gauge.ui.padding_x",
             default: "2",
         },
         SettingSpec {
-            key: "grelier.app.gauge_padding_y",
+            key: "grelier.gauge.ui.padding_y",
             default: "2",
         },
         SettingSpec {
-            key: "grelier.app.gauge_spacing",
+            key: "grelier.gauge.ui.spacing",
             default: "7",
         },
         SettingSpec {
-            key: "grelier.app.gauge_icon_size",
+            key: "grelier.gauge.ui.icon_size",
             default: "20.0",
         },
         SettingSpec {
-            key: "grelier.app.gauge_value_icon_size",
+            key: "grelier.gauge.ui.value_icon_size",
             default: "20.0",
         },
         SettingSpec {
-            key: "grelier.app.gauge_icon_value_spacing",
+            key: "grelier.gauge.ui.icon_value_spacing",
             default: "0.0",
         },
     ]
@@ -227,6 +212,14 @@ struct Args {
     /// list available gauges and exit
     #[argh(switch)]
     list_gauges: bool,
+
+    /// list available panels and exit
+    #[argh(switch)]
+    list_panels: bool,
+
+    /// override the settings file path
+    #[argh(option, short = 'c', long = "config")]
+    config: Option<std::path::PathBuf>,
 
     /// list app settings and exit
     #[argh(switch)]
@@ -275,16 +268,6 @@ fn load_cached_apps_from_cache(
     (apps, app_icons, top_apps)
 }
 
-fn load_cached_apps(
-    top_count: usize,
-    workspace_app_icons: bool,
-) -> (AppIconCache, Vec<AppDescriptor>) {
-    let mut cache = Cache::new(load_desktop_apps);
-    let (_apps, app_icons, top_apps) =
-        load_cached_apps_from_cache(&mut cache, top_count, workspace_app_icons);
-    (app_icons, top_apps)
-}
-
 fn app_subscription(_state: &BarState, gauges: &[String]) -> Subscription<Message> {
     let mut subs = Vec::new();
     subs.push(sway_workspace::workspace_subscription());
@@ -313,6 +296,11 @@ fn main() -> Result<(), iced_layershell::Error> {
         return Ok(());
     }
 
+    if args.list_panels {
+        bar::list_panels();
+        return Ok(());
+    }
+
     let default_gauges = gauge_registry::default_gauges();
     let base_setting_specs = base_setting_specs(default_gauges);
 
@@ -324,8 +312,11 @@ fn main() -> Result<(), iced_layershell::Error> {
     let known_gauges: std::collections::HashSet<&'static str> =
         known_gauge_names.iter().copied().collect();
 
-    let storage =
-        settings_storage::SettingsStorage::new(settings_storage::SettingsStorage::default_path());
+    let storage_path = args
+        .config
+        .clone()
+        .unwrap_or_else(settings_storage::SettingsStorage::default_path);
+    let storage = settings_storage::SettingsStorage::new(storage_path);
     let settings_store = settings::init_settings(settings::Settings::new(storage));
 
     for arg in &args.setting {
@@ -384,7 +375,7 @@ fn main() -> Result<(), iced_layershell::Error> {
     let bar_width = settings_store.get_parsed_or("grelier.bar.width", 28u32);
 
     let orientation_setting = settings_store
-        .get_or("grelier.orientation", DEFAULT_ORIENTATION)
+        .get_or("grelier.bar.orientation", DEFAULT_ORIENTATION)
         .parse::<Orientation>()
         .unwrap_or_else(|err| {
             eprintln!("{err}");
@@ -412,7 +403,7 @@ fn main() -> Result<(), iced_layershell::Error> {
         ..LayerShellAppSettings::default()
     };
 
-    let theme = match settings_store.get("grelier.theme") {
+    let theme = match settings_store.get("grelier.bar.theme") {
         Some(name) => match theme::parse_them(&name) {
             Some(theme) => theme,
             None => {
@@ -427,8 +418,8 @@ fn main() -> Result<(), iced_layershell::Error> {
     };
 
     let gauge_order = gauges.clone();
-    let workspace_app_icons = settings_store.get_bool_or("grelier.app.workspace_app_icons", true);
-    let top_apps_count = settings_store.get_parsed_or("grelier.app.top_apps_count", 6usize);
+    let workspace_app_icons = settings_store.get_bool_or("grelier.app.workspace.app_icons", true);
+    let top_apps_count = settings_store.get_parsed_or("grelier.app.top_apps.count", 6usize);
 
     daemon(
         move || {
@@ -482,7 +473,7 @@ fn update(state: &mut BarState, message: Message) -> Task<Message> {
 
     match message {
         Message::Workspaces { workspaces, apps } => {
-            state.update_workspace_focus(&workspaces);
+            panels::ws_panel::update_workspace_focus(state, &workspaces);
             state.workspaces = workspaces;
             state.workspace_apps = apps
                 .into_iter()
@@ -519,7 +510,7 @@ fn update(state: &mut BarState, message: Message) -> Task<Message> {
                     eprintln!("Failed to update app cache for \"{app_id}\": {err}");
                 }
                 let top_apps_count =
-                    settings::settings().get_parsed_or("grelier.app.top_apps_count", 6usize);
+                    settings::settings().get_parsed_or("grelier.app.top_apps.count", 6usize);
                 state.top_apps = cache.top_apps(top_apps_count).unwrap_or_default();
             }
         }
@@ -543,7 +534,7 @@ fn update(state: &mut BarState, message: Message) -> Task<Message> {
             update_gauge(&mut state.gauges, gauge.clone());
             refresh_info_dialogs(&mut state.dialog_windows, &gauge);
         }
-        Message::GaugeClicked { id, target, input } => {
+        Message::GaugeClicked { id, input } => {
             // If any dialog is open, any click just dismisses it.
             if !state.dialog_windows.is_empty() {
                 return state.close_dialogs();
@@ -566,7 +557,7 @@ fn update(state: &mut BarState, message: Message) -> Task<Message> {
                     .gauge_dialog_anchor
                     .get(&id)
                     .copied()
-                    .or_else(|| state.gauge_anchor_y(target));
+                    .or_else(|| panels::gauge_panel::anchor_y(state));
                 return state.open_menu(&id, menu, anchor_y);
             }
 
@@ -590,14 +581,14 @@ fn update(state: &mut BarState, message: Message) -> Task<Message> {
                     .gauge_dialog_anchor
                     .get(&id)
                     .copied()
-                    .or_else(|| state.gauge_anchor_y(target));
+                    .or_else(|| panels::gauge_panel::anchor_y(state));
                 return state.open_info_dialog(&id, dialog, anchor_y);
             }
 
             if let Some(callback) = gauge_callback {
-                callback(GaugeClick { input, target });
+                callback(GaugeClick { input });
             } else {
-                println!("Gauge '{id}' clicked: {:?} {:?}", target, input);
+                println!("Gauge '{id}' clicked: {:?}", input);
             }
         }
         Message::MenuItemSelected {
@@ -647,7 +638,7 @@ fn update(state: &mut BarState, message: Message) -> Task<Message> {
             Ok((apps, top_apps)) => {
                 let settings = settings::settings();
                 let workspace_app_icons =
-                    settings.get_bool_or("grelier.app.workspace_app_icons", true);
+                    settings.get_bool_or("grelier.app.workspace.app_icons", true);
                 state.app_icons = if workspace_app_icons {
                     AppIconCache::from_app_descriptors_ref(&apps)
                 } else {
@@ -744,8 +735,8 @@ fn refresh_info_dialogs(
 
 #[cfg(test)]
 mod tests {
-    use crate::app::{GaugeDialog, GaugeDialogWindow};
-    use crate::gauge::{GaugeClickTarget, GaugeMenu, GaugeValue, GaugeValueAttention};
+    use crate::bar::{GaugeDialog, GaugeDialogWindow};
+    use crate::panels::gauges::gauge::{GaugeMenu, GaugeValue, GaugeValueAttention};
     use crate::settings_storage::SettingsStorage;
     use std::sync::Arc;
     use std::sync::Mutex;
@@ -765,7 +756,7 @@ mod tests {
         let (storage, path) = temp_storage_path("overrides_before_save");
         let settings_store = settings::Settings::new(storage.clone());
 
-        settings_store.update("grelier.theme", "Light");
+        settings_store.update("grelier.bar.theme", "Light");
 
         let mut all_setting_specs = Vec::new();
         let base_setting_specs = base_setting_specs(gauge_registry::default_gauges());
@@ -776,7 +767,7 @@ mod tests {
 
         let contents = std::fs::read_to_string(&path).expect("read settings storage");
         assert!(
-            contents.contains("grelier.theme: Light"),
+            contents.contains("grelier.bar.theme: Light"),
             "expected override to persist before defaults"
         );
 
@@ -861,7 +852,6 @@ mod tests {
             &mut state,
             Message::GaugeClicked {
                 id: "audio_out".to_string(),
-                target: GaugeClickTarget::Icon,
                 input: GaugeInput::Button(mouse::Button::Left),
             },
         );
@@ -914,7 +904,6 @@ mod tests {
             &mut state,
             Message::GaugeClicked {
                 id: "audio_out".to_string(),
-                target: GaugeClickTarget::Icon,
                 input: GaugeInput::Button(mouse::Button::Right),
             },
         );
@@ -1088,7 +1077,6 @@ mod tests {
             &mut state,
             Message::GaugeClicked {
                 id: "test".to_string(),
-                target: GaugeClickTarget::Icon,
                 input: GaugeInput::Button(mouse::Button::Middle),
             },
         );

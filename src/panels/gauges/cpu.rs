@@ -1,9 +1,9 @@
 // CPU utilization gauge with adaptive polling and quantity icons.
 // Consumes Settings: grelier.gauge.cpu.*.
-use crate::gauge::{GaugeValue, GaugeValueAttention, SettingSpec, fixed_interval};
-use crate::gauge_registry::{GaugeSpec, GaugeStream};
 use crate::icon::{icon_quantity, svg_asset};
 use crate::info_dialog::InfoDialog;
+use crate::panels::gauges::gauge::{GaugeValue, GaugeValueAttention, SettingSpec, fixed_interval};
+use crate::panels::gauges::gauge_registry::{GaugeSpec, GaugeStream};
 use crate::settings;
 use iced::futures::StreamExt;
 use std::fs::File;
@@ -144,7 +144,7 @@ fn cpu_value(
     }
 }
 
-fn cpu_stream() -> impl iced::futures::Stream<Item = crate::gauge::GaugeModel> {
+fn cpu_stream() -> impl iced::futures::Stream<Item = crate::panels::gauges::gauge::GaugeModel> {
     let warning_threshold = settings::settings().get_parsed_or(
         "grelier.gauge.cpu.warning_threshold",
         DEFAULT_WARNING_THRESHOLD,
@@ -292,7 +292,6 @@ fn stream() -> GaugeStream {
 inventory::submit! {
     GaugeSpec {
         id: "cpu",
-        label: "CPU",
         description: "CPU utilization gauge displaying percent usage with adaptive polling.",
         default_enabled: true,
         settings,

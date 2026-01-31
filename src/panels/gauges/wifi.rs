@@ -1,12 +1,12 @@
 // Wi-Fi signal/connection gauge that polls sysfs and /proc.
 // Consumes Settings: grelier.gauge.wifi.*.
-use crate::gauge::{
+use crate::icon::{icon_quantity, svg_asset};
+use crate::info_dialog::InfoDialog;
+use crate::panels::gauges::gauge::{
     GaugeMenu, GaugeMenuItem, GaugeModel, GaugeValue, GaugeValueAttention, MenuSelectAction,
     SettingSpec, event_stream,
 };
-use crate::gauge_registry::{GaugeSpec, GaugeStream};
-use crate::icon::{icon_quantity, svg_asset};
-use crate::info_dialog::InfoDialog;
+use crate::panels::gauges::gauge_registry::{GaugeSpec, GaugeStream};
 use crate::settings;
 use std::collections::{HashMap, HashSet};
 use std::fs;
@@ -54,16 +54,11 @@ struct WifiMenuEntry {
     id: String,
     path: OwnedObjectPath,
     ssid: Option<String>,
-    last_seen: Option<u64>,
 }
 
 #[derive(Debug)]
 enum WifiCommand {
     Connect(String),
-}
-
-fn wifi_interfaces() -> Vec<String> {
-    wifi_interfaces_at(Path::new(SYS_NET))
 }
 
 fn wifi_interfaces_at(sys_net: &Path) -> Vec<String> {
@@ -102,10 +97,6 @@ fn read_operstate(path: &Path) -> Option<String> {
     fs::read_to_string(path.join("operstate"))
         .ok()
         .map(|s| s.trim().to_string())
-}
-
-fn read_link_quality(iface: &str) -> Option<f32> {
-    read_link_quality_at(Path::new(PROC_NET_WIRELESS), iface)
 }
 
 fn read_link_quality_at(proc_net_wireless: &Path, iface: &str) -> Option<f32> {
@@ -330,12 +321,7 @@ fn wifi_connection_entries(
                 continue;
             }
         }
-        entries.push(WifiMenuEntry {
-            id,
-            path,
-            ssid,
-            last_seen: timestamp,
-        });
+        entries.push(WifiMenuEntry { id, path, ssid });
     }
 
     entries.sort_by(|a, b| a.id.cmp(&b.id));
@@ -368,9 +354,10 @@ fn wifi_menu_items(
             let selected = active_connection.is_some_and(|path| path == &entry.path)
                 || (active_connection.is_none()
                     && active_ssid.is_some_and(|ssid| entry.ssid.as_deref() == Some(ssid)));
+            let label = connection_label(entry);
             GaugeMenuItem {
                 id: entry.path.as_str().to_string(),
-                label: connection_label(entry),
+                label,
                 selected,
             }
         })
@@ -637,7 +624,6 @@ fn stream() -> GaugeStream {
 inventory::submit! {
     GaugeSpec {
         id: "wifi",
-        label: "Wi-Fi",
         description: "Wi-Fi signal gauge showing percent link quality and current SSID.",
         default_enabled: false,
         settings,

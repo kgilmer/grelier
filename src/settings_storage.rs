@@ -112,17 +112,15 @@ impl SettingsStorage {
             )
         })?;
 
-        let mut keys: Vec<&String> = map.keys().collect();
-        keys.sort();
-        for key in keys {
-            if let Some(value) = map.get(key) {
-                writeln!(file, "{key}: {value}").map_err(|err| {
-                    format!(
-                        "unable to write settings storage {}: {err}",
-                        self.path.display()
-                    )
-                })?;
-            }
+        let mut entries: Vec<(&String, &String)> = map.iter().collect();
+        entries.sort_by_key(|(key, _)| *key);
+        for (key, value) in entries {
+            writeln!(file, "{key}: {value}").map_err(|err| {
+                format!(
+                    "unable to write settings storage {}: {err}",
+                    self.path.display()
+                )
+            })?;
         }
 
         Ok(())

@@ -1,0 +1,17 @@
+pub mod audio_in;
+pub mod audio_out;
+pub mod battery;
+pub mod brightness;
+pub mod clock;
+pub mod cpu;
+pub mod date;
+pub mod disk;
+pub mod gauge;
+pub mod gauge_registry;
+pub mod net_common;
+pub mod net_down;
+pub mod net_up;
+pub mod ram;
+#[cfg(debug_assertions)]
+pub mod test_gauge;
+pub mod wifi;

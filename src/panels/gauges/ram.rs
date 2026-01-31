@@ -1,9 +1,9 @@
 // RAM utilization gauge with adaptive polling and optional ZFS ARC accounting.
 // Consumes Settings: grelier.gauge.ram.*.
-use crate::gauge::{GaugeValue, GaugeValueAttention, SettingSpec, fixed_interval};
-use crate::gauge_registry::{GaugeSpec, GaugeStream};
 use crate::icon::{icon_quantity, svg_asset};
 use crate::info_dialog::InfoDialog;
+use crate::panels::gauges::gauge::{GaugeValue, GaugeValueAttention, SettingSpec, fixed_interval};
+use crate::panels::gauges::gauge_registry::{GaugeSpec, GaugeStream};
 use crate::settings;
 use iced::futures::StreamExt;
 use std::fs::{File, read_to_string};
@@ -154,8 +154,6 @@ struct RamState {
     calm_ticks: u8,
     fast_interval_duration: Duration,
     slow_interval_duration: Duration,
-    warning_threshold: f32,
-    danger_threshold: f32,
 }
 
 impl RamState {
@@ -181,7 +179,7 @@ impl RamState {
     }
 }
 
-fn ram_stream() -> impl iced::futures::Stream<Item = crate::gauge::GaugeModel> {
+fn ram_stream() -> impl iced::futures::Stream<Item = crate::panels::gauges::gauge::GaugeModel> {
     let warning_threshold_raw = settings::settings().get_parsed_or(
         "grelier.gauge.ram.warning_threshold",
         DEFAULT_WARNING_THRESHOLD,
@@ -235,8 +233,6 @@ fn ram_stream() -> impl iced::futures::Stream<Item = crate::gauge::GaugeModel> {
         calm_ticks,
         fast_interval_duration: Duration::from_secs(fast_interval_secs),
         slow_interval_duration: Duration::from_secs(slow_interval_secs),
-        warning_threshold,
-        danger_threshold,
         fast_interval: false,
         below_threshold_streak: 0,
     }));
@@ -358,7 +354,6 @@ fn stream() -> GaugeStream {
 inventory::submit! {
     GaugeSpec {
         id: "ram",
-        label: "RAM",
         description: "RAM usage gauge showing percent memory utilization.",
         default_enabled: true,
         settings,
@@ -398,8 +393,6 @@ mod tests {
             calm_ticks: DEFAULT_CALM_TICKS,
             fast_interval_duration: Duration::from_secs(DEFAULT_FAST_INTERVAL_SECS),
             slow_interval_duration: Duration::from_secs(DEFAULT_SLOW_INTERVAL_SECS),
-            warning_threshold: DEFAULT_WARNING_THRESHOLD,
-            danger_threshold: DEFAULT_DANGER_THRESHOLD,
             fast_interval: false,
             below_threshold_streak: 0,
         };

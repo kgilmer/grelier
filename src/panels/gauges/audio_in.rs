@@ -1,12 +1,12 @@
 // PulseAudio input volume gauge with mute/adjust actions and device menu.
 // Consumes Settings: grelier.gauge.audio_in.step_percent.
-use crate::gauge::{
+use crate::icon::{icon_quantity, svg_asset};
+use crate::info_dialog::InfoDialog;
+use crate::panels::gauges::gauge::{
     GaugeClick, GaugeClickAction, GaugeMenu, GaugeMenuItem, GaugeValue, GaugeValueAttention,
     MenuSelectAction, SettingSpec, event_stream,
 };
-use crate::gauge_registry::{GaugeSpec, GaugeStream};
-use crate::icon::{icon_quantity, svg_asset};
-use crate::info_dialog::InfoDialog;
+use crate::panels::gauges::gauge_registry::{GaugeSpec, GaugeStream};
 use crate::settings;
 use libpulse_binding as pulse;
 use pulse::callbacks::ListResult;
@@ -302,7 +302,8 @@ fn handle_command(
     }
 }
 
-fn audio_in_stream() -> impl iced::futures::Stream<Item = crate::gauge::GaugeModel> {
+fn audio_in_stream() -> impl iced::futures::Stream<Item = crate::panels::gauges::gauge::GaugeModel>
+{
     let (command_tx, command_rx) = mpsc::channel::<InputCommand>();
     let mut step_percent = settings::settings()
         .get_parsed_or("grelier.gauge.audio_in.step_percent", DEFAULT_STEP_PERCENT);
@@ -312,13 +313,13 @@ fn audio_in_stream() -> impl iced::futures::Stream<Item = crate::gauge::GaugeMod
     let on_click: GaugeClickAction = {
         let command_tx = command_tx.clone();
         Arc::new(move |click: GaugeClick| match click.input {
-            crate::gauge::GaugeInput::Button(iced::mouse::Button::Middle) => {
+            crate::panels::gauges::gauge::GaugeInput::Button(iced::mouse::Button::Middle) => {
                 let _ = command_tx.send(InputCommand::ToggleMute);
             }
-            crate::gauge::GaugeInput::ScrollUp => {
+            crate::panels::gauges::gauge::GaugeInput::ScrollUp => {
                 let _ = command_tx.send(InputCommand::AdjustVolume(step_percent));
             }
-            crate::gauge::GaugeInput::ScrollDown => {
+            crate::panels::gauges::gauge::GaugeInput::ScrollDown => {
                 let _ = command_tx.send(InputCommand::AdjustVolume(-step_percent));
             }
             _ => {}
@@ -370,7 +371,7 @@ fn audio_in_stream() -> impl iced::futures::Stream<Item = crate::gauge::GaugeMod
                     ],
                 };
 
-                let _ = sender.try_send(crate::gauge::GaugeModel {
+                let _ = sender.try_send(crate::panels::gauges::gauge::GaugeModel {
                     id: "audio_in",
                     icon: Some(icon),
                     value,
@@ -506,7 +507,6 @@ fn stream() -> GaugeStream {
 inventory::submit! {
     GaugeSpec {
         id: "audio_in",
-        label: "Audio In",
         description: "Audio input volume gauge reporting percent level and mute state.",
         default_enabled: false,
         settings,

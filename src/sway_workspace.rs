@@ -1,6 +1,7 @@
 // Sway IPC helpers for workspace state, focus, and subscriptions.
 use std::cell::RefCell;
 
+use crate::bar::Message;
 use iced::Subscription;
 use iced::futures::channel::mpsc;
 use swayipc::Event;
@@ -13,18 +14,11 @@ type SwayConnection = Connection;
 
 #[derive(Debug, Clone)]
 pub struct WorkspaceInfo {
-    pub id: i64,
     pub num: i32,
     pub name: String,
-    pub layout: String,
-    pub visible: bool,
     pub focused: bool,
     pub urgent: bool,
-    pub representation: Option<String>,
-    pub orientation: String,
     pub rect: Rect,
-    pub output: String,
-    pub focus: Vec<i64>,
 }
 
 #[derive(Debug, Clone)]
@@ -35,9 +29,7 @@ pub struct WorkspaceApps {
 
 #[derive(Debug, Clone)]
 pub struct Rect {
-    pub x: i32,
     pub y: i32,
-    pub width: i32,
     pub height: i32,
 }
 
@@ -114,25 +106,16 @@ fn with_command_conn<R>(
 
 fn to_workspace_info(ws: swayipc::Workspace) -> WorkspaceInfo {
     let rect = Rect {
-        x: ws.rect.x,
         y: ws.rect.y,
-        width: ws.rect.width,
         height: ws.rect.height,
     };
 
     WorkspaceInfo {
-        id: ws.id,
         num: ws.num,
         name: ws.name,
-        layout: ws.layout,
-        visible: ws.visible,
         focused: ws.focused,
         urgent: ws.urgent,
-        representation: ws.representation,
-        orientation: ws.orientation,
         rect,
-        output: ws.output,
-        focus: ws.focus,
     }
 }
 
@@ -247,8 +230,6 @@ fn workspace_stream() -> impl iced::futures::Stream<Item = Message> {
 use std::sync::atomic::{AtomicUsize, Ordering};
 #[cfg(test)]
 use std::sync::{Mutex, OnceLock};
-
-use crate::app::Message;
 
 #[cfg(test)]
 static LOG: OnceLock<Mutex<Vec<(usize, &'static str)>>> = OnceLock::new();

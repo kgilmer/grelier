@@ -7,13 +7,6 @@ use std::time::{Duration, Instant};
 
 use crate::settings;
 
-/// Direction to compute a transfer rate for.
-#[derive(Clone, Copy)]
-pub enum RateDirection {
-    Upload,
-    Download,
-}
-
 #[derive(Clone, Copy)]
 pub struct NetCounters {
     pub rx_bytes: u64,
@@ -121,13 +114,6 @@ pub struct NetSamplerConfig {
 }
 
 impl NetSamplerConfig {
-    pub fn default_settings() -> Self {
-        Self {
-            min_interval: Duration::from_millis(DEFAULT_SAMPLER_MIN_INTERVAL_MS),
-            iface_ttl: Duration::from_secs(DEFAULT_IFACE_TTL_SECS),
-        }
-    }
-
     #[cfg(test)]
     fn with_timings(min_interval: Duration, iface_ttl: Duration) -> Self {
         Self {
@@ -227,10 +213,6 @@ impl<P: NetDataProvider> NetSampler<P> {
         }
     }
 
-    pub fn with_provider(provider: P) -> Self {
-        Self::with_provider_and_config(provider, NetSamplerConfig::default_settings())
-    }
-
     #[cfg(test)]
     fn with_timings(provider: P, min_interval: Duration, iface_ttl: Duration) -> Self {
         Self::with_provider_and_config(
@@ -311,35 +293,6 @@ pub fn shared_net_sampler() -> Arc<Mutex<NetSampler>> {
     SHARED_NET_SAMPLER
         .get_or_init(|| Arc::new(Mutex::new(NetSampler::new())))
         .clone()
-}
-
-/// Format bytes/sec into KB/MB/GB per second, scaling to keep the number under three digits.
-/// Format bytes/sec into a compact multi-line string: first line is two-digit value, second line is
-/// a two-letter unit. Values are scaled to stay within two digits; non-zero values round up to a
-/// minimum of `01` after scaling.
-pub fn format_rate(bytes_per_sec: f64) -> String {
-    const STEP: f64 = 1024.0;
-
-    let mut value = bytes_per_sec.max(0.0) / STEP; // Start at KB.
-    let mut unit = "KB";
-
-    for next in ["MB", "GB", "TB"] {
-        if value < 100.0 {
-            break;
-        }
-        value /= STEP;
-        unit = next;
-    }
-
-    let mut rounded = (value + 0.5).floor();
-    if rounded == 0.0 && bytes_per_sec > 0.0 {
-        rounded = 1.0;
-    }
-    if rounded > 99.0 {
-        rounded = 99.0;
-    }
-
-    format!("{:02.0}\n{unit}", rounded)
 }
 
 /// Format bytes/sec into a single-line KB/MB/GB per second string for info dialogs.
@@ -500,10 +453,6 @@ fn first_up_interface() -> Option<String> {
     None
 }
 
-pub fn active_interface() -> Option<String> {
-    active_interface_scan()
-}
-
 fn active_interface_scan() -> Option<String> {
     default_route_interface().or_else(first_up_interface)
 }
@@ -592,15 +541,6 @@ mod tests {
     use std::time::Duration;
 
     use super::*;
-
-    #[test]
-    fn formats_small_and_large_rates() {
-        assert_eq!(format_rate(0.0), "00\nKB");
-        assert_eq!(format_rate(10_240.0), "10\nKB");
-        assert_eq!(format_rate(150_000.0), "01\nMB");
-        assert_eq!(format_rate(5_000_000.0), "05\nMB");
-        assert_eq!(format_rate(5_000_000_000.0), "05\nGB");
-    }
 
     struct FakeProvider {
         clock: Arc<Mutex<Instant>>,
