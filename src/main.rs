@@ -16,7 +16,9 @@ use iced::Task;
 use iced::{Subscription, event, mouse, window};
 
 use iced_layershell::daemon;
-use iced_layershell::reexport::{Anchor, KeyboardInteractivity, Layer, NewLayerShellSettings, OutputOption};
+use iced_layershell::reexport::{
+    Anchor, KeyboardInteractivity, Layer, NewLayerShellSettings, OutputOption,
+};
 use iced_layershell::settings::{LayerShellSettings, Settings as LayerShellAppSettings, StartMode};
 
 use crate::bar::Orientation;
@@ -652,7 +654,9 @@ fn update(state: &mut BarState, message: Message) -> Task<Message> {
             }
         },
         Message::WindowClosed(window) => {
-            let is_primary = state.primary_window.is_some_and(|primary| primary == window);
+            let is_primary = state
+                .primary_window
+                .is_some_and(|primary| primary == window);
             state.dialog_windows.remove(&window);
             state.closing_dialogs.remove(&window);
             if is_primary {
