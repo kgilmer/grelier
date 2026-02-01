@@ -17,6 +17,13 @@ pub enum GaugeValueAttention {
     Danger,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum GaugeNominalColor {
+    #[default]
+    SecondaryStrong,
+    Primary,
+}
+
 #[derive(Debug, Clone)]
 pub enum GaugeValue {
     Text(String),
@@ -45,6 +52,7 @@ pub struct GaugeModel {
     pub icon: Option<svg::Handle>,
     pub value: Option<GaugeValue>,
     pub attention: GaugeValueAttention,
+    pub nominal_color: Option<GaugeNominalColor>,
     pub on_click: Option<GaugeClickAction>,
     pub menu: Option<GaugeMenu>,
     pub info: Option<InfoDialog>,
@@ -57,6 +65,7 @@ impl fmt::Debug for GaugeModel {
             .field("icon", &self.icon)
             .field("value", &self.value)
             .field("attention", &self.attention)
+            .field("nominal_color", &self.nominal_color)
             .field(
                 "menu",
                 &self
@@ -122,6 +131,7 @@ pub fn fixed_interval(
                     icon: icon.clone(),
                     value,
                     attention,
+                    nominal_color: None,
                     on_click: on_click.clone(),
                     menu: None,
                     info: None,

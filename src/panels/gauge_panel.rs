@@ -2,7 +2,9 @@ use std::collections::HashMap;
 
 use crate::bar::{BarState, Message, Panel, lerp_color};
 use crate::icon::svg_asset;
-use crate::panels::gauges::gauge::{GaugeInput, GaugeModel, GaugeValue, GaugeValueAttention};
+use crate::panels::gauges::gauge::{
+    GaugeInput, GaugeModel, GaugeNominalColor, GaugeValue, GaugeValueAttention,
+};
 use crate::settings;
 use iced::alignment;
 use iced::widget::svg::{self, Svg};
@@ -12,16 +14,31 @@ use iced::{Color, Element, Length, Theme, mouse};
 use iced_anim::animation_builder::AnimationBuilder;
 use iced_anim::transition::Easing;
 
-fn attention_color(attention: GaugeValueAttention, theme: &Theme) -> Color {
+fn nominal_color_value(nominal_color: GaugeNominalColor, theme: &Theme) -> Color {
+    match nominal_color {
+        GaugeNominalColor::SecondaryStrong => theme.extended_palette().secondary.strong.color,
+        GaugeNominalColor::Primary => theme.palette().primary,
+    }
+}
+
+fn attention_color(
+    attention: GaugeValueAttention,
+    nominal_color: GaugeNominalColor,
+    theme: &Theme,
+) -> Color {
     match attention {
-        GaugeValueAttention::Nominal => theme.extended_palette().secondary.strong.color,
+        GaugeValueAttention::Nominal => nominal_color_value(nominal_color, theme),
         GaugeValueAttention::Warning => theme.extended_palette().warning.base.color,
         GaugeValueAttention::Danger => theme.extended_palette().danger.base.color,
     }
 }
 
-fn attention_color_at_level(level: f32, theme: &Theme) -> Color {
-    let normal = theme.extended_palette().secondary.strong.color;
+fn attention_color_at_level(
+    level: f32,
+    nominal_color: GaugeNominalColor,
+    theme: &Theme,
+) -> Color {
+    let normal = nominal_color_value(nominal_color, theme);
     let warning = theme.extended_palette().warning.base.color;
     let danger = theme.extended_palette().danger.base.color;
     if level <= 1.0 {
@@ -81,6 +98,10 @@ pub fn view<'a>(state: &'a BarState) -> Panel<'a> {
         |col, gauge| {
             let gauge_attention = gauge.attention;
             let icon_attention = GaugeValueAttention::Nominal;
+            let nominal_color =
+                gauge
+                    .nominal_color
+                    .unwrap_or(GaugeNominalColor::SecondaryStrong);
 
             let mut gauge_column = Column::new()
                 .align_x(alignment::Horizontal::Center)
@@ -99,7 +120,11 @@ pub fn view<'a>(state: &'a BarState) -> Panel<'a> {
                             .width(Length::Fixed(gauge_icon_size))
                             .height(Length::Fixed(gauge_icon_size))
                             .style(move |theme: &Theme, _status| {
-                                let normal = attention_color(attention, theme);
+                                let normal = attention_color(
+                                    attention,
+                                    GaugeNominalColor::SecondaryStrong,
+                                    theme,
+                                );
                                 let inverted = theme.palette().background;
                                 svg::Style {
                                     color: Some(lerp_color(normal, inverted, t)),
@@ -110,7 +135,10 @@ pub fn view<'a>(state: &'a BarState) -> Panel<'a> {
                             .width(Length::Fixed(gauge_icon_size))
                             .height(Length::Fixed(gauge_icon_size))
                             .style(move |theme: &Theme| {
-                                let target = theme.extended_palette().secondary.strong.color;
+                                let target = nominal_color_value(
+                                    GaugeNominalColor::SecondaryStrong,
+                                    theme,
+                                );
                                 let transparent = Color { a: 0.0, ..target };
                                 container::Style {
                                     background: Some(lerp_color(transparent, target, t).into()),
@@ -143,7 +171,7 @@ pub fn view<'a>(state: &'a BarState) -> Panel<'a> {
                             .width(Length::Fill)
                             .align_x(text::Alignment::Center)
                             .style(move |theme: &Theme| text::Style {
-                                color: Some(attention_color_at_level(level, theme)),
+                                color: Some(attention_color_at_level(level, nominal_color, theme)),
                             })
                             .into()
                     })
@@ -162,7 +190,7 @@ pub fn view<'a>(state: &'a BarState) -> Panel<'a> {
                             .width(Length::Fixed(gauge_value_icon_size))
                             .height(Length::Fixed(gauge_value_icon_size))
                             .style(move |theme: &Theme, _status| svg::Style {
-                                color: Some(attention_color_at_level(level, theme)),
+                                color: Some(attention_color_at_level(level, nominal_color, theme)),
                             })
                             .into()
                     })
@@ -177,7 +205,7 @@ pub fn view<'a>(state: &'a BarState) -> Panel<'a> {
                             .width(Length::Fixed(gauge_value_icon_size))
                             .height(Length::Fixed(gauge_value_icon_size))
                             .style(move |theme: &Theme, _status| svg::Style {
-                                color: Some(attention_color_at_level(level, theme)),
+                                color: Some(attention_color_at_level(level, nominal_color, theme)),
                             })
                             .into()
                     })
@@ -243,6 +271,7 @@ mod tests {
             icon: None,
             value: Some(GaugeValue::Text(id.to_string())),
             attention: GaugeValueAttention::Nominal,
+            nominal_color: None,
             on_click: None,
             menu: None,
             info: None,
