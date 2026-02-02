@@ -680,9 +680,9 @@ fn update(state: &mut BarState, message: Message) -> Task<Message> {
                 return Task::none();
             }
             state.last_output_change_at = Some(Instant::now());
-            // On resume/hotplug, let existing windows settle. Forcing a reopen here
-            // can leave a stale blank window behind on some compositors.
-            return Task::none();
+            // After resume/hotplug, the existing surface can go blank. Recreate the
+            // primary window while ensuring we do not leave duplicates behind.
+            return reopen_primary_window(state);
         }
         Message::IcedEvent(iced::Event::Window(iced::window::Event::Unfocused)) => {
             return Task::done(Message::WindowFocusChanged { focused: false });
@@ -778,6 +778,27 @@ fn layershell_reopen_settings() -> NewLayerShellSettings {
         events_transparent: false,
         namespace: Some(BarState::namespace()),
     }
+}
+
+fn reopen_primary_window(state: &mut BarState) -> Task<Message> {
+    state.pending_primary_window = true;
+    state.primary_window = None;
+    let mut tasks = vec![state.close_dialogs()];
+
+    let ids: Vec<window::Id> = state.bar_windows.drain().collect();
+    for id in ids {
+        state.closing_dialogs.insert(id);
+        tasks.push(Task::done(Message::RemoveWindow(id)));
+    }
+
+    let id = window::Id::unique();
+    let task = Task::done(Message::NewLayerShell {
+        settings: layershell_reopen_settings(),
+        id,
+    });
+    tasks.push(Task::done(Message::ForgetLastOutput));
+    tasks.push(task);
+    Task::batch(tasks)
 }
 
 fn handle_window_focus_change(state: &mut BarState, focused: bool) -> Task<Message> {
