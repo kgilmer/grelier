@@ -216,6 +216,15 @@ pub struct BarState {
     pub last_click_at: Option<Instant>,
     pub last_dialog_opened_at: Option<Instant>,
     pub last_output_change_at: Option<Instant>,
+    pub last_bar_window_opened_at: Option<Instant>,
+    pub last_outputs: Option<Vec<OutputSnapshot>>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct OutputSnapshot {
+    pub name: String,
+    pub active: bool,
+    pub rect: (i32, i32, i32, i32),
 }
 
 /// Lookup cache for app icon handles by app id or title.
