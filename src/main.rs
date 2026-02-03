@@ -39,73 +39,6 @@ const DEFAULT_ORIENTATION: &str = "left";
 const DEFAULT_THEME: &str = "Nord";
 const DIALOG_UNFOCUS_SUPPRESSION_WINDOW: Duration = Duration::from_millis(250);
 const OUTPUT_REOPEN_SUPPRESSION_WINDOW: Duration = Duration::from_millis(750);
-const WINDOW_DEBUG_ENV: &str = "GRELIER_DEBUG_WINDOWS";
-
-fn window_debug_enabled() -> bool {
-    match std::env::var(WINDOW_DEBUG_ENV) {
-        Ok(value) => {
-            let value = value.trim();
-            !value.is_empty() && value != "0"
-        }
-        Err(_) => false,
-    }
-}
-
-fn format_window_set(ids: &std::collections::HashSet<window::Id>) -> String {
-    let mut entries: Vec<String> = ids.iter().map(|id| format!("{id:?}")).collect();
-    entries.sort();
-    format!("[{}]", entries.join(", "))
-}
-
-fn log_window_state(label: &str, state: &BarState) {
-    if !window_debug_enabled() {
-        return;
-    }
-
-    let bar_windows = format_window_set(&state.bar_windows);
-    let closing_dialogs = format_window_set(&state.closing_dialogs);
-    let dialog_windows: std::collections::HashSet<window::Id> =
-        state.dialog_windows.keys().copied().collect();
-    let dialog_windows = format_window_set(&dialog_windows);
-    let last_opened_ms = state.last_bar_window_opened_at.and_then(|instant| {
-        Instant::now()
-            .checked_duration_since(instant)
-            .map(|elapsed| elapsed.as_millis())
-    });
-    let outputs = state
-        .last_outputs
-        .as_ref()
-        .map(|outputs| {
-            let mut entries: Vec<String> = outputs
-                .iter()
-                .map(|output| {
-                    format!(
-                        "{}:{}:{}x{}@{},{}",
-                        output.name,
-                        if output.active { "on" } else { "off" },
-                        output.rect.2,
-                        output.rect.3,
-                        output.rect.0,
-                        output.rect.1
-                    )
-                })
-                .collect();
-            entries.sort();
-            format!("[{}]", entries.join(", "))
-        })
-        .unwrap_or_else(|| "[]".to_string());
-    eprintln!(
-        "window-debug: {label} primary={:?} pending={} bar_windows={} closing_dialogs={} dialog_windows={} last_bar_opened_ms={:?} outputs={}",
-        state.primary_window,
-        state.pending_primary_window,
-        bar_windows,
-        closing_dialogs,
-        dialog_windows,
-        last_opened_ms,
-        outputs
-    );
-}
-
 fn snapshot_outputs() -> Option<Vec<OutputSnapshot>> {
     match sway_workspace::fetch_outputs() {
         Ok(outputs) => Some(
@@ -716,17 +649,11 @@ fn update(state: &mut BarState, message: Message) -> Task<Message> {
             return handle_window_focus_change(state, focused);
         }
         Message::WindowOpened(window) => {
-            if window_debug_enabled() {
-                eprintln!("window-debug: WindowOpened window={window:?}");
-            }
             if let Some(task) = track_bar_window(state, window) {
                 return task;
             }
         }
         Message::WindowEvent(window, event) => {
-            if window_debug_enabled() {
-                eprintln!("window-debug: WindowEvent window={window:?} event={event:?}");
-            }
             if event != iced::window::Event::Closed
                 && let Some(task) = track_bar_window(state, window)
             {
@@ -755,9 +682,6 @@ fn update(state: &mut BarState, message: Message) -> Task<Message> {
             }
         },
         Message::WindowClosed(window) => {
-            if window_debug_enabled() {
-                eprintln!("window-debug: WindowClosed window={window:?}");
-            }
             let is_primary = state
                 .primary_window
                 .is_some_and(|primary| primary == window);
@@ -779,24 +703,15 @@ fn update(state: &mut BarState, message: Message) -> Task<Message> {
             }
         }
         Message::OutputChanged => {
-            if window_debug_enabled() {
-                log_window_state("OutputChanged-start", state);
-            }
             if let Some(snapshot) = snapshot_outputs() {
                 match state.last_outputs.as_ref() {
                     None => {
                         state.last_outputs = Some(snapshot);
-                        if window_debug_enabled() {
-                            log_window_state("OutputChanged-initial-snapshot", state);
-                        }
                         return Task::none();
                     }
                     Some(prev) => {
                         if outputs_equal(prev, &snapshot) {
                             state.last_outputs = Some(snapshot);
-                            if window_debug_enabled() {
-                                log_window_state("OutputChanged-no-change", state);
-                            }
                             return Task::none();
                         }
                         state.last_outputs = Some(snapshot);
@@ -810,9 +725,6 @@ fn update(state: &mut BarState, message: Message) -> Task<Message> {
                 .unwrap_or(false);
             if reopened_since_last_output {
                 state.last_output_change_at = Some(now);
-                if window_debug_enabled() {
-                    log_window_state("OutputChanged-after-reopen", state);
-                }
                 return Task::none();
             }
             let recent_open = state
@@ -820,9 +732,6 @@ fn update(state: &mut BarState, message: Message) -> Task<Message> {
                 .and_then(|last| now.checked_duration_since(last))
                 .is_some_and(|elapsed| elapsed < OUTPUT_REOPEN_SUPPRESSION_WINDOW);
             if recent_open {
-                if window_debug_enabled() {
-                    log_window_state("OutputChanged-recent-open", state);
-                }
                 return Task::none();
             }
             let recently_handled = state
@@ -830,29 +739,17 @@ fn update(state: &mut BarState, message: Message) -> Task<Message> {
                 .and_then(|last| now.checked_duration_since(last))
                 .is_some_and(|elapsed| elapsed < OUTPUT_REOPEN_SUPPRESSION_WINDOW);
             if recently_handled {
-                if window_debug_enabled() {
-                    log_window_state("OutputChanged-suppressed", state);
-                }
                 return Task::none();
             }
             if state.pending_primary_window && state.primary_window.is_none() {
-                if window_debug_enabled() {
-                    log_window_state("OutputChanged-pending", state);
-                }
                 return Task::none();
             }
             if state.primary_window.is_none() {
-                if window_debug_enabled() {
-                    log_window_state("OutputChanged-no-primary", state);
-                }
                 return Task::none();
             }
             state.last_output_change_at = Some(now);
             // After resume/hotplug, the existing surface can go blank. Recreate the
             // primary window while ensuring we do not leave duplicates behind.
-            if window_debug_enabled() {
-                log_window_state("OutputChanged-reopen", state);
-            }
             return reopen_primary_window(state);
         }
         Message::IcedEvent(iced::Event::Window(iced::window::Event::Unfocused)) => {
@@ -860,17 +757,11 @@ fn update(state: &mut BarState, message: Message) -> Task<Message> {
         }
         Message::IcedEvent(_) => {}
         Message::NewLayerShell { id, .. } => {
-            if window_debug_enabled() {
-                eprintln!("window-debug: NewLayerShell id={id:?}");
-            }
             if let Some(task) = track_bar_window(state, id) {
                 return task;
             }
         }
         Message::NewBaseWindow { id, .. } => {
-            if window_debug_enabled() {
-                eprintln!("window-debug: NewBaseWindow id={id:?}");
-            }
             if let Some(task) = track_bar_window(state, id) {
                 return task;
             }
@@ -917,17 +808,11 @@ fn track_bar_window(state: &mut BarState, window: window::Id) -> Option<Task<Mes
     for id in to_remove {
         state.closing_dialogs.insert(id);
         state.bar_windows.remove(&id);
-        if window_debug_enabled() {
-            eprintln!("window-debug: scheduling RemoveWindow for bar window {id:?}");
-        }
         tasks.push(Task::done(Message::RemoveWindow(id)));
     }
 
     if !state.closing_dialogs.is_empty() {
         for id in state.closing_dialogs.iter().copied() {
-            if window_debug_enabled() {
-                eprintln!("window-debug: retry RemoveWindow for closing window {id:?}");
-            }
             tasks.push(Task::done(Message::RemoveWindow(id)));
         }
     }
