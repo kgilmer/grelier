@@ -30,7 +30,9 @@ use crate::panels::gauges::gauge_registry;
 use elbey_cache::{AppDescriptor, Cache};
 use freedesktop_desktop_entry::desktop_entries;
 use locale_config::Locale;
+use log::{error, info, warn};
 use std::ffi::OsString;
+use std::io::Write;
 use std::process::Command;
 use std::time::{Duration, Instant};
 
@@ -38,6 +40,78 @@ const DEFAULT_ORIENTATION: &str = "left";
 const DEFAULT_THEME: &str = "Nord";
 const DIALOG_UNFOCUS_SUPPRESSION_WINDOW: Duration = Duration::from_millis(250);
 const OUTPUT_REOPEN_SUPPRESSION_WINDOW: Duration = Duration::from_millis(750);
+
+struct StderrLogger;
+
+impl log::Log for StderrLogger {
+    fn enabled(&self, _metadata: &log::Metadata) -> bool {
+        true
+    }
+
+    fn log(&self, record: &log::Record) {
+        if !self.enabled(record.metadata()) {
+            return;
+        }
+        let mut stderr = std::io::stderr();
+        let _ = writeln!(
+            stderr,
+            "[{}] {}",
+            record.level(),
+            record.args()
+        );
+    }
+
+    fn flush(&self) {}
+}
+
+fn init_logging() {
+    let level = std::env::var("GREL_LOG_LEVEL")
+        .ok()
+        .and_then(|value| value.parse::<log::LevelFilter>().ok())
+        .unwrap_or(log::LevelFilter::Warn);
+    let formatter = syslog::Formatter3164 {
+        facility: syslog::Facility::LOG_USER,
+        hostname: None,
+        process: "grelier".to_string(),
+        pid: std::process::id(),
+    };
+
+    let (logger, syslog_error) = match syslog::unix(formatter) {
+        Ok(logger) => (
+            Box::new(syslog::BasicLogger::new(logger)) as Box<dyn log::Log>,
+            None,
+        ),
+        Err(err) => (Box::new(StderrLogger) as Box<dyn log::Log>, Some(err)),
+    };
+
+    if log::set_boxed_logger(logger).is_ok() {
+        log::set_max_level(level);
+        if let Some(err) = syslog_error {
+            warn!("Failed to connect to syslog; using stderr logger: {err}");
+        }
+    }
+}
+
+fn install_panic_hook() {
+    std::panic::set_hook(Box::new(|info| {
+        if let Some(location) = info.location() {
+            error!(
+                "Panic at {}:{}: {}",
+                location.file(),
+                location.line(),
+                info
+            );
+        } else {
+            error!("Panic: {info}");
+        }
+    }));
+}
+
+fn exit_with_error(message: impl std::fmt::Display) -> ! {
+    error!("{message}");
+    info!("Exiting with status 1.");
+    std::process::exit(1);
+}
 fn snapshot_outputs() -> Option<Vec<OutputSnapshot>> {
     match sway_workspace::fetch_outputs() {
         Ok(outputs) => Some(
@@ -56,7 +130,7 @@ fn snapshot_outputs() -> Option<Vec<OutputSnapshot>> {
                 .collect(),
         ),
         Err(err) => {
-            eprintln!("Failed to query outputs for snapshot: {err}");
+            error!("Failed to query outputs for snapshot: {err}");
             None
         }
     }
@@ -110,6 +184,8 @@ struct Args {
 }
 
 fn main() -> Result<(), iced_layershell::Error> {
+    init_logging();
+    install_panic_hook();
     let args: Args = argh::from_env();
 
     if args.list_themes {
@@ -139,15 +215,13 @@ fn main() -> Result<(), iced_layershell::Error> {
         .unwrap_or_default();
     if args.on_monitors.is_some() {
         if monitor_names.is_empty() {
-            eprintln!("--on-monitors requires at least one monitor name.");
-            std::process::exit(1);
+            exit_with_error("--on-monitors requires at least one monitor name.");
         }
 
         let outputs = match sway_workspace::fetch_outputs() {
             Ok(outputs) => outputs,
             Err(err) => {
-                eprintln!("Failed to query outputs: {err}");
-                std::process::exit(1);
+                exit_with_error(format!("Failed to query outputs: {err}"));
             }
         };
         let known: std::collections::HashSet<String> =
@@ -167,7 +241,7 @@ fn main() -> Result<(), iced_layershell::Error> {
             .cloned()
             .collect();
         if !unknown.is_empty() {
-            eprintln!(
+            exit_with_error(format!(
                 "Unknown monitor(s): {}. Known monitors: {}",
                 unknown.join(", "),
                 known
@@ -175,8 +249,7 @@ fn main() -> Result<(), iced_layershell::Error> {
                     .map(String::as_str)
                     .collect::<Vec<_>>()
                     .join(", ")
-            );
-            std::process::exit(1);
+            ));
         }
     }
 
@@ -184,8 +257,7 @@ fn main() -> Result<(), iced_layershell::Error> {
         let exe = match std::env::current_exe() {
             Ok(path) => path,
             Err(err) => {
-                eprintln!("Failed to locate executable: {err}");
-                std::process::exit(1);
+                exit_with_error(format!("Failed to locate executable: {err}"));
             }
         };
         let forward_args = build_forward_args(&args);
@@ -194,8 +266,9 @@ fn main() -> Result<(), iced_layershell::Error> {
             cmd.args(&forward_args);
             cmd.arg(format!("--on-monitors={name}"));
             if let Err(err) = cmd.spawn() {
-                eprintln!("Failed to launch for monitor '{name}': {err}");
-                std::process::exit(1);
+                exit_with_error(format!(
+                    "Failed to launch for monitor '{name}': {err}"
+                ));
             }
         }
         return Ok(());
@@ -228,8 +301,7 @@ fn main() -> Result<(), iced_layershell::Error> {
         let overrides = match settings::parse_settings_arg(arg) {
             Ok(map) => map,
             Err(err) => {
-                eprintln!("Invalid settings: {err}");
-                std::process::exit(1);
+                exit_with_error(format!("Invalid settings: {err}"));
             }
         };
         for (key, value) in overrides {
@@ -250,11 +322,10 @@ fn main() -> Result<(), iced_layershell::Error> {
 
     for gauge in &gauges {
         if !known_gauges.contains(gauge.as_str()) {
-            eprintln!(
+            exit_with_error(format!(
                 "Unknown gauge '{gauge}'. Known gauges: {}",
                 known_gauge_names.join(", ")
-            );
-            std::process::exit(1);
+            ));
         }
     }
 
@@ -265,15 +336,13 @@ fn main() -> Result<(), iced_layershell::Error> {
     }
 
     if let Err(err) = gauge_registry::validate_settings(settings_store) {
-        eprintln!("{err}");
-        std::process::exit(1);
+        exit_with_error(err);
     }
 
     let mut known_settings = std::collections::HashSet::new();
     for spec in &all_setting_specs {
         if !known_settings.insert(spec.key) {
-            eprintln!("Duplicate setting key '{}'", spec.key);
-            std::process::exit(1);
+            exit_with_error(format!("Duplicate setting key '{}'", spec.key));
         }
     }
 
@@ -283,8 +352,7 @@ fn main() -> Result<(), iced_layershell::Error> {
         .get_or("grelier.bar.orientation", DEFAULT_ORIENTATION)
         .parse::<Orientation>()
         .unwrap_or_else(|err| {
-            eprintln!("{err}");
-            std::process::exit(1);
+            exit_with_error(err);
         });
 
     let anchor = match orientation_setting {
@@ -318,11 +386,10 @@ fn main() -> Result<(), iced_layershell::Error> {
         Some(name) => match theme::parse_them(&name) {
             Some(theme) => theme,
             None => {
-                eprintln!(
+                exit_with_error(format!(
                     "Unknown theme '{name}'. Valid themes: {}",
                     theme::VALID_THEME_NAMES.join(", ")
-                );
-                std::process::exit(1);
+                ));
             }
         },
         None => theme::DEFAULT_THEME,
@@ -332,7 +399,7 @@ fn main() -> Result<(), iced_layershell::Error> {
     let workspace_app_icons = settings_store.get_bool_or("grelier.app.workspace.app_icons", true);
     let top_apps_count = settings_store.get_parsed_or("grelier.app.top_apps.count", 6usize);
 
-    daemon(
+    let run_result = daemon(
         move || {
             let mut icon_cache = Cache::new(load_desktop_apps);
             let (mut apps, app_icons, top_apps) =
@@ -365,7 +432,13 @@ fn main() -> Result<(), iced_layershell::Error> {
         move |state| app_subscription(state, &gauges)
     })
     .settings(settings)
-    .run()
+    .run();
+
+    match &run_result {
+        Ok(()) => info!("Exiting normally after bar run completed."),
+        Err(err) => error!("Exiting with error after bar run completed: {err}"),
+    }
+    run_result
 }
 
 fn load_desktop_apps() -> Vec<AppDescriptor> {
@@ -438,8 +511,7 @@ fn list_monitors() {
             }
         }
         Err(err) => {
-            eprintln!("Failed to query outputs: {err}");
-            std::process::exit(1);
+            exit_with_error(format!("Failed to query outputs: {err}"));
         }
     }
 }
@@ -469,7 +541,7 @@ fn app_subscription(_state: &BarState, gauges: &[String]) -> Subscription<Messag
         if let Some(spec) = gauge_registry::find(gauge) {
             subs.push(gauge_registry::subscription_for(spec));
         } else {
-            eprintln!("Unknown gauge '{gauge}' in subscription list.");
+            error!("Unknown gauge '{gauge}' in subscription list.");
         }
     }
     Subscription::batch(subs)
@@ -503,7 +575,7 @@ fn update(state: &mut BarState, message: Message) -> Task<Message> {
                 return state.close_dialogs();
             }
             if let Err(err) = sway_workspace::focus_workspace(&name) {
-                eprintln!("Failed to focus workspace \"{name}\": {err}");
+                error!("Failed to focus workspace \"{name}\": {err}");
             }
         }
         Message::WorkspaceAppClicked { con_id, app_id } => {
@@ -511,7 +583,7 @@ fn update(state: &mut BarState, message: Message) -> Task<Message> {
                 return state.close_dialogs();
             }
             if let Err(err) = sway_workspace::focus_con_id(con_id) {
-                eprintln!("Failed to focus app \"{app_id}\" (con_id {con_id}): {err}");
+                error!("Failed to focus app \"{app_id}\" (con_id {con_id}): {err}");
             }
         }
         Message::TopAppClicked { app_id } => {
@@ -519,13 +591,13 @@ fn update(state: &mut BarState, message: Message) -> Task<Message> {
                 return state.close_dialogs();
             }
             if let Err(err) = sway_workspace::launch_app(&app_id) {
-                eprintln!("Failed to launch app \"{app_id}\": {err}");
+                error!("Failed to launch app \"{app_id}\": {err}");
                 return Task::none();
             }
             if let Some(app) = state.top_apps.iter().find(|app| app.appid == app_id) {
                 let mut cache = Cache::new(load_desktop_apps);
                 if let Err(err) = cache.record_launch(app) {
-                    eprintln!("Failed to update app cache for \"{app_id}\": {err}");
+                    error!("Failed to update app cache for \"{app_id}\": {err}");
                 }
                 let top_apps_count =
                     settings::settings().get_parsed_or("grelier.app.top_apps.count", 6usize);
@@ -606,7 +678,7 @@ fn update(state: &mut BarState, message: Message) -> Task<Message> {
             if let Some(callback) = gauge_callback {
                 callback(GaugeClick { input });
             } else {
-                println!("Gauge '{id}' clicked: {:?}", input);
+                info!("Gauge '{id}' clicked: {:?}", input);
             }
         }
         Message::MenuItemSelected {
@@ -677,7 +749,7 @@ fn update(state: &mut BarState, message: Message) -> Task<Message> {
                 state.top_apps = top_apps;
             }
             Err(err) => {
-                eprintln!("Failed to refresh icon cache: {err}");
+                error!("Failed to refresh icon cache: {err}");
             }
         },
         Message::WindowClosed(window) => {
@@ -830,7 +902,7 @@ fn layershell_reopen_settings() -> NewLayerShellSettings {
     let orientation = match orientation_raw.parse::<Orientation>() {
         Ok(value) => value,
         Err(err) => {
-            eprintln!("{err}; defaulting to {DEFAULT_ORIENTATION}");
+            warn!("{err}; defaulting to {DEFAULT_ORIENTATION}");
             Orientation::Left
         }
     };

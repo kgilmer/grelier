@@ -196,7 +196,7 @@ impl Settings {
         let map = match storage.load() {
             Ok(map) => map,
             Err(err) => {
-                eprintln!("Failed to load settings storage: {err}");
+                log::error!("Failed to load settings storage: {err}");
                 HashMap::new()
             }
         };
@@ -246,7 +246,7 @@ impl Settings {
         let snapshot = map.clone();
         drop(map);
         if let Err(err) = storage.save(&snapshot) {
-            eprintln!("Failed to save settings storage: {err}");
+            log::error!("Failed to save settings storage: {err}");
         }
     }
 
@@ -260,7 +260,7 @@ impl Settings {
         let snapshot = map.clone();
         drop(map);
         if let Err(err) = storage.save(&snapshot) {
-            eprintln!("Failed to save settings storage: {err}");
+            log::error!("Failed to save settings storage: {err}");
         }
     }
 }
@@ -302,10 +302,12 @@ pub fn parse_settings_arg(arg: &str) -> Result<HashMap<String, String>, String> 
 
 fn parse_or_exit<T: FromStr>(key: &str, value: &str) -> T {
     value.parse::<T>().unwrap_or_else(|_| {
-        panic!(
+        let message = format!(
             "Invalid setting '{key}': cannot parse '{value}' as {}",
             std::any::type_name::<T>()
-        )
+        );
+        log::error!("{message}");
+        panic!("{message}")
     })
 }
 

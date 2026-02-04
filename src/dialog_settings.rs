@@ -16,7 +16,7 @@ pub fn title_alignment() -> alignment::Horizontal {
         "center" => alignment::Horizontal::Center,
         "right" => alignment::Horizontal::Right,
         _ => {
-            eprintln!(
+            log::warn!(
                 "Invalid setting 'grelier.dialog.title_align': '{}'. Expected left|center|right.",
                 raw
             );
