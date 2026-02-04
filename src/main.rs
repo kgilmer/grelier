@@ -23,8 +23,7 @@ use iced_layershell::settings::{LayerShellSettings, Settings as LayerShellAppSet
 
 use crate::bar::Orientation;
 use crate::bar::{
-    AppIconCache, BarState, DEFAULT_PANELS, GaugeDialog, GaugeDialogWindow, Message,
-    OutputSnapshot,
+    AppIconCache, BarState, DEFAULT_PANELS, GaugeDialog, GaugeDialogWindow, Message, OutputSnapshot,
 };
 use crate::panels::gauges::gauge::{GaugeClick, GaugeInput, GaugeModel};
 use crate::panels::gauges::gauge_registry;
