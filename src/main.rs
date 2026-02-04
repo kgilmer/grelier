@@ -22,7 +22,9 @@ use iced_layershell::reexport::{
 use iced_layershell::settings::{LayerShellSettings, Settings as LayerShellAppSettings, StartMode};
 
 use crate::bar::Orientation;
-use crate::bar::{AppIconCache, BarState, DEFAULT_PANELS, GaugeDialog, GaugeDialogWindow, Message};
+use crate::bar::{
+    AppIconCache, BarState, DEFAULT_PANELS, GaugeDialog, GaugeDialogWindow, Message, OutputSnapshot,
+};
 use crate::panels::gauges::gauge::{GaugeClick, GaugeInput, GaugeModel};
 use crate::panels::gauges::gauge_registry;
 use elbey_cache::{AppDescriptor, Cache};
@@ -36,6 +38,40 @@ const DEFAULT_ORIENTATION: &str = "left";
 const DEFAULT_THEME: &str = "Nord";
 const DIALOG_UNFOCUS_SUPPRESSION_WINDOW: Duration = Duration::from_millis(250);
 const OUTPUT_REOPEN_SUPPRESSION_WINDOW: Duration = Duration::from_millis(750);
+fn snapshot_outputs() -> Option<Vec<OutputSnapshot>> {
+    match sway_workspace::fetch_outputs() {
+        Ok(outputs) => Some(
+            outputs
+                .into_iter()
+                .map(|output| OutputSnapshot {
+                    name: output.name,
+                    active: output.active,
+                    rect: (
+                        output.rect.x,
+                        output.rect.y,
+                        output.rect.width,
+                        output.rect.height,
+                    ),
+                })
+                .collect(),
+        ),
+        Err(err) => {
+            eprintln!("Failed to query outputs for snapshot: {err}");
+            None
+        }
+    }
+}
+
+fn outputs_equal(a: &[OutputSnapshot], b: &[OutputSnapshot]) -> bool {
+    if a.len() != b.len() {
+        return false;
+    }
+    let mut left = a.to_vec();
+    let mut right = b.to_vec();
+    left.sort_by(|lhs, rhs| lhs.name.cmp(&rhs.name));
+    right.sort_by(|lhs, rhs| lhs.name.cmp(&rhs.name));
+    left == right
+}
 
 #[derive(FromArgs, Debug)]
 /// Workspace + gauges display
@@ -666,9 +702,40 @@ fn update(state: &mut BarState, message: Message) -> Task<Message> {
             }
         }
         Message::OutputChanged => {
+            if let Some(snapshot) = snapshot_outputs() {
+                match state.last_outputs.as_ref() {
+                    None => {
+                        state.last_outputs = Some(snapshot);
+                        return Task::none();
+                    }
+                    Some(prev) => {
+                        if outputs_equal(prev, &snapshot) {
+                            state.last_outputs = Some(snapshot);
+                            return Task::none();
+                        }
+                        state.last_outputs = Some(snapshot);
+                    }
+                }
+            }
+            let now = Instant::now();
+            let reopened_since_last_output = state
+                .last_output_change_at
+                .and_then(|last| state.last_bar_window_opened_at.map(|opened| opened > last))
+                .unwrap_or(false);
+            if reopened_since_last_output {
+                state.last_output_change_at = Some(now);
+                return Task::none();
+            }
+            let recent_open = state
+                .last_bar_window_opened_at
+                .and_then(|last| now.checked_duration_since(last))
+                .is_some_and(|elapsed| elapsed < OUTPUT_REOPEN_SUPPRESSION_WINDOW);
+            if recent_open {
+                return Task::none();
+            }
             let recently_handled = state
                 .last_output_change_at
-                .and_then(|last| Instant::now().checked_duration_since(last))
+                .and_then(|last| now.checked_duration_since(last))
                 .is_some_and(|elapsed| elapsed < OUTPUT_REOPEN_SUPPRESSION_WINDOW);
             if recently_handled {
                 return Task::none();
@@ -679,25 +746,23 @@ fn update(state: &mut BarState, message: Message) -> Task<Message> {
             if state.primary_window.is_none() {
                 return Task::none();
             }
-            state.last_output_change_at = Some(Instant::now());
-            // On resume/hotplug, let existing windows settle. Forcing a reopen here
-            // can leave a stale blank window behind on some compositors.
-            return Task::none();
+            state.last_output_change_at = Some(now);
+            // After resume/hotplug, the existing surface can go blank. Recreate the
+            // primary window while ensuring we do not leave duplicates behind.
+            return reopen_primary_window(state);
         }
         Message::IcedEvent(iced::Event::Window(iced::window::Event::Unfocused)) => {
             return Task::done(Message::WindowFocusChanged { focused: false });
         }
         Message::IcedEvent(_) => {}
         Message::NewLayerShell { id, .. } => {
-            state.pending_primary_window = false;
-            if state.primary_window.is_none() {
-                state.primary_window = Some(id);
+            if let Some(task) = track_bar_window(state, id) {
+                return task;
             }
         }
         Message::NewBaseWindow { id, .. } => {
-            state.pending_primary_window = false;
-            if state.primary_window.is_none() {
-                state.primary_window = Some(id);
+            if let Some(task) = track_bar_window(state, id) {
+                return task;
             }
         }
         Message::AnchorChange { .. }
@@ -724,6 +789,7 @@ fn track_bar_window(state: &mut BarState, window: window::Id) -> Option<Task<Mes
     }
 
     state.bar_windows.insert(window);
+    state.last_bar_window_opened_at = Some(Instant::now());
     if state.primary_window.is_none() {
         state.primary_window = Some(window);
         state.pending_primary_window = false;
@@ -742,6 +808,12 @@ fn track_bar_window(state: &mut BarState, window: window::Id) -> Option<Task<Mes
         state.closing_dialogs.insert(id);
         state.bar_windows.remove(&id);
         tasks.push(Task::done(Message::RemoveWindow(id)));
+    }
+
+    if !state.closing_dialogs.is_empty() {
+        for id in state.closing_dialogs.iter().copied() {
+            tasks.push(Task::done(Message::RemoveWindow(id)));
+        }
     }
 
     if tasks.is_empty() {
@@ -778,6 +850,27 @@ fn layershell_reopen_settings() -> NewLayerShellSettings {
         events_transparent: false,
         namespace: Some(BarState::namespace()),
     }
+}
+
+fn reopen_primary_window(state: &mut BarState) -> Task<Message> {
+    state.pending_primary_window = true;
+    state.primary_window = None;
+    let mut tasks = vec![state.close_dialogs()];
+
+    let ids: Vec<window::Id> = state.bar_windows.drain().collect();
+    for id in ids {
+        state.closing_dialogs.insert(id);
+        tasks.push(Task::done(Message::RemoveWindow(id)));
+    }
+
+    let id = window::Id::unique();
+    let task = Task::done(Message::NewLayerShell {
+        settings: layershell_reopen_settings(),
+        id,
+    });
+    tasks.push(Task::done(Message::ForgetLastOutput));
+    tasks.push(task);
+    Task::batch(tasks)
 }
 
 fn handle_window_focus_change(state: &mut BarState, focused: bool) -> Task<Message> {
