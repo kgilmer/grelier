@@ -387,7 +387,8 @@ fn battery_info_dialog_from_manager(manager: &battery::Manager) -> Option<InfoDi
 
 fn battery_info_dialog_from_udev(dev: &udev::Device, status: Option<&str>) -> InfoDialog {
     let (total, current, unit) = battery_charge_values(dev);
-    let eta_seconds = time_to_empty_seconds(dev);
+    let eta_seconds = time_to_empty_seconds(dev)
+        .or_else(|| estimate_time_to_empty_seconds_from_udev(dev, status));
     let is_charging = is_charging_status(status);
     let eta_line = match eta_seconds {
         Some(seconds) if seconds > 0 => format!("ETA: {}", format_duration(seconds)),
@@ -486,6 +487,42 @@ fn time_to_empty_seconds(dev: &udev::Device) -> Option<u64> {
                 Some(value.round() as u64)
             }
         })
+}
+
+fn estimate_time_to_empty_seconds_from_udev(
+    dev: &udev::Device,
+    status: Option<&str>,
+) -> Option<u64> {
+    let (_, current, unit) = battery_charge_values(dev);
+    let current_wh = match (current, unit) {
+        (Some(value), Some("Wh")) => Some(value),
+        _ => None,
+    };
+    let rate_watts = discharge_rate_watts_from_udev(dev).map(|value| value.abs());
+    estimate_time_to_empty_seconds(status, current_wh, rate_watts)
+}
+
+fn estimate_time_to_empty_seconds(
+    status: Option<&str>,
+    current_wh: Option<f64>,
+    rate_watts: Option<f64>,
+) -> Option<u64> {
+    if status
+        .map(|value| value.eq_ignore_ascii_case("Discharging"))
+        != Some(true)
+    {
+        return None;
+    }
+    let current_wh = current_wh?;
+    let rate_watts = rate_watts?;
+    if rate_watts <= 0.0 {
+        return None;
+    }
+    let hours = current_wh / rate_watts;
+    if hours <= 0.0 {
+        return None;
+    }
+    Some((hours * 3600.0).round() as u64)
 }
 
 fn is_charging_status(status: Option<&str>) -> bool {
@@ -822,6 +859,30 @@ mod tests {
         assert_eq!(ac_online_from_status(Some("Not charging")), Some(true));
         assert_eq!(ac_online_from_status(Some("Unknown")), None);
         assert_eq!(ac_online_from_status(None), None);
+    }
+
+    #[test]
+    fn discharge_estimation_from_values() {
+        assert_eq!(
+            estimate_time_to_empty_seconds(Some("Discharging"), Some(50.0), Some(25.0)),
+            Some(7200)
+        );
+        assert_eq!(
+            estimate_time_to_empty_seconds(Some("Charging"), Some(50.0), Some(25.0)),
+            None
+        );
+        assert_eq!(
+            estimate_time_to_empty_seconds(Some("Discharging"), Some(0.0), Some(25.0)),
+            None
+        );
+        assert_eq!(
+            estimate_time_to_empty_seconds(Some("Discharging"), Some(50.0), Some(0.0)),
+            None
+        );
+        assert_eq!(
+            estimate_time_to_empty_seconds(Some("Discharging"), None, Some(25.0)),
+            None
+        );
     }
 
     #[test]
