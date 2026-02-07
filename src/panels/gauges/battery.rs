@@ -243,12 +243,12 @@ fn snapshot_model(
 
     if let Some(dev) = battery_dev {
         update_info_state(info_state, battery_info_dialog(&dev, manager));
+        let status = property_str(&dev, "POWER_SUPPLY_STATUS");
         if ac_online.is_none() {
-            let status = property_str(&dev, "POWER_SUPPLY_STATUS");
             ac_online = ac_online_from_status(status.as_deref());
         }
         if let Some((value, attention)) = battery_value(&dev, warning_percent, danger_percent) {
-            let icon = Some(svg_asset(power_icon_for_state(ac_online)));
+            let icon = Some(svg_asset(power_icon_for_status(status.as_deref(), ac_online)));
             let menu = menu_select.and_then(|select| power_profile_menu(select.clone()));
             return Some(GaugeModel {
                 id: "battery",
@@ -531,11 +531,21 @@ fn property_num(dev: &udev::Device, key: &str) -> Option<f64> {
     property_str(dev, key).and_then(|value| value.parse::<f64>().ok())
 }
 
-fn power_icon_for_state(ac_online: Option<bool>) -> &'static str {
-    match ac_online {
-        Some(true) => "power-ac.svg",
-        Some(false) => "power-battery.svg",
-        None => "power.svg",
+fn power_icon_for_status(status: Option<&str>, ac_online: Option<bool>) -> &'static str {
+    match status {
+        Some(value) if value.eq_ignore_ascii_case("Discharging") => "power-battery-discharge.svg",
+        Some(value)
+            if value.eq_ignore_ascii_case("Charging")
+                || value.eq_ignore_ascii_case("Full")
+                || value.eq_ignore_ascii_case("Not charging") =>
+        {
+            "power-battery-charge.svg"
+        }
+        _ => match ac_online {
+            Some(true) => "power-ac.svg",
+            Some(false) => "power-battery-discharge.svg",
+            None => "power.svg",
+        },
     }
 }
 
@@ -784,9 +794,24 @@ mod tests {
 
     #[test]
     fn power_icon_tracks_state() {
-        assert_eq!(power_icon_for_state(Some(true)), "power-ac.svg");
-        assert_eq!(power_icon_for_state(Some(false)), "power-battery.svg");
-        assert_eq!(power_icon_for_state(None), "power.svg");
+        assert_eq!(
+            power_icon_for_status(Some("Charging"), Some(true)),
+            "power-battery-charge.svg"
+        );
+        assert_eq!(
+            power_icon_for_status(Some("Discharging"), Some(false)),
+            "power-battery-discharge.svg"
+        );
+        assert_eq!(
+            power_icon_for_status(Some("Full"), Some(true)),
+            "power-battery-charge.svg"
+        );
+        assert_eq!(power_icon_for_status(None, Some(true)), "power-ac.svg");
+        assert_eq!(
+            power_icon_for_status(None, Some(false)),
+            "power-battery-discharge.svg"
+        );
+        assert_eq!(power_icon_for_status(None, None), "power.svg");
     }
 
     #[test]
