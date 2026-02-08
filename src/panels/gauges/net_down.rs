@@ -28,7 +28,11 @@ fn map_rate(
                 bytes_per_sec,
             )
         }
-        None => (None, GaugeValueAttention::Danger, 0.0),
+        None => (
+            Some(GaugeValue::Svg(icon_quantity(0.0))),
+            GaugeValueAttention::Warning,
+            0.0,
+        ),
     }
 }
 
@@ -130,8 +134,11 @@ mod tests {
     fn returns_none_on_missing_rate() {
         let mut window = SlidingWindow::new(RATE_WINDOW_SAMPLES);
         let (value, attention, bytes) = map_rate(None, &mut window);
-        assert!(value.is_none());
-        assert_eq!(attention, GaugeValueAttention::Danger);
+        let GaugeValue::Svg(handle) = value.expect("expected value for missing rate") else {
+            panic!("expected svg value for missing rate");
+        };
+        assert_eq!(handle, icon_quantity(0.0));
+        assert_eq!(attention, GaugeValueAttention::Warning);
         assert_eq!(bytes, 0.0);
     }
 }
