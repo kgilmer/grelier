@@ -355,6 +355,11 @@ fn main() -> Result<(), iced_layershell::Error> {
     };
 
     let theme = match settings_store.get("grelier.bar.theme") {
+        Some(name) if theme::is_custom_theme_name(&name) => {
+            theme::custom_theme_from_settings(settings_store).unwrap_or_else(|err| {
+                exit_with_error(err);
+            })
+        }
         Some(name) => match theme::parse_them(&name) {
             Some(theme) => theme,
             None => {

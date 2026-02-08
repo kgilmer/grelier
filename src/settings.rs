@@ -39,6 +39,30 @@ pub fn base_setting_specs(
             default: default_theme,
         },
         SettingSpec {
+            key: "grelier.bar.theme.background",
+            default: "",
+        },
+        SettingSpec {
+            key: "grelier.bar.theme.text",
+            default: "",
+        },
+        SettingSpec {
+            key: "grelier.bar.theme.primary",
+            default: "",
+        },
+        SettingSpec {
+            key: "grelier.bar.theme.success",
+            default: "",
+        },
+        SettingSpec {
+            key: "grelier.bar.theme.warning",
+            default: "",
+        },
+        SettingSpec {
+            key: "grelier.bar.theme.danger",
+            default: "",
+        },
+        SettingSpec {
             key: "grelier.bar.width",
             default: "28",
         },

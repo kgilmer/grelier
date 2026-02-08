@@ -51,6 +51,12 @@ Grelier reads from `$HOME/.config/grelier/Settings-<version>.xresources` on star
 | `grelier.panels` | `workspaces,top_apps,gauges` | Comma-separated panel order. |
 | `grelier.bar.orientation` | `left` | Bar placement on the screen. |
 | `grelier.bar.theme` | `Nord` | Theme name to load. |
+| `grelier.bar.theme.background` |  | Custom theme background color (RRGGBB or #RRGGBB). |
+| `grelier.bar.theme.text` |  | Custom theme text color (RRGGBB or #RRGGBB). |
+| `grelier.bar.theme.primary` |  | Custom theme primary color (RRGGBB or #RRGGBB). |
+| `grelier.bar.theme.success` |  | Custom theme success color (RRGGBB or #RRGGBB). |
+| `grelier.bar.theme.warning` |  | Custom theme warning color (RRGGBB or #RRGGBB). |
+| `grelier.bar.theme.danger` |  | Custom theme danger color (RRGGBB or #RRGGBB). |
 | `grelier.bar.width` | `28` | Bar width in columns. |
 | `grelier.bar.border.blend` | `true` | Blend border colors with the bar background. |
 | `grelier.bar.border.line_width` | `1.0` | Border line width. |
@@ -61,6 +67,17 @@ Grelier reads from `$HOME/.config/grelier/Settings-<version>.xresources` on star
 | `grelier.bar.border.alpha_1` | `0.9` | Border alpha level 1. |
 | `grelier.bar.border.alpha_2` | `0.7` | Border alpha level 2. |
 | `grelier.bar.border.alpha_3` | `0.9` | Border alpha level 3. |
+
+Example custom theme settings (Solarized Dark):
+```xresources
+grelier.bar.theme: Custom
+grelier.bar.theme.background: #002B36
+grelier.bar.theme.text: #839496
+grelier.bar.theme.primary: #268BD2
+grelier.bar.theme.success: #859900
+grelier.bar.theme.warning: #B58900
+grelier.bar.theme.danger: #DC322F
+```
 
 ## Gauges
 
