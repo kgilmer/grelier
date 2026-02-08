@@ -75,6 +75,7 @@ pub struct GaugeModel {
     pub id: &'static str,
     pub icon: Option<svg::Handle>,
     pub display: GaugeDisplay,
+    pub hide_value: bool,
     pub nominal_color: Option<GaugeNominalColor>,
     pub on_click: Option<GaugeClickAction>,
     pub menu: Option<GaugeMenu>,
@@ -88,6 +89,7 @@ impl fmt::Debug for GaugeModel {
             .field("id", &self.id)
             .field("icon", &self.icon)
             .field("display", &self.display)
+            .field("hide_value", &self.hide_value)
             .field("nominal_color", &self.nominal_color)
             .field(
                 "menu",
@@ -161,6 +163,7 @@ pub fn fixed_interval(
                     id,
                     icon: icon.clone(),
                     display,
+                    hide_value: false,
                     nominal_color: None,
                     on_click: on_click.clone(),
                     menu: None,

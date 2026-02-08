@@ -376,6 +376,7 @@ fn audio_in_stream() -> impl iced::futures::Stream<Item = crate::panels::gauges:
                     id: "audio_in",
                     icon: Some(icon),
                     display,
+                    hide_value: false,
                     nominal_color: None,
                     on_click: Some(on_click.clone()),
                     menu,

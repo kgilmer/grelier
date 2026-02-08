@@ -58,24 +58,30 @@ fn lerp_color(from: Color, to: Color, t: f32) -> Color {
 /// Calculate a reasonable window size for an action dialog based on button count.
 pub fn dialog_dimensions(dialog: &GaugeActionDialog) -> (u32, u32) {
     let settings = settings::settings();
-    let min_width =
-        settings.get_parsed_or("grelier.action_dialog.min_width", DEFAULT_MIN_WIDTH);
-    let max_width =
-        settings.get_parsed_or("grelier.action_dialog.max_width", DEFAULT_MAX_WIDTH);
-    let border_column_width: f32 =
-        settings.get_parsed_or("grelier.bar.border.column_width", 3.0);
-    let icon_size =
-        settings.get_parsed_or("grelier.action_dialog.icon_size", DEFAULT_ICON_SIZE);
-    let button_padding_y =
-        settings.get_parsed_or("grelier.action_dialog.button_padding_y", DEFAULT_BUTTON_PADDING_Y);
-    let button_padding_x =
-        settings.get_parsed_or("grelier.action_dialog.button_padding_x", DEFAULT_BUTTON_PADDING_X);
-    let item_spacing_x =
-        settings.get_parsed_or("grelier.action_dialog.item_spacing_x", DEFAULT_ITEM_SPACING_X);
-    let border_padding_y =
-        settings.get_parsed_or("grelier.action_dialog.border_padding_y", DEFAULT_BORDER_PADDING_Y);
-    let border_padding_x =
-        settings.get_parsed_or("grelier.action_dialog.border_padding_x", DEFAULT_BORDER_PADDING_X);
+    let min_width = settings.get_parsed_or("grelier.action_dialog.min_width", DEFAULT_MIN_WIDTH);
+    let max_width = settings.get_parsed_or("grelier.action_dialog.max_width", DEFAULT_MAX_WIDTH);
+    let border_column_width: f32 = settings.get_parsed_or("grelier.bar.border.column_width", 3.0);
+    let icon_size = settings.get_parsed_or("grelier.action_dialog.icon_size", DEFAULT_ICON_SIZE);
+    let button_padding_y = settings.get_parsed_or(
+        "grelier.action_dialog.button_padding_y",
+        DEFAULT_BUTTON_PADDING_Y,
+    );
+    let button_padding_x = settings.get_parsed_or(
+        "grelier.action_dialog.button_padding_x",
+        DEFAULT_BUTTON_PADDING_X,
+    );
+    let item_spacing_x = settings.get_parsed_or(
+        "grelier.action_dialog.item_spacing_x",
+        DEFAULT_ITEM_SPACING_X,
+    );
+    let border_padding_y = settings.get_parsed_or(
+        "grelier.action_dialog.border_padding_y",
+        DEFAULT_BORDER_PADDING_Y,
+    );
+    let border_padding_x = settings.get_parsed_or(
+        "grelier.action_dialog.border_padding_x",
+        DEFAULT_BORDER_PADDING_X,
+    );
 
     let button_height = icon_size + button_padding_y * 2;
     let height = button_height
@@ -86,10 +92,9 @@ pub fn dialog_dimensions(dialog: &GaugeActionDialog) -> (u32, u32) {
     let buttons = dialog.items.len().max(1) as u32;
     let buttons_width =
         buttons * button_width + item_spacing_x.saturating_mul(buttons.saturating_sub(1));
-    let width = (buttons_width
-        + border_padding_x * 2
-        + (border_column_width * 2.0_f32).ceil() as u32)
-        .clamp(min_width, max_width);
+    let width =
+        (buttons_width + border_padding_x * 2 + (border_column_width * 2.0_f32).ceil() as u32)
+            .clamp(min_width, max_width);
 
     (width, height)
 }
@@ -100,18 +105,27 @@ pub fn action_view<'a, Message: Clone + 'a>(
 ) -> Element<'a, Message> {
     let settings = settings::settings();
     let border_settings = BorderSettings::load();
-    let icon_size =
-        settings.get_parsed_or("grelier.action_dialog.icon_size", DEFAULT_ICON_SIZE);
-    let button_padding_y =
-        settings.get_parsed_or("grelier.action_dialog.button_padding_y", DEFAULT_BUTTON_PADDING_Y);
-    let button_padding_x =
-        settings.get_parsed_or("grelier.action_dialog.button_padding_x", DEFAULT_BUTTON_PADDING_X);
-    let item_spacing_x =
-        settings.get_parsed_or("grelier.action_dialog.item_spacing_x", DEFAULT_ITEM_SPACING_X);
-    let border_padding_y =
-        settings.get_parsed_or("grelier.action_dialog.border_padding_y", DEFAULT_BORDER_PADDING_Y);
-    let border_padding_x =
-        settings.get_parsed_or("grelier.action_dialog.border_padding_x", DEFAULT_BORDER_PADDING_X);
+    let icon_size = settings.get_parsed_or("grelier.action_dialog.icon_size", DEFAULT_ICON_SIZE);
+    let button_padding_y = settings.get_parsed_or(
+        "grelier.action_dialog.button_padding_y",
+        DEFAULT_BUTTON_PADDING_Y,
+    );
+    let button_padding_x = settings.get_parsed_or(
+        "grelier.action_dialog.button_padding_x",
+        DEFAULT_BUTTON_PADDING_X,
+    );
+    let item_spacing_x = settings.get_parsed_or(
+        "grelier.action_dialog.item_spacing_x",
+        DEFAULT_ITEM_SPACING_X,
+    );
+    let border_padding_y = settings.get_parsed_or(
+        "grelier.action_dialog.border_padding_y",
+        DEFAULT_BORDER_PADDING_Y,
+    );
+    let border_padding_x = settings.get_parsed_or(
+        "grelier.action_dialog.border_padding_x",
+        DEFAULT_BORDER_PADDING_X,
+    );
 
     let mut buttons = Row::new()
         .width(Length::Shrink)

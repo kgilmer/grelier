@@ -4,7 +4,7 @@ use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use crate::action_dialog::{dialog_dimensions as action_dialog_dimensions, action_view};
+use crate::action_dialog::{action_view, dialog_dimensions as action_dialog_dimensions};
 use crate::info_dialog::{InfoDialog, dialog_dimensions as info_dialog_dimensions, info_view};
 use crate::menu_dialog::{dialog_dimensions as menu_dialog_dimensions, menu_view};
 use crate::panels::gauges::gauge::{GaugeActionDialog, GaugeInput, GaugeMenu, GaugeModel};
@@ -494,13 +494,13 @@ impl BarState {
                         item_id,
                     },
                 ),
-                GaugeDialog::Action(dialog) => action_view(dialog, move |item_id| {
-                    Message::ActionItemSelected {
+                GaugeDialog::Action(dialog) => {
+                    action_view(dialog, move |item_id| Message::ActionItemSelected {
                         window: window_id,
                         gauge_id: gauge_id.clone(),
                         item_id,
-                    }
-                }),
+                    })
+                }
                 GaugeDialog::Info(dialog) => info_view(dialog),
             };
         }
