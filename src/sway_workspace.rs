@@ -197,7 +197,7 @@ fn workspace_stream() -> impl iced::futures::Stream<Item = Message> {
                 let apps = match fetch_workspace_apps() {
                     Ok(apps) => apps,
                     Err(err) => {
-                        eprintln!("Failed to fetch workspace app names: {err}");
+                        log::error!("Failed to fetch workspace app names: {err}");
                         Vec::new()
                     }
                 };
@@ -208,7 +208,7 @@ fn workspace_stream() -> impl iced::futures::Stream<Item = Message> {
                     })
                     .expect("failed to send workspace info");
             }
-            Err(err) => eprintln!("Failed to fetch workspaces: {err}"),
+            Err(err) => log::error!("Failed to fetch workspaces: {err}"),
         };
 
         send_workspaces(&mut sender);
@@ -216,7 +216,7 @@ fn workspace_stream() -> impl iced::futures::Stream<Item = Message> {
         let mut stream = match subscribe_workspace_events() {
             Ok(stream) => stream,
             Err(err) => {
-                eprintln!("Failed to subscribe to workspace events: {err}");
+                log::error!("Failed to subscribe to workspace events: {err}");
                 return;
             }
         };
@@ -231,7 +231,7 @@ fn workspace_stream() -> impl iced::futures::Stream<Item = Message> {
                 }
                 Ok(_) => {}
                 Err(err) => {
-                    eprintln!("Workspace event stream error: {err}");
+                    log::error!("Workspace event stream error: {err}");
                     break;
                 }
             }

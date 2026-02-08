@@ -200,7 +200,7 @@ fn brightness_stream() -> impl iced::futures::Stream<Item = crate::panels::gauge
                 match ctl.percent() {
                     Ok(p) => percent = Some(p),
                     Err(err) => {
-                        eprintln!("brightness gauge: failed to read brightness: {err}");
+                        log::error!("brightness gauge: failed to read brightness: {err}");
                         backlight = None;
                     }
                 }
@@ -226,7 +226,7 @@ fn brightness_stream() -> impl iced::futures::Stream<Item = crate::panels::gauge
                             if let Some(ref ctl) = backlight
                                 && let Err(err) = ctl.adjust_percent(delta)
                             {
-                                eprintln!("brightness gauge: failed to adjust brightness: {err}");
+                                log::error!("brightness gauge: failed to adjust brightness: {err}");
                                 backlight = None;
                             }
                             true
@@ -245,7 +245,7 @@ fn brightness_stream() -> impl iced::futures::Stream<Item = crate::panels::gauge
                         match ctl.percent() {
                             Ok(p) => Some(p),
                             Err(err) => {
-                                eprintln!("brightness gauge: failed to read brightness: {err}");
+                                log::error!("brightness gauge: failed to read brightness: {err}");
                                 backlight = None;
                                 None
                             }

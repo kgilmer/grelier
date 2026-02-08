@@ -55,7 +55,7 @@ fn battery_stream() -> impl iced::futures::Stream<Item = GaugeModel> {
             match command {
                 BatteryCommand::SetPowerProfile(profile) => {
                     if !set_active_power_profile(&profile) {
-                        eprintln!("battery gauge: failed to set power profile to '{profile}'");
+                        log::error!("battery gauge: failed to set power profile to '{profile}'");
                     }
                 }
             }
@@ -102,7 +102,7 @@ fn battery_stream() -> impl iced::futures::Stream<Item = GaugeModel> {
         {
             Ok(m) => m,
             Err(err) => {
-                eprintln!("battery gauge: failed to start udev monitor: {err}");
+                log::error!("battery gauge: failed to start udev monitor: {err}");
                 return;
             }
         };
@@ -130,14 +130,14 @@ fn battery_stream() -> impl iced::futures::Stream<Item = GaugeModel> {
             if is_mains(&dev) {
                 let online = mains_online(&dev);
                 let status = property_str(&dev, "POWER_SUPPLY_STATUS");
-                eprintln!(
+                log::error!(
                     "battery gauge: power_supply event mains online={online:?} status={status:?}"
                 );
             } else if is_battery(&dev) {
                 let status = property_str(&dev, "POWER_SUPPLY_STATUS");
                 let capacity = property_str(&dev, "POWER_SUPPLY_CAPACITY")
                     .or_else(|| property_str(&dev, "CAPACITY"));
-                eprintln!(
+                log::error!(
                     "battery gauge: power_supply event battery status={status:?} capacity={capacity:?}"
                 );
             }
@@ -207,20 +207,20 @@ fn snapshot_model(
     let mut enumerator = match udev::Enumerator::new() {
         Ok(e) => e,
         Err(err) => {
-            eprintln!("battery gauge: failed to enumerate devices: {err}");
+            log::error!("battery gauge: failed to enumerate devices: {err}");
             return None;
         }
     };
 
     if enumerator.match_subsystem("power_supply").is_err() {
-        eprintln!("battery gauge: failed to set subsystem filter");
+        log::error!("battery gauge: failed to set subsystem filter");
         return None;
     }
 
     let devices = match enumerator.scan_devices() {
         Ok(list) => list,
         Err(err) => {
-            eprintln!("battery gauge: failed to scan devices: {err}");
+            log::error!("battery gauge: failed to scan devices: {err}");
             return None;
         }
     };
@@ -699,21 +699,21 @@ fn set_active_power_profile_ppd(profile: &str) -> bool {
     let connection = match Connection::system() {
         Ok(connection) => connection,
         Err(err) => {
-            eprintln!("battery gauge: power profiles daemon connection error: {err}");
+            log::error!("battery gauge: power profiles daemon connection error: {err}");
             return false;
         }
     };
     let proxy = match Proxy::new(&connection, PPD_SERVICE, PPD_PATH, PPD_IFACE) {
         Ok(proxy) => proxy,
         Err(err) => {
-            eprintln!("battery gauge: power profiles daemon proxy error: {err}");
+            log::error!("battery gauge: power profiles daemon proxy error: {err}");
             return false;
         }
     };
     let profiles: Vec<HashMap<String, OwnedValue>> = match proxy.get_property("Profiles") {
         Ok(profiles) => profiles,
         Err(err) => {
-            eprintln!("battery gauge: power profiles daemon profiles error: {err}");
+            log::error!("battery gauge: power profiles daemon profiles error: {err}");
             return false;
         }
     };
@@ -722,13 +722,13 @@ fn set_active_power_profile_ppd(profile: &str) -> bool {
         .filter_map(power_profile_id)
         .any(|id| id == profile);
     if !supported {
-        eprintln!("battery gauge: power profiles daemon does not support '{profile}'");
+        log::error!("battery gauge: power profiles daemon does not support '{profile}'");
         return false;
     }
     match proxy.set_property("ActiveProfile", profile) {
         Ok(()) => true,
         Err(err) => {
-            eprintln!("battery gauge: power profiles daemon failed to set '{profile}': {err}");
+            log::error!("battery gauge: power profiles daemon failed to set '{profile}': {err}");
             false
         }
     }
@@ -738,7 +738,7 @@ fn set_active_power_profile_platform(profile: &str) -> bool {
     let choices = match fs::read_to_string(SYS_PLATFORM_PROFILE_CHOICES) {
         Ok(choices) => choices,
         Err(err) => {
-            eprintln!("battery gauge: platform profile choices read error: {err}");
+            log::error!("battery gauge: platform profile choices read error: {err}");
             return false;
         }
     };
@@ -746,7 +746,7 @@ fn set_active_power_profile_platform(profile: &str) -> bool {
         .split_whitespace()
         .any(|value| value.trim() == profile);
     if !supported {
-        eprintln!(
+        log::error!(
             "battery gauge: platform profile does not support '{profile}' (choices: {choices})"
         );
         return false;
@@ -754,7 +754,7 @@ fn set_active_power_profile_platform(profile: &str) -> bool {
     match fs::write(SYS_PLATFORM_PROFILE, profile) {
         Ok(()) => true,
         Err(err) => {
-            eprintln!("battery gauge: platform profile failed to set '{profile}': {err}");
+            log::error!("battery gauge: platform profile failed to set '{profile}': {err}");
             false
         }
     }

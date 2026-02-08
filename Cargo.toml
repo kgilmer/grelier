@@ -17,6 +17,8 @@ swayipc = "3"
 libpulse-binding = "2.28"
 inventory = "0.3"
 zbus = { version = "4", features = ["blocking"] }
+log = "0.4"
+syslog = "6"
 
 elbey_cache = { package = "elbey-cache", version = "0.8.2" }
 freedesktop-desktop-entry = "0.8.1"
