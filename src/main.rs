@@ -53,12 +53,7 @@ impl log::Log for StderrLogger {
             return;
         }
         let mut stderr = std::io::stderr();
-        let _ = writeln!(
-            stderr,
-            "[{}] {}",
-            record.level(),
-            record.args()
-        );
+        let _ = writeln!(stderr, "[{}] {}", record.level(), record.args());
     }
 
     fn flush(&self) {}
@@ -95,12 +90,7 @@ fn init_logging() {
 fn install_panic_hook() {
     std::panic::set_hook(Box::new(|info| {
         if let Some(location) = info.location() {
-            error!(
-                "Panic at {}:{}: {}",
-                location.file(),
-                location.line(),
-                info
-            );
+            error!("Panic at {}:{}: {}", location.file(), location.line(), info);
         } else {
             error!("Panic: {info}");
         }
@@ -266,9 +256,7 @@ fn main() -> Result<(), iced_layershell::Error> {
             cmd.args(&forward_args);
             cmd.arg(format!("--on-monitors={name}"));
             if let Err(err) = cmd.spawn() {
-                exit_with_error(format!(
-                    "Failed to launch for monitor '{name}': {err}"
-                ));
+                exit_with_error(format!("Failed to launch for monitor '{name}': {err}"));
             }
         }
         return Ok(());
