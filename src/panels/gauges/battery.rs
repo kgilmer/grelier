@@ -1,10 +1,9 @@
 // Battery gauge driven by udev power_supply events and snapshots.
-// Consumes Settings: grelier.gauge.battery.warning_percent, grelier.gauge.battery.danger_percent.
 use crate::icon::{icon_quantity, svg_asset};
 use crate::info_dialog::InfoDialog;
 use crate::panels::gauges::gauge::{
-    GaugeMenu, GaugeMenuItem, GaugeModel, GaugeValue, GaugeValueAttention, MenuSelectAction,
-    event_stream,
+    GaugeMenu, GaugeMenuItem, GaugeModel, GaugeNominalColor, GaugeValue, GaugeValueAttention,
+    MenuSelectAction, event_stream,
 };
 use crate::panels::gauges::gauge_registry::{GaugeSpec, GaugeStream};
 use crate::settings;
@@ -22,6 +21,8 @@ use zbus::zvariant::OwnedValue;
 
 const DEFAULT_WARNING_PERCENT: u8 = 49;
 const DEFAULT_DANGER_PERCENT: u8 = 19;
+const VALUE_ICON_SUCCESS_THRESHOLD: u8 = 50;
+const VALUE_ICON_WARNING_THRESHOLD: u8 = 10;
 const DEFAULT_REFRESH_INTERVAL_SECS: u64 = 5;
 const PPD_SERVICE: &str = "net.hadess.PowerProfiles";
 const PPD_PATH: &str = "/net/hadess/PowerProfiles";
@@ -248,13 +249,27 @@ fn snapshot_model(
             ac_online = ac_online_from_status(status.as_deref());
         }
         if let Some((value, attention)) = battery_value(&dev, warning_percent, danger_percent) {
-            let icon = Some(svg_asset(power_icon_for_status(status.as_deref(), ac_online)));
+            let capacity = property_str(&dev, "POWER_SUPPLY_CAPACITY")
+                .or_else(|| property_str(&dev, "CAPACITY"));
+            let capacity_percent = capacity.as_deref().and_then(|cap| cap.parse::<u8>().ok());
+            let status_full = status
+                .as_deref()
+                .map(|value| value.eq_ignore_ascii_case("Full"))
+                .unwrap_or(false);
+            let is_full = status_full || capacity_percent.map(|value| value >= 95).unwrap_or(false);
+            let nominal_color = if matches!(ac_online, Some(true)) && is_full {
+                Some(GaugeNominalColor::Primary)
+            } else {
+                None
+            };
+            let icon = Some(svg_asset(power_icon_for_status(status.as_deref(), ac_online)));            
             let menu = menu_select.and_then(|select| power_profile_menu(select.clone()));
             return Some(GaugeModel {
                 id: "battery",
                 icon,
                 value,
                 attention,
+                nominal_color,
                 on_click: None,
                 menu,
                 info: info_state.lock().ok().map(|info| info.clone()),
@@ -280,6 +295,7 @@ fn snapshot_model(
         icon: Some(svg_asset("power.svg")),
         value: None,
         attention: GaugeValueAttention::Danger,
+        nominal_color: None,
         on_click: None,
         menu,
         info: info_state.lock().ok().map(|info| info.clone()),
@@ -305,12 +321,12 @@ fn battery_value(
 fn battery_value_from_strings(
     capacity: Option<&str>,
     status: Option<&str>,
-    warning_percent: u8,
-    danger_percent: u8,
+    _warning_percent: u8,
+    _danger_percent: u8,
 ) -> Option<(Option<GaugeValue>, GaugeValueAttention)> {
     if let Some(cap) = capacity {
         if let Ok(percent) = cap.parse::<u8>() {
-            let attention = attention_for_capacity(percent, warning_percent, danger_percent);
+            let attention = attention_for_capacity(percent);
             return Some((
                 Some(GaugeValue::Svg(icon_quantity(percent as f32 / 100.0))),
                 attention,
@@ -600,17 +616,13 @@ fn ac_online_from_status(status: Option<&str>) -> Option<bool> {
     }
 }
 
-fn attention_for_capacity(
-    percent: u8,
-    warning_percent: u8,
-    danger_percent: u8,
-) -> GaugeValueAttention {
-    if percent <= danger_percent {
-        GaugeValueAttention::Danger
-    } else if percent <= warning_percent {
+fn attention_for_capacity(percent: u8) -> GaugeValueAttention {
+    if percent > VALUE_ICON_SUCCESS_THRESHOLD {
+        GaugeValueAttention::Nominal
+    } else if percent > VALUE_ICON_WARNING_THRESHOLD {
         GaugeValueAttention::Warning
     } else {
-        GaugeValueAttention::Nominal
+        GaugeValueAttention::Danger
     }
 }
 

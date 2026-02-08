@@ -1034,6 +1034,7 @@ mod tests {
             icon: None,
             value: Some(GaugeValue::Text("12\n00".to_string())),
             attention: GaugeValueAttention::Nominal,
+            nominal_color: None,
             on_click: None,
             menu: None,
             info: None,
@@ -1043,6 +1044,7 @@ mod tests {
             icon: None,
             value: Some(GaugeValue::Text("12\n01".to_string())),
             attention: GaugeValueAttention::Nominal,
+            nominal_color: None,
             on_click: None,
             menu: None,
             info: None,
@@ -1061,6 +1063,7 @@ mod tests {
             icon: None,
             value: Some(GaugeValue::Text("01\n01".to_string())),
             attention: GaugeValueAttention::Nominal,
+            nominal_color: None,
             on_click: None,
             menu: None,
             info: None,
@@ -1092,6 +1095,7 @@ mod tests {
             icon: None,
             value: None,
             attention: GaugeValueAttention::Nominal,
+            nominal_color: None,
             on_click: Some(Arc::new({
                 let clicked = clicked.clone();
                 move |_click| clicked.store(true, Ordering::SeqCst)
@@ -1147,6 +1151,7 @@ mod tests {
             icon: None,
             value: None,
             attention: GaugeValueAttention::Nominal,
+            nominal_color: None,
             on_click: None,
             menu: None,
             info: None,
@@ -1216,6 +1221,7 @@ mod tests {
             icon: None,
             value: None,
             attention: GaugeValueAttention::Nominal,
+            nominal_color: None,
             on_click: None,
             menu: Some(GaugeMenu {
                 title: "Test".into(),

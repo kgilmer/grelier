@@ -535,6 +535,7 @@ fn wifi_gauge(snapshot: WifiSnapshot, menu: Option<GaugeMenu>) -> GaugeModel {
             _ => Some(GaugeValue::Svg(icon_quantity(snapshot.strength))),
         },
         attention,
+        nominal_color: None,
         on_click: None,
         menu,
         info: Some(wifi_info_dialog(&snapshot)),

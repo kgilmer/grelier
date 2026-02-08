@@ -189,6 +189,7 @@ fn brightness_stream() -> impl iced::futures::Stream<Item = crate::panels::gauge
                     icon: Some(svg_asset("brightness.svg")),
                     value,
                     attention,
+                    nominal_color: None,
                     on_click: Some(on_click.clone()),
                     menu: None,
                     info,
