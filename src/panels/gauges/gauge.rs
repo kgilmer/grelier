@@ -48,12 +48,26 @@ pub struct GaugeMenuItem {
 }
 
 pub type MenuSelectAction = Arc<dyn Fn(String) + Send + Sync>;
+pub type ActionSelectAction = MenuSelectAction;
 
 #[derive(Clone)]
 pub struct GaugeMenu {
     pub title: String,
     pub items: Vec<GaugeMenuItem>,
     pub on_select: Option<MenuSelectAction>,
+}
+
+#[derive(Debug, Clone)]
+pub struct GaugeActionItem {
+    pub id: String,
+    pub icon: svg::Handle,
+}
+
+#[derive(Clone)]
+pub struct GaugeActionDialog {
+    pub title: String,
+    pub items: Vec<GaugeActionItem>,
+    pub on_select: Option<ActionSelectAction>,
 }
 
 #[derive(Clone)]
@@ -64,6 +78,7 @@ pub struct GaugeModel {
     pub nominal_color: Option<GaugeNominalColor>,
     pub on_click: Option<GaugeClickAction>,
     pub menu: Option<GaugeMenu>,
+    pub action_dialog: Option<GaugeActionDialog>,
     pub info: Option<InfoDialog>,
 }
 
@@ -80,6 +95,14 @@ impl fmt::Debug for GaugeModel {
                     .menu
                     .as_ref()
                     .map(|menu| menu.title.as_str())
+                    .unwrap_or("<none>"),
+            )
+            .field(
+                "action_dialog",
+                &self
+                    .action_dialog
+                    .as_ref()
+                    .map(|dialog| dialog.title.as_str())
                     .unwrap_or("<none>"),
             )
             .field(
@@ -141,6 +164,7 @@ pub fn fixed_interval(
                     nominal_color: None,
                     on_click: on_click.clone(),
                     menu: None,
+                    action_dialog: None,
                     info: None,
                 });
             }

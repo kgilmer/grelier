@@ -4,9 +4,10 @@ use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
+use crate::action_dialog::{dialog_dimensions as action_dialog_dimensions, action_view};
 use crate::info_dialog::{InfoDialog, dialog_dimensions as info_dialog_dimensions, info_view};
 use crate::menu_dialog::{dialog_dimensions as menu_dialog_dimensions, menu_view};
-use crate::panels::gauges::gauge::{GaugeInput, GaugeMenu, GaugeModel};
+use crate::panels::gauges::gauge::{GaugeActionDialog, GaugeInput, GaugeMenu, GaugeModel};
 use crate::settings;
 use crate::sway_workspace::{WorkspaceApps, WorkspaceInfo};
 use elbey_cache::{AppDescriptor, FALLBACK_ICON_HANDLE, IconHandle};
@@ -45,6 +46,11 @@ pub enum Message {
         input: GaugeInput,
     },
     MenuItemSelected {
+        window: iced::window::Id,
+        gauge_id: String,
+        item_id: String,
+    },
+    ActionItemSelected {
         window: iced::window::Id,
         gauge_id: String,
         item_id: String,
@@ -312,6 +318,7 @@ impl AppIconCache {
 #[derive(Clone)]
 pub enum GaugeDialog {
     Menu(GaugeMenu),
+    Action(GaugeActionDialog),
     Info(InfoDialog),
 }
 
@@ -349,6 +356,21 @@ impl BarState {
     ) -> Task<Message> {
         let (width, height) = menu_dialog_dimensions(&menu);
         self.open_dialog_window(gauge_id, GaugeDialog::Menu(menu), anchor_y, (width, height))
+    }
+
+    pub fn open_action_dialog(
+        &mut self,
+        gauge_id: &str,
+        dialog: GaugeActionDialog,
+        anchor_y: Option<i32>,
+    ) -> Task<Message> {
+        let (width, height) = action_dialog_dimensions(&dialog);
+        self.open_dialog_window(
+            gauge_id,
+            GaugeDialog::Action(dialog),
+            anchor_y,
+            (width, height),
+        )
     }
 
     pub fn open_info_dialog(
@@ -472,6 +494,13 @@ impl BarState {
                         item_id,
                     },
                 ),
+                GaugeDialog::Action(dialog) => action_view(dialog, move |item_id| {
+                    Message::ActionItemSelected {
+                        window: window_id,
+                        gauge_id: gauge_id.clone(),
+                        item_id,
+                    }
+                }),
                 GaugeDialog::Info(dialog) => info_view(dialog),
             };
         }

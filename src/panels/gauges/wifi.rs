@@ -540,6 +540,7 @@ fn wifi_gauge(snapshot: WifiSnapshot, menu: Option<GaugeMenu>) -> GaugeModel {
         nominal_color: None,
         on_click: None,
         menu,
+        action_dialog: None,
         info: Some(wifi_info_dialog(&snapshot)),
     }
 }

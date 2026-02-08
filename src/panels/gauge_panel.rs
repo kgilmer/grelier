@@ -418,6 +418,7 @@ mod tests {
             nominal_color: None,
             on_click: None,
             menu: None,
+            action_dialog: None,
             info: None,
         }
     }

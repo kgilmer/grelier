@@ -274,6 +274,7 @@ fn snapshot_model(
                 nominal_color,
                 on_click: None,
                 menu,
+                action_dialog: None,
                 info: info_state.lock().ok().map(|info| info.clone()),
             });
         }
@@ -299,6 +300,7 @@ fn snapshot_model(
         nominal_color: None,
         on_click: None,
         menu,
+        action_dialog: None,
         info: info_state.lock().ok().map(|info| info.clone()),
     })
 }
