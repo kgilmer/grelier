@@ -87,18 +87,32 @@ fn init_logging() {
     }
 }
 
+fn write_stderr(message: &str) {
+    let mut stderr = std::io::stderr();
+    let _ = writeln!(stderr, "{message}");
+}
+
 fn install_panic_hook() {
     std::panic::set_hook(Box::new(|info| {
-        if let Some(location) = info.location() {
-            error!("Panic at {}:{}: {}", location.file(), location.line(), info);
+        let message = if let Some(location) = info.location() {
+            format!(
+                "Panic at {}:{}: {}",
+                location.file(),
+                location.line(),
+                info
+            )
         } else {
-            error!("Panic: {info}");
-        }
+            format!("Panic: {info}")
+        };
+        error!("{message}");
+        write_stderr(&message);
     }));
 }
 
 fn exit_with_error(message: impl std::fmt::Display) -> ! {
+    let message = message.to_string();
     error!("{message}");
+    write_stderr(&message);
     info!("Exiting with status 1.");
     std::process::exit(1);
 }
