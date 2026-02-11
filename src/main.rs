@@ -95,12 +95,7 @@ fn write_stderr(message: &str) {
 fn install_panic_hook() {
     std::panic::set_hook(Box::new(|info| {
         let message = if let Some(location) = info.location() {
-            format!(
-                "Panic at {}:{}: {}",
-                location.file(),
-                location.line(),
-                info
-            )
+            format!("Panic at {}:{}: {}", location.file(), location.line(), info)
         } else {
             format!("Panic: {info}")
         };

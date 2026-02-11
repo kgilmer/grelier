@@ -1,9 +1,16 @@
 <!-- lightning-soft.svg -->
 <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24"
      viewBox="0 0 24 24" fill="none" aria-hidden="true">
+  <defs>
+    <linearGradient id="grelierGaugeGrad" x1="1" y1="0" x2="0" y2="0">
+      <stop offset="0%" stop-color="currentColor" stop-opacity="0.7" />
+      <stop offset="100%" stop-color="currentColor" stop-opacity="1" />
+    </linearGradient>
+  </defs>
+
   <!-- A simplified bolt with gently rounded corners for low-DPI legibility -->
   <path
-    fill="currentColor"
+    fill="url(#grelierGaugeGrad)"
     d="M13.3 2.7
        Q13.6 2.7 13.8 2.9
        Q14.0 3.2 13.9 3.5

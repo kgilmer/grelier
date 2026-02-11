@@ -33,11 +33,7 @@ fn attention_color(
     }
 }
 
-fn attention_color_at_level(
-    level: f32,
-    nominal_color: GaugeNominalColor,
-    theme: &Theme,
-) -> Color {
+fn attention_color_at_level(level: f32, nominal_color: GaugeNominalColor, theme: &Theme) -> Color {
     let normal = nominal_color_value(nominal_color, theme);
     let warning = theme.extended_palette().warning.base.color;
     let danger = theme.extended_palette().danger.base.color;
@@ -98,10 +94,9 @@ pub fn view<'a>(state: &'a BarState) -> Panel<'a> {
         |col, gauge| {
             let gauge_attention = gauge.attention;
             let icon_attention = GaugeValueAttention::Nominal;
-            let nominal_color =
-                gauge
-                    .nominal_color
-                    .unwrap_or(GaugeNominalColor::SecondaryStrong);
+            let nominal_color = gauge
+                .nominal_color
+                .unwrap_or(GaugeNominalColor::SecondaryStrong);
 
             let mut gauge_column = Column::new()
                 .align_x(alignment::Horizontal::Center)
@@ -135,10 +130,8 @@ pub fn view<'a>(state: &'a BarState) -> Panel<'a> {
                             .width(Length::Fixed(gauge_icon_size))
                             .height(Length::Fixed(gauge_icon_size))
                             .style(move |theme: &Theme| {
-                                let target = nominal_color_value(
-                                    GaugeNominalColor::SecondaryStrong,
-                                    theme,
-                                );
+                                let target =
+                                    nominal_color_value(GaugeNominalColor::SecondaryStrong, theme);
                                 let transparent = Color { a: 0.0, ..target };
                                 container::Style {
                                     background: Some(lerp_color(transparent, target, t).into()),

@@ -1,7 +1,14 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" role="img" aria-label="Download">
-  <g fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
+  <defs>
+    <linearGradient id="grelierGaugeGrad" x1="1" y1="0" x2="0" y2="0">
+      <stop offset="0%" stop-color="currentColor" stop-opacity="0.7" />
+      <stop offset="100%" stop-color="currentColor" stop-opacity="1" />
+    </linearGradient>
+  </defs>
+
+  <g fill="none" stroke="url(#grelierGaugeGrad)" stroke-width="3" stroke-linecap="round" stroke-linejoin="round">
     <line x1="16" y1="6" x2="16" y2="13"/>
     <line x1="6" y1="28" x2="26" y2="28"/>
   </g>
-  <polygon points="7 13 25 13 16 27" fill="currentColor" />
+  <polygon points="7 13 25 13 16 27" fill="url(#grelierGaugeGrad)" />
 </svg>

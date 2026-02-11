@@ -1,1 +1,8 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="200" height="200" viewBox="0 0 24 24"><path fill="#000000" d="m12 1.917l10.1 4.208L12 10.333L1.9 6.125zM2 9.98l10 4.308L22 9.98v2.181l-10 4.305L2 12.16zm0 6l10 4.308l10-4.308v2.181l-10 4.305L2 18.16z"/></svg>
+<svg xmlns="http://www.w3.org/2000/svg" width="200" height="200" viewBox="0 0 24 24">
+  <defs>
+    <linearGradient id="grelierGaugeGrad" x1="1" y1="0" x2="0" y2="0">
+      <stop offset="0%" stop-color="currentColor" stop-opacity="0.7" />
+      <stop offset="100%" stop-color="currentColor" stop-opacity="1" />
+    </linearGradient>
+  </defs>
+<path fill="url(#grelierGaugeGrad)" d="m12 1.917l10.1 4.208L12 10.333L1.9 6.125zM2 9.98l10 4.308L22 9.98v2.181l-10 4.305L2 12.16zm0 6l10 4.308l10-4.308v2.181l-10 4.305L2 18.16z"/></svg>

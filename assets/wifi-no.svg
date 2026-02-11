@@ -1,1 +1,8 @@
-<svg width="512" height="512" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path fill="none" stroke="#000000" stroke-linecap="square" stroke-width="2" d="M2.1 9.1A13.94 13.94 0 0 1 8 5.582m8 0a13.94 13.94 0 0 1 5.9 3.52M6.697 13.697q.607-.604 1.303-1.043m8 0q.697.438 1.303 1.043M12 3v11m-.707 4.293a1 1 0 0 1 1.414 0L12 19z"/></svg>
+<svg width="512" height="512" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24">
+  <defs>
+    <linearGradient id="grelierGaugeGrad" x1="1" y1="0" x2="0" y2="0">
+      <stop offset="0%" stop-color="currentColor" stop-opacity="0.7" />
+      <stop offset="100%" stop-color="currentColor" stop-opacity="1" />
+    </linearGradient>
+  </defs>
+<path fill="none" stroke="url(#grelierGaugeGrad)" stroke-linecap="square" stroke-width="2" d="M2.1 9.1A13.94 13.94 0 0 1 8 5.582m8 0a13.94 13.94 0 0 1 5.9 3.52M6.697 13.697q.607-.604 1.303-1.043m8 0q.697.438 1.303 1.043M12 3v11m-.707 4.293a1 1 0 0 1 1.414 0L12 19z"/></svg>
