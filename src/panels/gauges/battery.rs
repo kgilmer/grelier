@@ -262,7 +262,10 @@ fn snapshot_model(
             } else {
                 None
             };
-            let icon = Some(svg_asset(power_icon_for_status(status.as_deref(), ac_online)));            
+            let icon = Some(svg_asset(power_icon_for_status(
+                status.as_deref(),
+                ac_online,
+            )));
             let menu = menu_select.and_then(|select| power_profile_menu(select.clone()));
             return Some(GaugeModel {
                 id: "battery",
@@ -523,10 +526,7 @@ fn estimate_time_to_empty_seconds(
     current_wh: Option<f64>,
     rate_watts: Option<f64>,
 ) -> Option<u64> {
-    if status
-        .map(|value| value.eq_ignore_ascii_case("Discharging"))
-        != Some(true)
-    {
+    if status.map(|value| value.eq_ignore_ascii_case("Discharging")) != Some(true) {
         return None;
     }
     let current_wh = current_wh?;
