@@ -5,11 +5,63 @@ use elbey_cache::FALLBACK_ICON_HANDLE;
 use iced::alignment;
 use iced::border;
 use iced::font::Weight;
+use iced::gradient::Linear;
 use iced::widget::text;
 use iced::widget::{Column, Text, button, container, mouse_area};
-use iced::{Border, Element, Font, Length, Theme, mouse};
+use iced::{Border, Degrees, Element, Font, Gradient, Length, Theme, mouse};
 use iced_anim::animation_builder::AnimationBuilder;
 use iced_anim::transition::Easing;
+
+fn workspace_gradient(start: iced::Color, end: iced::Color) -> Gradient {
+    Gradient::Linear(
+        Linear::new(Degrees(180.0))
+            .add_stop(0.0, start)
+            .add_stop(1.0, end),
+    )
+}
+
+fn workspace_gradient_colors(
+    focus: f32,
+    urgent: f32,
+    is_previous: bool,
+    palette: &iced::theme::palette::Extended,
+) -> (iced::Color, iced::Color) {
+    let (mut start, mut end) = if focus <= 0.0 && urgent <= 0.0 {
+        if is_previous {
+            (palette.primary.weak.color, palette.primary.strong.color)
+        } else {
+            (
+                palette.background.weak.color,
+                palette.background.strong.color,
+            )
+        }
+    } else {
+        (
+            workspace_color(
+                focus,
+                urgent,
+                palette.background.weak.color,
+                palette.primary.weak.color,
+                palette.success.weak.color,
+            ),
+            workspace_color(
+                focus,
+                urgent,
+                palette.background.strong.color,
+                palette.primary.strong.color,
+                palette.success.strong.color,
+            ),
+        )
+    };
+
+    if is_previous {
+        let fade = 0.6;
+        start = lerp_color(start, palette.background.strong.color, fade);
+        end = lerp_color(end, palette.background.strong.color, fade);
+    }
+
+    (start, end)
+}
 
 fn workspace_color(
     focus_level: f32,
@@ -142,23 +194,8 @@ pub fn view<'a>(state: &'a BarState) -> Panel<'a> {
                     .width(Length::Fill)
                     .style(move |theme: &Theme| {
                         let palette = theme.extended_palette();
-                        let is_inactive = focus <= 0.0 && urgent <= 0.0;
-
-                        let background_color = if is_inactive {
-                            if is_previous {
-                                palette.primary.weak.color
-                            } else {
-                                palette.background.strong.color
-                            }
-                        } else {
-                            workspace_color(
-                                focus,
-                                urgent,
-                                palette.background.base.color,
-                                palette.primary.base.color,
-                                palette.success.base.color,
-                            )
-                        };
+                        let (gradient_start, gradient_end) =
+                            workspace_gradient_colors(focus, urgent, is_previous, palette);
                         let text_color = if is_previous {
                             palette.background.base.color
                         } else {
@@ -173,7 +210,9 @@ pub fn view<'a>(state: &'a BarState) -> Panel<'a> {
                             Border::default().rounded(border::Radius::new(workspace_corner_radius));
 
                         container::Style {
-                            background: Some(background_color.into()),
+                            background: Some(
+                                workspace_gradient(gradient_start, gradient_end).into(),
+                            ),
                             border,
                             text_color: Some(text_color),
                             ..container::Style::default()
@@ -233,6 +272,13 @@ pub fn view<'a>(state: &'a BarState) -> Panel<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn assert_color_close(a: iced::Color, b: iced::Color, eps: f32) {
+        assert!((a.r - b.r).abs() <= eps, "r {} != {}", a.r, b.r);
+        assert!((a.g - b.g).abs() <= eps, "g {} != {}", a.g, b.g);
+        assert!((a.b - b.b).abs() <= eps, "b {} != {}", a.b, b.b);
+        assert!((a.a - b.a).abs() <= eps, "a {} != {}", a.a, b.a);
+    }
 
     fn workspace(num: i32, focused: bool) -> WorkspaceInfo {
         WorkspaceInfo {
@@ -294,6 +340,57 @@ mod tests {
         assert!(
             state.previous_workspace.is_none(),
             "previous remains cleared without a prior focus to track",
+        );
+    }
+
+    #[test]
+    fn workspace_gradient_colors_handle_previous_fade() {
+        let theme = Theme::Nord;
+        let palette = theme.extended_palette();
+
+        let (start_inactive, end_inactive) = workspace_gradient_colors(0.0, 0.0, false, palette);
+        assert_color_close(start_inactive, palette.background.weak.color, 1e-5);
+        assert_color_close(end_inactive, palette.background.strong.color, 1e-5);
+
+        let fade = 0.6;
+        let expected_prev_start = lerp_color(
+            palette.primary.weak.color,
+            palette.background.strong.color,
+            fade,
+        );
+        let expected_prev_end = lerp_color(
+            palette.primary.strong.color,
+            palette.background.strong.color,
+            fade,
+        );
+        let (prev_start, prev_end) = workspace_gradient_colors(0.0, 0.0, true, palette);
+        assert_color_close(prev_start, expected_prev_start, 1e-5);
+        assert_color_close(prev_end, expected_prev_end, 1e-5);
+
+        let focused_start = workspace_color(
+            1.0,
+            0.0,
+            palette.background.weak.color,
+            palette.primary.weak.color,
+            palette.success.weak.color,
+        );
+        let focused_end = workspace_color(
+            1.0,
+            0.0,
+            palette.background.strong.color,
+            palette.primary.strong.color,
+            palette.success.strong.color,
+        );
+        let (prev_focus_start, prev_focus_end) = workspace_gradient_colors(1.0, 0.0, true, palette);
+        assert_color_close(
+            prev_focus_start,
+            lerp_color(focused_start, palette.background.strong.color, fade),
+            1e-5,
+        );
+        assert_color_close(
+            prev_focus_end,
+            lerp_color(focused_end, palette.background.strong.color, fade),
+            1e-5,
         );
     }
 }

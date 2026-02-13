@@ -396,6 +396,7 @@ fn main() -> Result<(), iced_layershell::Error> {
     let workspace_app_icons = settings_store.get_bool_or("grelier.app.workspace.app_icons", true);
     let top_apps_count = settings_store.get_parsed_or("grelier.app.top_apps.count", 6usize);
 
+    let theme_for_state = theme.clone();
     let run_result = daemon(
         move || {
             let mut icon_cache = Cache::new(load_desktop_apps);
@@ -415,7 +416,15 @@ fn main() -> Result<(), iced_layershell::Error> {
                 Task::none()
             };
             (
-                BarState::with_gauge_order_and_icons(gauge_order.clone(), app_icons, top_apps),
+                {
+                    let mut state = BarState::with_gauge_order_and_icons(
+                        gauge_order.clone(),
+                        app_icons,
+                        top_apps,
+                    );
+                    state.bar_theme = theme_for_state.clone();
+                    state
+                },
                 refresh_task,
             )
         },

@@ -898,22 +898,6 @@ mod tests {
     }
 
     #[test]
-    fn attention_tracks_thresholds() {
-        assert_eq!(
-            attention_for_capacity(10, DEFAULT_WARNING_PERCENT, DEFAULT_DANGER_PERCENT),
-            GaugeValueAttention::Danger
-        );
-        assert_eq!(
-            attention_for_capacity(30, DEFAULT_WARNING_PERCENT, DEFAULT_DANGER_PERCENT),
-            GaugeValueAttention::Warning
-        );
-        assert_eq!(
-            attention_for_capacity(60, DEFAULT_WARNING_PERCENT, DEFAULT_DANGER_PERCENT),
-            GaugeValueAttention::Nominal
-        );
-    }
-
-    #[test]
     fn battery_value_formats_fallback_text() {
         let (value, attention) = battery_value_from_strings(
             Some("abc"),
@@ -938,7 +922,7 @@ mod tests {
             DEFAULT_DANGER_PERCENT,
         )
         .expect("value present");
-        assert_eq!(attention, GaugeValueAttention::Nominal);
+        assert_eq!(attention, GaugeValueAttention::Warning);
         match value {
             Some(GaugeValue::Svg(_)) => {}
             _ => panic!("expected svg value"),

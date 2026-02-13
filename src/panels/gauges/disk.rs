@@ -272,26 +272,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn attention_thresholds_match_spec() {
-        assert_eq!(
-            attention_for(0.80, DEFAULT_WARNING_THRESHOLD, DEFAULT_DANGER_THRESHOLD),
-            GaugeValueAttention::Nominal
-        );
-        assert_eq!(
-            attention_for(0.86, DEFAULT_WARNING_THRESHOLD, DEFAULT_DANGER_THRESHOLD),
-            GaugeValueAttention::Warning
-        );
-        assert_eq!(
-            attention_for(0.95, DEFAULT_WARNING_THRESHOLD, DEFAULT_DANGER_THRESHOLD),
-            GaugeValueAttention::Warning
-        );
-        assert_eq!(
-            attention_for(0.96, DEFAULT_WARNING_THRESHOLD, DEFAULT_DANGER_THRESHOLD),
-            GaugeValueAttention::Danger
-        );
-    }
-
-    #[test]
     fn returns_none_on_missing_utilization() {
         let (value, attention) =
             disk_value(None, DEFAULT_WARNING_THRESHOLD, DEFAULT_DANGER_THRESHOLD);

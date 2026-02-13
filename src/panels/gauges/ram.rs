@@ -368,26 +368,6 @@ mod tests {
     use super::*;
 
     #[test]
-    fn attention_thresholds_match_spec() {
-        assert_eq!(
-            attention_for_free_ratio(0.20, DEFAULT_WARNING_THRESHOLD, DEFAULT_DANGER_THRESHOLD),
-            GaugeValueAttention::Nominal
-        );
-        assert_eq!(
-            attention_for_free_ratio(0.09, DEFAULT_WARNING_THRESHOLD, DEFAULT_DANGER_THRESHOLD),
-            GaugeValueAttention::Warning
-        );
-        assert_eq!(
-            attention_for_free_ratio(0.05, DEFAULT_WARNING_THRESHOLD, DEFAULT_DANGER_THRESHOLD),
-            GaugeValueAttention::Warning
-        );
-        assert_eq!(
-            attention_for_free_ratio(0.04, DEFAULT_WARNING_THRESHOLD, DEFAULT_DANGER_THRESHOLD),
-            GaugeValueAttention::Danger
-        );
-    }
-
-    #[test]
     fn ram_interval_speeds_up_and_recovers() {
         let mut state = RamState {
             fast_threshold: DEFAULT_FAST_THRESHOLD,

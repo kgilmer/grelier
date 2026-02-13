@@ -1,6 +1,7 @@
 // Bar application state, update handling, and view composition for panels.
 // Consumes Settings: grelier.bar.width, grelier.bar.border.*.
 use std::collections::{HashMap, HashSet};
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use crate::info_dialog::{InfoDialog, dialog_dimensions as info_dialog_dimensions, info_view};
@@ -196,7 +197,7 @@ impl std::str::FromStr for Orientation {
 }
 
 /// Runtime state for the bar, including panels, dialogs, and cache.
-#[derive(Clone, Default)]
+#[derive(Clone)]
 pub struct BarState {
     pub workspaces: Vec<WorkspaceInfo>,
     pub workspace_apps: HashMap<String, Vec<crate::sway_workspace::WorkspaceApp>>,
@@ -204,6 +205,8 @@ pub struct BarState {
     pub app_icons: AppIconCache,
     pub gauges: Vec<GaugeModel>,
     pub gauge_order: Vec<String>,
+    pub bar_theme: Theme,
+    pub themed_svg_cache: Arc<Mutex<HashMap<String, iced::widget::svg::Handle>>>,
     pub current_workspace: Option<String>,
     pub previous_workspace: Option<String>,
     pub dialog_windows: HashMap<window::Id, GaugeDialogWindow>,
@@ -218,6 +221,35 @@ pub struct BarState {
     pub last_output_change_at: Option<Instant>,
     pub last_bar_window_opened_at: Option<Instant>,
     pub last_outputs: Option<Vec<OutputSnapshot>>,
+}
+
+impl Default for BarState {
+    fn default() -> Self {
+        Self {
+            workspaces: Vec::new(),
+            workspace_apps: HashMap::new(),
+            top_apps: Vec::new(),
+            app_icons: AppIconCache::default(),
+            gauges: Vec::new(),
+            gauge_order: Vec::new(),
+            bar_theme: Theme::Nord,
+            themed_svg_cache: Arc::new(Mutex::new(HashMap::new())),
+            current_workspace: None,
+            previous_workspace: None,
+            dialog_windows: HashMap::new(),
+            last_cursor: None,
+            closing_dialogs: HashSet::new(),
+            gauge_dialog_anchor: HashMap::new(),
+            primary_window: None,
+            pending_primary_window: false,
+            bar_windows: HashSet::new(),
+            last_click_at: None,
+            last_dialog_opened_at: None,
+            last_output_change_at: None,
+            last_bar_window_opened_at: None,
+            last_outputs: None,
+        }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
