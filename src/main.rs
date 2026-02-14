@@ -24,6 +24,7 @@ use iced_layershell::settings::{LayerShellSettings, Settings as LayerShellAppSet
 use crate::bar::Orientation;
 use crate::bar::{
     AppIconCache, BarState, DEFAULT_PANELS, GaugeDialog, GaugeDialogWindow, Message, OutputSnapshot,
+    close_window_task,
 };
 use crate::panels::gauges::gauge::{GaugeClick, GaugeInput, GaugeModel};
 use crate::panels::gauges::gauge_registry;
@@ -144,6 +145,25 @@ fn outputs_equal(a: &[OutputSnapshot], b: &[OutputSnapshot]) -> bool {
     left.sort_by(|lhs, rhs| lhs.name.cmp(&rhs.name));
     right.sort_by(|lhs, rhs| lhs.name.cmp(&rhs.name));
     left == right
+}
+
+fn set_input_region_task(window: window::Id, size: iced::Size) -> Task<Message> {
+    if size.width <= 0.0 || size.height <= 0.0 {
+        return Task::none();
+    }
+    let width = size.width.round().clamp(1.0, i32::MAX as f32) as i32;
+    let height = size.height.round().clamp(1.0, i32::MAX as f32) as i32;
+    let callback = iced_layershell::actions::ActionCallback::new(move |region| {
+        region.add(0, 0, width, height);
+    });
+    Task::done(Message::SetInputRegion {
+        id: window,
+        callback,
+    })
+}
+
+fn has_active_outputs(snapshot: &[OutputSnapshot]) -> bool {
+    snapshot.iter().any(|output| output.active)
 }
 
 #[derive(FromArgs, Debug)]
@@ -705,7 +725,7 @@ fn update(state: &mut BarState, message: Message) -> Task<Message> {
             {
                 menu(item_id.clone());
             }
-            return Task::done(Message::RemoveWindow(window));
+            return close_window_task(window);
         }
         Message::MenuItemHoverEnter { window, item_id } => {
             if let Some(dialog_window) = state.dialog_windows.get_mut(&window) {
@@ -731,16 +751,23 @@ fn update(state: &mut BarState, message: Message) -> Task<Message> {
             }
         }
         Message::WindowEvent(window, event) => {
-            if event != iced::window::Event::Closed
-                && let Some(task) = track_bar_window(state, window)
-            {
-                return task;
+            if let iced::window::Event::Opened { size, .. } = event {
+                let mut tasks = vec![set_input_region_task(window, size)];
+                if let Some(task) = track_bar_window(state, window) {
+                    tasks.push(task);
+                }
+                return Task::batch(tasks);
+            }
+            if event != iced::window::Event::Closed {
+                if let Some(task) = track_bar_window(state, window) {
+                    return task;
+                }
             }
         }
         Message::MenuDismissed(window) => {
             state.dialog_windows.remove(&window);
             state.closing_dialogs.remove(&window);
-            return Task::done(Message::RemoveWindow(window));
+            return close_window_task(window);
         }
         Message::CacheRefreshed(result) => match result {
             Ok((apps, top_apps)) => {
@@ -781,12 +808,20 @@ fn update(state: &mut BarState, message: Message) -> Task<Message> {
         }
         Message::OutputChanged => {
             if let Some(snapshot) = snapshot_outputs() {
+                if !has_active_outputs(&snapshot) {
+                    state.last_outputs = Some(snapshot);
+                    return Task::none();
+                }
                 match state.last_outputs.as_ref() {
                     None => {
                         state.last_outputs = Some(snapshot);
                         return Task::none();
                     }
                     Some(prev) => {
+                        if !has_active_outputs(prev) {
+                            state.last_outputs = Some(snapshot);
+                            return Task::none();
+                        }
                         if outputs_equal(prev, &snapshot) {
                             state.last_outputs = Some(snapshot);
                             return Task::none();
@@ -868,14 +903,31 @@ fn track_bar_window(state: &mut BarState, window: window::Id) -> Option<Task<Mes
 
     state.bar_windows.insert(window);
     state.last_bar_window_opened_at = Some(Instant::now());
-    if state.primary_window.is_none() {
+    let mut tasks = Vec::new();
+    let mut queued_close_ids = std::collections::HashSet::new();
+    let mut queue_close = |id: window::Id, tasks: &mut Vec<Task<Message>>| {
+        if queued_close_ids.insert(id) {
+            tasks.push(close_window_task(id));
+        }
+    };
+    let promote_new_primary = state.primary_window.is_none()
+        || state
+            .primary_window
+            .is_some_and(|primary| primary != window);
+    if promote_new_primary {
+        if let Some(primary) = state.primary_window.take() {
+            if primary != window {
+                state.closing_dialogs.insert(primary);
+                state.bar_windows.remove(&primary);
+                queue_close(primary, &mut tasks);
+            }
+        }
         state.primary_window = Some(window);
         state.pending_primary_window = false;
     }
 
     let primary = state.primary_window?;
 
-    let mut tasks = Vec::new();
     let mut to_remove = Vec::new();
     for id in &state.bar_windows {
         if *id != primary {
@@ -885,12 +937,12 @@ fn track_bar_window(state: &mut BarState, window: window::Id) -> Option<Task<Mes
     for id in to_remove {
         state.closing_dialogs.insert(id);
         state.bar_windows.remove(&id);
-        tasks.push(Task::done(Message::RemoveWindow(id)));
+        queue_close(id, &mut tasks);
     }
 
     if !state.closing_dialogs.is_empty() {
         for id in state.closing_dialogs.iter().copied() {
-            tasks.push(Task::done(Message::RemoveWindow(id)));
+            queue_close(id, &mut tasks);
         }
     }
 
@@ -938,7 +990,7 @@ fn reopen_primary_window(state: &mut BarState) -> Task<Message> {
     let ids: Vec<window::Id> = state.bar_windows.drain().collect();
     for id in ids {
         state.closing_dialogs.insert(id);
-        tasks.push(Task::done(Message::RemoveWindow(id)));
+        tasks.push(close_window_task(id));
     }
 
     let id = window::Id::unique();
@@ -967,7 +1019,7 @@ fn handle_window_focus_change(state: &mut BarState, focused: bool) -> Task<Messa
     if let Some(window) = state.dialog_windows.keys().copied().next() {
         state.dialog_windows.remove(&window);
         state.closing_dialogs.insert(window);
-        return Task::done(Message::RemoveWindow(window));
+        return close_window_task(window);
     }
 
     Task::none()
@@ -1366,6 +1418,27 @@ mod tests {
             "existing dialog should be marked for closing"
         );
         assert!(task.units() > 0, "closing task should be returned");
+    }
+
+    #[test]
+    fn track_bar_window_promotes_new_primary_and_queues_single_close_bundle() {
+        let mut state = BarState::default();
+        let old_primary = window::Id::unique();
+        let new_primary = window::Id::unique();
+        state.primary_window = Some(old_primary);
+        state.bar_windows.insert(old_primary);
+
+        let task = track_bar_window(&mut state, new_primary).expect("close task should be queued");
+
+        assert_eq!(state.primary_window, Some(new_primary));
+        assert!(state.closing_dialogs.contains(&old_primary));
+        assert_eq!(state.bar_windows.len(), 1, "only new primary should remain");
+        assert!(state.bar_windows.contains(&new_primary));
+        assert_eq!(
+            task.units(),
+            2,
+            "old window close should emit input clear + remove"
+        );
     }
 
     fn assert_text_value(model: &GaugeModel, expected: &str) {

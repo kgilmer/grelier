@@ -99,6 +99,17 @@ impl PanelKind {
 pub const PANEL_KINDS: &[PanelKind] =
     &[PanelKind::Workspaces, PanelKind::TopApps, PanelKind::Gauges];
 
+pub(crate) fn close_window_task(window: window::Id) -> Task<Message> {
+    let callback = iced_layershell::actions::ActionCallback::new(|_region| {});
+    Task::batch([
+        Task::done(Message::SetInputRegion {
+            id: window,
+            callback,
+        }),
+        Task::done(Message::RemoveWindow(window)),
+    ])
+}
+
 pub fn list_panels() {
     for kind in PANEL_KINDS {
         println!("{}", kind.as_str());
@@ -405,7 +416,7 @@ impl BarState {
     pub fn close_dialogs(&mut self) -> Task<Message> {
         let ids: Vec<window::Id> = self.dialog_windows.drain().map(|(id, _)| id).collect();
         self.closing_dialogs.extend(&ids);
-        Task::batch(ids.into_iter().map(Message::RemoveWindow).map(Task::done))
+        Task::batch(ids.into_iter().map(close_window_task))
     }
 
     pub fn allow_click(&mut self) -> bool {
