@@ -23,8 +23,8 @@ use iced_layershell::settings::{LayerShellSettings, Settings as LayerShellAppSet
 
 use crate::bar::Orientation;
 use crate::bar::{
-    AppIconCache, BarState, DEFAULT_PANELS, GaugeDialog, GaugeDialogWindow, Message, OutputSnapshot,
-    close_window_task,
+    AppIconCache, BarState, DEFAULT_PANELS, GaugeDialog, GaugeDialogWindow, Message,
+    OutputSnapshot, close_window_task,
 };
 use crate::panels::gauges::gauge::{GaugeClick, GaugeInput, GaugeModel};
 use crate::panels::gauges::gauge_registry;
@@ -758,10 +758,10 @@ fn update(state: &mut BarState, message: Message) -> Task<Message> {
                 }
                 return Task::batch(tasks);
             }
-            if event != iced::window::Event::Closed {
-                if let Some(task) = track_bar_window(state, window) {
-                    return task;
-                }
+            if event != iced::window::Event::Closed
+                && let Some(task) = track_bar_window(state, window)
+            {
+                return task;
             }
         }
         Message::MenuDismissed(window) => {
@@ -915,12 +915,12 @@ fn track_bar_window(state: &mut BarState, window: window::Id) -> Option<Task<Mes
             .primary_window
             .is_some_and(|primary| primary != window);
     if promote_new_primary {
-        if let Some(primary) = state.primary_window.take() {
-            if primary != window {
-                state.closing_dialogs.insert(primary);
-                state.bar_windows.remove(&primary);
-                queue_close(primary, &mut tasks);
-            }
+        if let Some(primary) = state.primary_window.take()
+            && primary != window
+        {
+            state.closing_dialogs.insert(primary);
+            state.bar_windows.remove(&primary);
+            queue_close(primary, &mut tasks);
         }
         state.primary_window = Some(window);
         state.pending_primary_window = false;
