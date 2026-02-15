@@ -182,7 +182,7 @@ pub fn info_view<'a, Message: 'a>(dialog: &'a InfoDialog) -> Element<'a, Message
         .spacing(dialog_cfg.header_spacing)
         .push(
             Container::new(
-                Text::new(dialog.title.clone())
+                Text::new(dialog.title.as_str())
                     .size(dialog_cfg.header_font_size)
                     .width(Length::Fill)
                     .align_x(dialog_settings::title_alignment())
@@ -209,7 +209,7 @@ pub fn info_view<'a, Message: 'a>(dialog: &'a InfoDialog) -> Element<'a, Message
             .spacing(dialog_cfg.line_spacing),
         |col, line| {
             col.push(
-                Text::new(line.clone())
+                Text::new(line.as_str())
                     .size(dialog_cfg.body_font_size)
                     .width(Length::Fill),
             )
