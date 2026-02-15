@@ -242,10 +242,9 @@ impl Settings {
             return;
         }
         map.insert(key.to_string(), value.to_string());
-        let storage = self.storage.clone();
         let snapshot = map.clone();
         drop(map);
-        if let Err(err) = storage.save(&snapshot) {
+        if let Err(err) = self.storage.save(&snapshot) {
             log::error!("Failed to save settings storage: {err}");
         }
     }
@@ -256,10 +255,9 @@ impl Settings {
             map.entry(spec.key.to_string())
                 .or_insert_with(|| spec.default.to_string());
         }
-        let storage = self.storage.clone();
         let snapshot = map.clone();
         drop(map);
-        if let Err(err) = storage.save(&snapshot) {
+        if let Err(err) = self.storage.save(&snapshot) {
             log::error!("Failed to save settings storage: {err}");
         }
     }

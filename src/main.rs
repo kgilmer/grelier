@@ -1,9 +1,11 @@
 // Entry point wiring CLI args, settings initialization, and gauge subscriptions for the bar.
+mod apps;
 mod bar;
 mod dialog_settings;
 mod icon;
 mod info_dialog;
 mod menu_dialog;
+mod monitor;
 mod panels;
 mod settings;
 mod settings_storage;
@@ -24,17 +26,14 @@ use iced_layershell::settings::{LayerShellSettings, Settings as LayerShellAppSet
 use crate::bar::Orientation;
 use crate::bar::{
     AppIconCache, BarState, DEFAULT_PANELS, GaugeDialog, GaugeDialogWindow, Message,
-    OutputSnapshot, close_window_task,
+    close_window_task,
 };
 use crate::panels::gauges::gauge::{GaugeClick, GaugeInput, GaugeModel};
 use crate::panels::gauges::gauge_registry;
-use elbey_cache::{AppDescriptor, Cache};
-use freedesktop_desktop_entry::desktop_entries;
-use locale_config::Locale;
+use elbey_cache::Cache;
 use log::{error, info, warn};
 use std::ffi::OsString;
 use std::io::Write;
-use std::process::Command;
 use std::time::{Duration, Instant};
 
 const DEFAULT_ORIENTATION: &str = "left";
@@ -112,40 +111,6 @@ fn exit_with_error(message: impl std::fmt::Display) -> ! {
     info!("Exiting with status 1.");
     std::process::exit(1);
 }
-fn snapshot_outputs() -> Option<Vec<OutputSnapshot>> {
-    match sway_workspace::fetch_outputs() {
-        Ok(outputs) => Some(
-            outputs
-                .into_iter()
-                .map(|output| OutputSnapshot {
-                    name: output.name,
-                    active: output.active,
-                    rect: (
-                        output.rect.x,
-                        output.rect.y,
-                        output.rect.width,
-                        output.rect.height,
-                    ),
-                })
-                .collect(),
-        ),
-        Err(err) => {
-            error!("Failed to query outputs for snapshot: {err}");
-            None
-        }
-    }
-}
-
-fn outputs_equal(a: &[OutputSnapshot], b: &[OutputSnapshot]) -> bool {
-    if a.len() != b.len() {
-        return false;
-    }
-    let mut left = a.to_vec();
-    let mut right = b.to_vec();
-    left.sort_by(|lhs, rhs| lhs.name.cmp(&rhs.name));
-    right.sort_by(|lhs, rhs| lhs.name.cmp(&rhs.name));
-    left == right
-}
 
 fn set_input_region_task(window: window::Id, size: iced::Size) -> Task<Message> {
     if size.width <= 0.0 || size.height <= 0.0 {
@@ -162,12 +127,8 @@ fn set_input_region_task(window: window::Id, size: iced::Size) -> Task<Message> 
     })
 }
 
-fn has_active_outputs(snapshot: &[OutputSnapshot]) -> bool {
-    snapshot.iter().any(|output| output.active)
-}
-
 #[derive(FromArgs, Debug)]
-/// Workspace + gauges display
+/// Grelier command line argument spec
 struct Args {
     /// setting override; repeat for multiple pairs (key=value or key:value)
     #[argh(option, short = 's', long = "settings")]
@@ -223,54 +184,14 @@ fn main() -> Result<(), iced_layershell::Error> {
     }
 
     if args.list_monitors {
-        list_monitors();
+        if let Err(err) = monitor::list_monitors() {
+            exit_with_error(err);
+        }
         return Ok(());
     }
 
-    let mut monitor_names = args
-        .on_monitors
-        .as_deref()
-        .map(parse_monitor_list)
-        .unwrap_or_default();
-    if args.on_monitors.is_some() {
-        if monitor_names.is_empty() {
-            exit_with_error("--on-monitors requires at least one monitor name.");
-        }
-
-        let outputs = match sway_workspace::fetch_outputs() {
-            Ok(outputs) => outputs,
-            Err(err) => {
-                exit_with_error(format!("Failed to query outputs: {err}"));
-            }
-        };
-        let known: std::collections::HashSet<String> =
-            outputs.iter().map(|output| output.name.clone()).collect();
-        monitor_names.retain(|name| !name.is_empty());
-        let mut seen = std::collections::HashSet::new();
-        let mut unique = Vec::new();
-        for name in monitor_names.drain(..) {
-            if seen.insert(name.clone()) {
-                unique.push(name);
-            }
-        }
-        monitor_names = unique;
-        let unknown: Vec<String> = monitor_names
-            .iter()
-            .filter(|name| !known.contains(*name))
-            .cloned()
-            .collect();
-        if !unknown.is_empty() {
-            exit_with_error(format!(
-                "Unknown monitor(s): {}. Known monitors: {}",
-                unknown.join(", "),
-                known
-                    .iter()
-                    .map(String::as_str)
-                    .collect::<Vec<_>>()
-                    .join(", ")
-            ));
-        }
-    }
+    let monitor_names = monitor::normalize_monitor_selection(args.on_monitors.as_deref())
+        .unwrap_or_else(|err| exit_with_error(err));
 
     if monitor_names.len() > 1 {
         let exe = match std::env::current_exe() {
@@ -280,13 +201,8 @@ fn main() -> Result<(), iced_layershell::Error> {
             }
         };
         let forward_args = build_forward_args(&args);
-        for name in &monitor_names {
-            let mut cmd = Command::new(&exe);
-            cmd.args(&forward_args);
-            cmd.arg(format!("--on-monitors={name}"));
-            if let Err(err) = cmd.spawn() {
-                exit_with_error(format!("Failed to launch for monitor '{name}': {err}"));
-            }
+        if let Err(err) = monitor::spawn_per_monitor(&exe, &forward_args, &monitor_names) {
+            exit_with_error(err);
         }
         return Ok(());
     }
@@ -302,10 +218,6 @@ fn main() -> Result<(), iced_layershell::Error> {
     let mut registered_gauges: Vec<&'static gauge_registry::GaugeSpec> =
         gauge_registry::all().collect();
     registered_gauges.sort_by_key(|spec| spec.id);
-    let known_gauge_names: Vec<&'static str> =
-        registered_gauges.iter().map(|spec| spec.id).collect();
-    let known_gauges: std::collections::HashSet<&'static str> =
-        known_gauge_names.iter().copied().collect();
 
     let storage_path = args
         .config
@@ -336,15 +248,6 @@ fn main() -> Result<(), iced_layershell::Error> {
         .filter(|s| !s.is_empty())
         .map(|s| s.to_string())
         .collect();
-
-    for gauge in &gauges {
-        if !known_gauges.contains(gauge.as_str()) {
-            exit_with_error(format!(
-                "Unknown gauge '{gauge}'. Known gauges: {}",
-                known_gauge_names.join(", ")
-            ));
-        }
-    }
 
     if args.list_settings {
         gauge_registry::list_settings(&base_setting_specs);
@@ -412,16 +315,20 @@ fn main() -> Result<(), iced_layershell::Error> {
         None => theme::DEFAULT_THEME,
     };
 
-    let gauge_order = gauges.clone();
+    let gauge_order = gauges;
+    let gauges_for_subscription = gauge_order.clone();
     let workspace_app_icons = settings_store.get_bool_or("grelier.app.workspace.app_icons", true);
     let top_apps_count = settings_store.get_parsed_or("grelier.app.top_apps.count", 6usize);
 
     let theme_for_state = theme.clone();
     let run_result = daemon(
         move || {
-            let mut icon_cache = Cache::new(load_desktop_apps);
-            let (mut apps, app_icons, top_apps) =
-                load_cached_apps_from_cache(&mut icon_cache, top_apps_count, workspace_app_icons);
+            let mut icon_cache = Cache::new(apps::load_desktop_apps);
+            let (mut apps, app_icons, top_apps) = apps::load_cached_apps_from_cache(
+                &mut icon_cache,
+                top_apps_count,
+                workspace_app_icons,
+            );
             let refresh_task = if workspace_app_icons || top_apps_count > 0 {
                 Task::perform(
                     async move {
@@ -453,10 +360,7 @@ fn main() -> Result<(), iced_layershell::Error> {
         BarState::view,
     )
     .theme(theme)
-    .subscription({
-        let gauges = gauges.clone();
-        move |state| app_subscription(state, &gauges)
-    })
+    .subscription(move |state| app_subscription(state, &gauges_for_subscription))
     .settings(settings)
     .run();
 
@@ -465,81 +369,6 @@ fn main() -> Result<(), iced_layershell::Error> {
         Err(err) => error!("Exiting with error after bar run completed: {err}"),
     }
     run_result
-}
-
-fn load_desktop_apps() -> Vec<AppDescriptor> {
-    let locales: Vec<String> = Locale::user_default()
-        .tags()
-        .map(|(_, tag)| tag.to_string())
-        .collect();
-    desktop_entries(&locales)
-        .into_iter()
-        .map(AppDescriptor::from)
-        .collect()
-}
-
-fn load_cached_apps_from_cache(
-    cache: &mut Cache,
-    top_count: usize,
-    workspace_app_icons: bool,
-) -> (Vec<AppDescriptor>, AppIconCache, Vec<AppDescriptor>) {
-    let apps = if workspace_app_icons || top_count > 0 {
-        cache.load_apps()
-    } else {
-        Vec::new()
-    };
-
-    let app_icons = if workspace_app_icons {
-        AppIconCache::from_app_descriptors_ref(&apps)
-    } else {
-        AppIconCache::default()
-    };
-
-    let top_apps = if top_count > 0 {
-        cache
-            .top_apps(top_count)
-            .unwrap_or_default()
-            .into_iter()
-            .filter(|app| app.exec_count > 0)
-            .collect()
-    } else {
-        Vec::new()
-    };
-
-    (apps, app_icons, top_apps)
-}
-
-fn parse_monitor_list(raw: &str) -> Vec<String> {
-    raw.split(',')
-        .map(str::trim)
-        .filter(|name| !name.is_empty())
-        .map(|name| name.to_string())
-        .collect()
-}
-
-fn list_monitors() {
-    match sway_workspace::fetch_outputs() {
-        Ok(outputs) => {
-            if outputs.is_empty() {
-                println!("No outputs detected.");
-                return;
-            }
-            for output in outputs {
-                let status = if output.active { "active" } else { "inactive" };
-                let make_model = format!("{} {}", output.make, output.model)
-                    .trim()
-                    .to_string();
-                if make_model.trim().is_empty() {
-                    println!("{}\t{}", output.name, status);
-                } else {
-                    println!("{}\t{}\t{}", output.name, status, make_model.trim());
-                }
-            }
-        }
-        Err(err) => {
-            exit_with_error(format!("Failed to query outputs: {err}"));
-        }
-    }
 }
 
 fn build_forward_args(args: &Args) -> Vec<OsString> {
@@ -566,8 +395,6 @@ fn app_subscription(_state: &BarState, gauges: &[String]) -> Subscription<Messag
     for gauge in gauges {
         if let Some(spec) = gauge_registry::find(gauge) {
             subs.push(gauge_registry::subscription_for(spec));
-        } else {
-            error!("Unknown gauge '{gauge}' in subscription list.");
         }
     }
     Subscription::batch(subs)
@@ -621,7 +448,7 @@ fn update(state: &mut BarState, message: Message) -> Task<Message> {
                 return Task::none();
             }
             if let Some(app) = state.top_apps.iter().find(|app| app.appid == app_id) {
-                let mut cache = Cache::new(load_desktop_apps);
+                let mut cache = Cache::new(apps::load_desktop_apps);
                 if let Err(err) = cache.record_launch(app) {
                     error!("Failed to update app cache for \"{app_id}\": {err}");
                 }
@@ -647,8 +474,8 @@ fn update(state: &mut BarState, message: Message) -> Task<Message> {
             }
         }
         Message::Gauge(gauge) => {
-            update_gauge(&mut state.gauges, gauge.clone());
             refresh_info_dialogs(&mut state.dialog_windows, &gauge);
+            update_gauge(&mut state.gauges, gauge);
         }
         Message::GaugeClicked { id, input } => {
             // If any dialog is open, any click just dismisses it.
@@ -723,7 +550,7 @@ fn update(state: &mut BarState, message: Message) -> Task<Message> {
                 .and_then(|g| g.menu.as_ref())
                 .and_then(|menu| menu.on_select.clone())
             {
-                menu(item_id.clone());
+                menu(item_id);
             }
             return close_window_task(window);
         }
@@ -807,8 +634,8 @@ fn update(state: &mut BarState, message: Message) -> Task<Message> {
             }
         }
         Message::OutputChanged => {
-            if let Some(snapshot) = snapshot_outputs() {
-                if !has_active_outputs(&snapshot) {
+            if let Some(snapshot) = monitor::snapshot_outputs() {
+                if !monitor::has_active_outputs(&snapshot) {
                     state.last_outputs = Some(snapshot);
                     return Task::none();
                 }
@@ -818,11 +645,11 @@ fn update(state: &mut BarState, message: Message) -> Task<Message> {
                         return Task::none();
                     }
                     Some(prev) => {
-                        if !has_active_outputs(prev) {
+                        if !monitor::has_active_outputs(prev) {
                             state.last_outputs = Some(snapshot);
                             return Task::none();
                         }
-                        if outputs_equal(prev, &snapshot) {
+                        if monitor::outputs_equal(prev, &snapshot) {
                             state.last_outputs = Some(snapshot);
                             return Task::none();
                         }

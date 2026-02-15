@@ -180,7 +180,7 @@ pub fn menu_view<'a, Message: Clone + 'a>(
         .width(Length::Fill)
         .push(
             Container::new(
-                Text::new(menu.title.clone())
+                Text::new(menu.title.as_str())
                     .size(header_font_size)
                     .width(Length::Fill)
                     .align_x(dialog_settings::title_alignment())
@@ -239,7 +239,7 @@ pub fn menu_view<'a, Message: Clone + 'a>(
             .spacing(indicator_spacing)
             .push(container(indicator))
             .push(
-                Text::new(label.clone())
+                Text::new(label.as_str())
                     .width(Length::Shrink)
                     .size(item_font_size),
             )

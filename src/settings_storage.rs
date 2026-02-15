@@ -247,7 +247,7 @@ mod tests {
     #[test]
     fn load_missing_file_returns_empty_map() {
         let (storage, dir) = temp_storage("missing");
-        let _ = fs::remove_file(storage.path.clone());
+        let _ = fs::remove_file(&storage.path);
 
         let map = storage.load().expect("load missing file");
         assert!(map.is_empty());

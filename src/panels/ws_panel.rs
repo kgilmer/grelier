@@ -101,7 +101,7 @@ pub fn update_workspace_focus(state: &mut BarState, workspaces: &[WorkspaceInfo]
         .map(|ws| ws.name.clone());
 
     match focused_workspace {
-        Some(ref focused) if Some(focused.as_str()) != state.current_workspace.as_deref() => {
+        Some(focused) if Some(focused.as_str()) != state.current_workspace.as_deref() => {
             if workspace_count > 1 {
                 if let Some(current) = state.current_workspace.take() {
                     state.previous_workspace = Some(current);
@@ -110,7 +110,7 @@ pub fn update_workspace_focus(state: &mut BarState, workspaces: &[WorkspaceInfo]
                 state.previous_workspace = None;
             }
 
-            state.current_workspace = Some(focused.clone());
+            state.current_workspace = Some(focused);
         }
         Some(_) => {}
         None => state.current_workspace = None,
