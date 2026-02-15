@@ -903,24 +903,10 @@ fn track_bar_window(state: &mut BarState, window: window::Id) -> Option<Task<Mes
 
     state.bar_windows.insert(window);
     state.last_bar_window_opened_at = Some(Instant::now());
-    let mut tasks = Vec::new();
-    let mut queued_close_ids = std::collections::HashSet::new();
-    let mut queue_close = |id: window::Id, tasks: &mut Vec<Task<Message>>| {
-        if queued_close_ids.insert(id) {
-            tasks.push(close_window_task(id));
-        }
-    };
-    let promote_new_primary = state.primary_window.is_none()
-        || state
-            .primary_window
-            .is_some_and(|primary| primary != window);
+    let promote_new_primary = state.primary_window != Some(window);
     if promote_new_primary {
-        if let Some(primary) = state.primary_window.take()
-            && primary != window
-        {
+        if let Some(primary) = state.primary_window.take() {
             state.closing_dialogs.insert(primary);
-            state.bar_windows.remove(&primary);
-            queue_close(primary, &mut tasks);
         }
         state.primary_window = Some(window);
         state.pending_primary_window = false;
@@ -928,28 +914,23 @@ fn track_bar_window(state: &mut BarState, window: window::Id) -> Option<Task<Mes
 
     let primary = state.primary_window?;
 
-    let mut to_remove = Vec::new();
-    for id in &state.bar_windows {
-        if *id != primary {
-            to_remove.push(*id);
-        }
-    }
-    for id in to_remove {
+    let stale_windows: Vec<window::Id> = state
+        .bar_windows
+        .iter()
+        .copied()
+        .filter(|id| *id != primary)
+        .collect();
+    for id in stale_windows {
         state.closing_dialogs.insert(id);
         state.bar_windows.remove(&id);
-        queue_close(id, &mut tasks);
     }
 
-    if !state.closing_dialogs.is_empty() {
-        for id in state.closing_dialogs.iter().copied() {
-            queue_close(id, &mut tasks);
-        }
-    }
-
-    if tasks.is_empty() {
+    if state.closing_dialogs.is_empty() {
         None
     } else {
-        Some(Task::batch(tasks))
+        Some(Task::batch(
+            state.closing_dialogs.iter().copied().map(close_window_task),
+        ))
     }
 }
 
@@ -985,29 +966,29 @@ fn layershell_reopen_settings() -> NewLayerShellSettings {
 fn reopen_primary_window(state: &mut BarState) -> Task<Message> {
     state.pending_primary_window = true;
     state.primary_window = None;
-    let mut tasks = vec![state.close_dialogs()];
+    let closing_bar_windows: Vec<window::Id> = state.bar_windows.drain().collect();
+    state
+        .closing_dialogs
+        .extend(closing_bar_windows.iter().copied());
 
-    let ids: Vec<window::Id> = state.bar_windows.drain().collect();
-    for id in ids {
-        state.closing_dialogs.insert(id);
-        tasks.push(close_window_task(id));
-    }
-
-    let id = window::Id::unique();
-    let task = Task::done(Message::NewLayerShell {
-        settings: layershell_reopen_settings(),
-        id,
-    });
-    tasks.push(Task::done(Message::ForgetLastOutput));
-    tasks.push(task);
-    Task::batch(tasks)
+    Task::batch(
+        std::iter::once(state.close_dialogs())
+            .chain(closing_bar_windows.into_iter().map(close_window_task))
+            .chain(std::iter::once(Task::done(Message::ForgetLastOutput)))
+            .chain(std::iter::once(Task::done(Message::NewLayerShell {
+                settings: layershell_reopen_settings(),
+                id: window::Id::unique(),
+            }))),
+    )
 }
 
 fn handle_window_focus_change(state: &mut BarState, focused: bool) -> Task<Message> {
+    // Keep dialogs open when the bar regains focus.
     if focused {
         return Task::none();
     }
 
+    // Ignore transient unfocus events immediately after opening a dialog.
     let recently_opened_dialog = state
         .last_dialog_opened_at
         .and_then(|last| Instant::now().checked_duration_since(last))
@@ -1016,12 +997,14 @@ fn handle_window_focus_change(state: &mut BarState, focused: bool) -> Task<Messa
         return Task::none();
     }
 
+    // Close the first tracked dialog on a real unfocus transition.
     if let Some(window) = state.dialog_windows.keys().copied().next() {
         state.dialog_windows.remove(&window);
         state.closing_dialogs.insert(window);
         return close_window_task(window);
     }
 
+    // Nothing to close when no dialog windows are active.
     Task::none()
 }
 
