@@ -34,6 +34,7 @@ use elbey_cache::Cache;
 use log::{error, info, warn};
 use std::ffi::OsString;
 use std::io::Write;
+use std::path::Path;
 use std::time::{Duration, Instant};
 
 const DEFAULT_ORIENTATION: &str = "left";
@@ -110,6 +111,53 @@ fn exit_with_error(message: impl std::fmt::Display) -> ! {
     write_stderr(&message);
     info!("Exiting with status 1.");
     std::process::exit(1);
+}
+
+fn ensure_layershell_environment() -> Result<(), String> {
+    let session_type = std::env::var("XDG_SESSION_TYPE")
+        .ok()
+        .map(|value| value.to_ascii_lowercase());
+    let wayland_display = std::env::var("WAYLAND_DISPLAY").ok();
+    let xdg_runtime_dir = std::env::var("XDG_RUNTIME_DIR").ok();
+
+    if wayland_display.is_none() {
+        let mut message = String::from(
+            "Wayland compositor not detected. grelier requires a Wayland session with layer-shell support.",
+        );
+        if matches!(session_type.as_deref(), Some("x11")) {
+            message.push_str(" Current session is X11.");
+        }
+        message.push_str(
+            " Start grelier from Sway (or another wlroots compositor that supports layer-shell).",
+        );
+        return Err(message);
+    }
+
+    let wayland_display = wayland_display
+        .as_deref()
+        .filter(|value| !value.trim().is_empty())
+        .ok_or_else(|| {
+            "WAYLAND_DISPLAY is set but empty. Start grelier from a valid Wayland session."
+                .to_string()
+        })?;
+
+    let runtime_dir = xdg_runtime_dir
+        .as_deref()
+        .filter(|value| !value.trim().is_empty())
+        .ok_or_else(|| {
+            "XDG_RUNTIME_DIR is not set. Cannot locate Wayland socket; run grelier from a login session."
+                .to_string()
+        })?;
+
+    let socket_path = Path::new(runtime_dir).join(wayland_display);
+    if !socket_path.exists() {
+        return Err(format!(
+            "Wayland socket '{}' does not exist. Ensure your compositor is running and launch grelier inside that session.",
+            socket_path.display()
+        ));
+    }
+
+    Ok(())
 }
 
 fn set_input_region_task(window: window::Id, size: iced::Size) -> Task<Message> {
@@ -205,6 +253,10 @@ fn main() -> Result<(), iced_layershell::Error> {
             exit_with_error(err);
         }
         return Ok(());
+    }
+
+    if let Err(err) = ensure_layershell_environment() {
+        exit_with_error(err);
     }
 
     let default_gauges = gauge_registry::default_gauges();
