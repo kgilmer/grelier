@@ -2,7 +2,9 @@
 // Consumes Settings: grelier.gauge.ram.*.
 use crate::icon::{icon_quantity, svg_asset};
 use crate::info_dialog::InfoDialog;
-use crate::panels::gauges::gauge::{GaugeValue, GaugeValueAttention, fixed_interval};
+use crate::panels::gauges::gauge::{
+    GaugeDisplay, GaugeValue, GaugeValueAttention, fixed_interval,
+};
 use crate::panels::gauges::gauge_registry::{GaugeSpec, GaugeStream};
 use crate::settings;
 use crate::settings::SettingSpec;
@@ -137,15 +139,20 @@ fn ram_value(
     free_ratio: Option<f32>,
     warning_threshold: f32,
     danger_threshold: f32,
-) -> (Option<GaugeValue>, GaugeValueAttention) {
-    let value = utilization.map(|util| GaugeValue::Svg(icon_quantity(util)));
+) -> GaugeDisplay {
     let attention = match free_ratio {
         Some(free_ratio) => {
             attention_for_free_ratio(free_ratio, warning_threshold, danger_threshold)
         }
-        None => GaugeValueAttention::Danger,
+        None => return GaugeDisplay::Error,
     };
-    (value, attention)
+    match utilization {
+        Some(util) => GaugeDisplay::Value {
+            value: GaugeValue::Svg(icon_quantity(util)),
+            attention,
+        },
+        None => GaugeDisplay::Error,
+    }
 }
 
 struct RamState {
@@ -300,9 +307,8 @@ fn ram_stream() -> impl iced::futures::Stream<Item = crate::panels::gauges::gaug
                     state.update_interval_state(util);
                 }
 
-                let (value, attention) =
-                    ram_value(utilization, free_ratio, warning_threshold, danger_threshold);
-                Some((value, attention))
+                let display = ram_value(utilization, free_ratio, warning_threshold, danger_threshold);
+                Some(display)
             }
         },
         None,
@@ -404,13 +410,12 @@ mod tests {
 
     #[test]
     fn returns_none_on_missing_utilization() {
-        let (value, attention) = ram_value(
+        let display = ram_value(
             None,
             None,
             DEFAULT_WARNING_THRESHOLD,
             DEFAULT_DANGER_THRESHOLD,
         );
-        assert!(value.is_none());
-        assert_eq!(attention, GaugeValueAttention::Danger);
+        assert!(matches!(display, GaugeDisplay::Error));
     }
 }

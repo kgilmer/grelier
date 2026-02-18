@@ -3,7 +3,8 @@
 use crate::icon::{icon_quantity, svg_asset};
 use crate::info_dialog::InfoDialog;
 use crate::panels::gauges::gauge::{
-    GaugeClick, GaugeClickAction, GaugeMenu, GaugeMenuItem, GaugeValue, GaugeValueAttention,
+    GaugeClick, GaugeClickAction, GaugeDisplay, GaugeMenu, GaugeMenuItem, GaugeValue,
+    GaugeValueAttention,
     MenuSelectAction, event_stream,
 };
 use crate::panels::gauges::gauge_registry::{GaugeSpec, GaugeStream};
@@ -25,7 +26,7 @@ use std::time::Duration;
 const IDLE_WAIT: Duration = Duration::from_millis(25);
 const DEFAULT_STEP_PERCENT: i8 = 5;
 
-fn format_level(percent: Option<u8>) -> (Option<GaugeValue>, GaugeValueAttention) {
+fn format_level(percent: Option<u8>) -> GaugeDisplay {
     match percent {
         Some(value) => {
             let ratio = if value == 0 {
@@ -33,12 +34,12 @@ fn format_level(percent: Option<u8>) -> (Option<GaugeValue>, GaugeValueAttention
             } else {
                 value.min(99) as f32 / 99.0
             };
-            (
-                Some(GaugeValue::Svg(icon_quantity(ratio))),
-                GaugeValueAttention::Nominal,
-            )
+            GaugeDisplay::Value {
+                value: GaugeValue::Svg(icon_quantity(ratio)),
+                attention: GaugeValueAttention::Nominal,
+            }
         }
-        None => (None, GaugeValueAttention::Danger),
+        None => GaugeDisplay::Error,
     }
 }
 
@@ -337,7 +338,7 @@ fn audio_out_stream() -> impl iced::futures::Stream<Item = crate::panels::gauges
             let mut send_value = |status: Option<SinkStatus>,
                                   menu_items: Option<Vec<GaugeMenuItem>>,
                                   device_label: Option<String>| {
-                let (value, attention) = format_level(status.map(|s| s.percent));
+                let display = format_level(status.map(|s| s.percent));
                 let icon = status
                     .map(|s| {
                         if s.muted {
@@ -368,8 +369,7 @@ fn audio_out_stream() -> impl iced::futures::Stream<Item = crate::panels::gauges
                 let _ = sender.try_send(crate::panels::gauges::gauge::GaugeModel {
                     id: "audio_out",
                     icon: Some(icon),
-                    value,
-                    attention,
+                    display,
                     nominal_color: None,
                     on_click: Some(on_click.clone()),
                     menu,
@@ -540,11 +540,13 @@ mod tests {
 
     #[test]
     fn level_uses_ratio_icon() {
-        let (value, attention) = format_level(Some(50));
-        assert_eq!(attention, GaugeValueAttention::Nominal);
-        match value {
-            Some(GaugeValue::Svg(handle)) => {
+        match format_level(Some(50)) {
+            GaugeDisplay::Value {
+                value: GaugeValue::Svg(handle),
+                attention,
+            } => {
                 assert_eq!(handle, icon_quantity(50.0 / 99.0));
+                assert_eq!(attention, GaugeValueAttention::Nominal);
             }
             _ => panic!("expected svg value for level"),
         }
@@ -552,9 +554,7 @@ mod tests {
 
     #[test]
     fn level_is_none_on_missing_status() {
-        let (value, attention) = format_level(None);
-        assert!(value.is_none());
-        assert_eq!(attention, GaugeValueAttention::Danger);
+        assert!(matches!(format_level(None), GaugeDisplay::Error));
     }
 
     #[test]

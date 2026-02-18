@@ -4,7 +4,7 @@ use chrono::Local;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use crate::icon::svg_asset;
-use crate::panels::gauges::gauge::{GaugeValue, GaugeValueAttention, fixed_interval};
+use crate::panels::gauges::gauge::{GaugeDisplay, GaugeValue, GaugeValueAttention, fixed_interval};
 use crate::panels::gauges::gauge_registry::{GaugeSpec, GaugeStream};
 use crate::settings;
 use crate::settings::SettingSpec;
@@ -43,14 +43,14 @@ fn day_stream() -> impl iced::futures::Stream<Item = crate::panels::gauges::gaug
         },
         move || {
             let now = Local::now();
-            Some((
-                Some(GaugeValue::Text(format!(
+            Some(GaugeDisplay::Value {
+                value: GaugeValue::Text(format!(
                     "{}\n{}",
                     now.format(&month_format),
                     now.format(&day_format)
-                ))),
-                GaugeValueAttention::Nominal,
-            ))
+                )),
+                attention: GaugeValueAttention::Nominal,
+            })
         },
         None,
     )

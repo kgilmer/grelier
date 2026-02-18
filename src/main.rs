@@ -920,7 +920,7 @@ fn refresh_info_dialogs(
 #[cfg(test)]
 mod tests {
     use crate::bar::{GaugeDialog, GaugeDialogWindow};
-    use crate::panels::gauges::gauge::{GaugeMenu, GaugeValue, GaugeValueAttention};
+    use crate::panels::gauges::gauge::{GaugeDisplay, GaugeMenu, GaugeValue, GaugeValueAttention};
     use crate::settings_storage::SettingsStorage;
     use std::sync::Arc;
     use std::sync::Mutex;
@@ -969,8 +969,10 @@ mod tests {
         let g1 = GaugeModel {
             id: "clock",
             icon: None,
-            value: Some(GaugeValue::Text("12\n00".to_string())),
-            attention: GaugeValueAttention::Nominal,
+            display: GaugeDisplay::Value {
+                value: GaugeValue::Text("12\n00".to_string()),
+                attention: GaugeValueAttention::Nominal,
+            },
             nominal_color: None,
             on_click: None,
             menu: None,
@@ -979,8 +981,10 @@ mod tests {
         let g2 = GaugeModel {
             id: "clock",
             icon: None,
-            value: Some(GaugeValue::Text("12\n01".to_string())),
-            attention: GaugeValueAttention::Nominal,
+            display: GaugeDisplay::Value {
+                value: GaugeValue::Text("12\n01".to_string()),
+                attention: GaugeValueAttention::Nominal,
+            },
             nominal_color: None,
             on_click: None,
             menu: None,
@@ -998,8 +1002,10 @@ mod tests {
         let g3 = GaugeModel {
             id: "date",
             icon: None,
-            value: Some(GaugeValue::Text("01\n01".to_string())),
-            attention: GaugeValueAttention::Nominal,
+            display: GaugeDisplay::Value {
+                value: GaugeValue::Text("01\n01".to_string()),
+                attention: GaugeValueAttention::Nominal,
+            },
             nominal_color: None,
             on_click: None,
             menu: None,
@@ -1030,8 +1036,7 @@ mod tests {
         state.gauges.push(GaugeModel {
             id: "audio_out",
             icon: None,
-            value: None,
-            attention: GaugeValueAttention::Nominal,
+            display: GaugeDisplay::Empty,
             nominal_color: None,
             on_click: Some(Arc::new({
                 let clicked = clicked.clone();
@@ -1086,8 +1091,7 @@ mod tests {
         state.gauges.push(GaugeModel {
             id: "audio_out",
             icon: None,
-            value: None,
-            attention: GaugeValueAttention::Nominal,
+            display: GaugeDisplay::Empty,
             nominal_color: None,
             on_click: None,
             menu: None,
@@ -1156,8 +1160,7 @@ mod tests {
         state.gauges.push(GaugeModel {
             id: "audio_out",
             icon: None,
-            value: None,
-            attention: GaugeValueAttention::Nominal,
+            display: GaugeDisplay::Empty,
             nominal_color: None,
             on_click: None,
             menu: Some(GaugeMenu {
@@ -1309,10 +1312,16 @@ mod tests {
     }
 
     fn assert_text_value(model: &GaugeModel, expected: &str) {
-        match &model.value {
-            Some(GaugeValue::Text(text)) => assert_eq!(text, expected),
-            Some(GaugeValue::Svg(_)) => panic!("expected text gauge value"),
-            None => panic!("expected value"),
+        match &model.display {
+            GaugeDisplay::Value {
+                value: GaugeValue::Text(text),
+                ..
+            } => assert_eq!(text, expected),
+            GaugeDisplay::Value {
+                value: GaugeValue::Svg(_),
+                ..
+            } => panic!("expected text gauge value"),
+            _ => panic!("expected value"),
         }
     }
 }

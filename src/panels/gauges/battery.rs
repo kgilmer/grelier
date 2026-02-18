@@ -2,7 +2,8 @@
 use crate::icon::{icon_quantity, svg_asset};
 use crate::info_dialog::InfoDialog;
 use crate::panels::gauges::gauge::{
-    GaugeMenu, GaugeMenuItem, GaugeModel, GaugeNominalColor, GaugeValue, GaugeValueAttention,
+    GaugeDisplay, GaugeMenu, GaugeMenuItem, GaugeModel, GaugeNominalColor, GaugeValue,
+    GaugeValueAttention,
     MenuSelectAction, event_stream,
 };
 use crate::panels::gauges::gauge_registry::{GaugeSpec, GaugeStream};
@@ -248,7 +249,7 @@ fn snapshot_model(
         if ac_online.is_none() {
             ac_online = ac_online_from_status(status.as_deref());
         }
-        if let Some((value, attention)) = battery_value(&dev, warning_percent, danger_percent) {
+        if let Some(display) = battery_value(&dev, warning_percent, danger_percent) {
             let capacity = property_str(&dev, "POWER_SUPPLY_CAPACITY")
                 .or_else(|| property_str(&dev, "CAPACITY"));
             let capacity_percent = capacity.as_deref().and_then(|cap| cap.parse::<u8>().ok());
@@ -270,8 +271,7 @@ fn snapshot_model(
             return Some(GaugeModel {
                 id: "battery",
                 icon,
-                value,
-                attention,
+                display,
                 nominal_color,
                 on_click: None,
                 menu,
@@ -296,8 +296,7 @@ fn snapshot_model(
     Some(GaugeModel {
         id: "battery",
         icon: Some(svg_asset("power.svg")),
-        value: None,
-        attention: GaugeValueAttention::Danger,
+        display: GaugeDisplay::Error,
         nominal_color: None,
         on_click: None,
         menu,
@@ -309,7 +308,7 @@ fn battery_value(
     dev: &udev::Device,
     warning_percent: u8,
     danger_percent: u8,
-) -> Option<(Option<GaugeValue>, GaugeValueAttention)> {
+) -> Option<GaugeDisplay> {
     let capacity =
         property_str(dev, "POWER_SUPPLY_CAPACITY").or_else(|| property_str(dev, "CAPACITY"));
     let status = property_str(dev, "POWER_SUPPLY_STATUS");
@@ -326,30 +325,30 @@ fn battery_value_from_strings(
     status: Option<&str>,
     _warning_percent: u8,
     _danger_percent: u8,
-) -> Option<(Option<GaugeValue>, GaugeValueAttention)> {
+) -> Option<GaugeDisplay> {
     if let Some(cap) = capacity {
         if let Ok(percent) = cap.parse::<u8>() {
             let attention = attention_for_capacity(percent);
-            return Some((
-                Some(GaugeValue::Svg(icon_quantity(percent as f32 / 100.0))),
+            return Some(GaugeDisplay::Value {
+                value: GaugeValue::Svg(icon_quantity(percent as f32 / 100.0)),
                 attention,
-            ));
+            });
         }
 
         if let Some(status) = status {
-            return Some((
-                Some(GaugeValue::Text(format!("{cap}% ({status})"))),
-                GaugeValueAttention::Nominal,
-            ));
+            return Some(GaugeDisplay::Value {
+                value: GaugeValue::Text(format!("{cap}% ({status})")),
+                attention: GaugeValueAttention::Nominal,
+            });
         }
 
-        return Some((
-            Some(GaugeValue::Text(format!("{cap}%"))),
-            GaugeValueAttention::Nominal,
-        ));
+        return Some(GaugeDisplay::Value {
+            value: GaugeValue::Text(format!("{cap}%")),
+            attention: GaugeValueAttention::Nominal,
+        });
     }
 
-    Some((None, GaugeValueAttention::Danger))
+    Some(GaugeDisplay::Error)
 }
 
 fn update_info_state(info_state: &Arc<Mutex<InfoDialog>>, dialog: InfoDialog) {
@@ -899,32 +898,41 @@ mod tests {
 
     #[test]
     fn battery_value_formats_fallback_text() {
-        let (value, attention) = battery_value_from_strings(
+        let display = battery_value_from_strings(
             Some("abc"),
             Some("Discharging"),
             DEFAULT_WARNING_PERCENT,
             DEFAULT_DANGER_PERCENT,
         )
         .expect("value present");
-        assert_eq!(attention, GaugeValueAttention::Nominal);
-        match value {
-            Some(GaugeValue::Text(text)) => assert_eq!(text, "abc% (Discharging)"),
+        match display {
+            GaugeDisplay::Value {
+                value: GaugeValue::Text(text),
+                attention,
+            } => {
+                assert_eq!(attention, GaugeValueAttention::Nominal);
+                assert_eq!(text, "abc% (Discharging)");
+            }
             _ => panic!("expected text fallback"),
         }
     }
 
     #[test]
     fn battery_value_uses_icon_when_numeric() {
-        let (value, attention) = battery_value_from_strings(
+        let display = battery_value_from_strings(
             Some("50"),
             Some("Charging"),
             DEFAULT_WARNING_PERCENT,
             DEFAULT_DANGER_PERCENT,
         )
         .expect("value present");
-        assert_eq!(attention, GaugeValueAttention::Warning);
-        match value {
-            Some(GaugeValue::Svg(_)) => {}
+        match display {
+            GaugeDisplay::Value {
+                value: GaugeValue::Svg(_),
+                attention,
+            } => {
+                assert_eq!(attention, GaugeValueAttention::Warning);
+            }
             _ => panic!("expected svg value"),
         }
     }

@@ -2,7 +2,9 @@
 // Consumes Settings: grelier.gauge.cpu.*.
 use crate::icon::{icon_quantity, svg_asset};
 use crate::info_dialog::InfoDialog;
-use crate::panels::gauges::gauge::{GaugeValue, GaugeValueAttention, fixed_interval};
+use crate::panels::gauges::gauge::{
+    GaugeDisplay, GaugeValue, GaugeValueAttention, fixed_interval,
+};
 use crate::panels::gauges::gauge_registry::{GaugeSpec, GaugeStream};
 use crate::settings;
 use crate::settings::SettingSpec;
@@ -135,13 +137,13 @@ fn cpu_value(
     utilization: Option<f32>,
     warning_threshold: f32,
     danger_threshold: f32,
-) -> (Option<GaugeValue>, GaugeValueAttention) {
+) -> GaugeDisplay {
     match utilization {
-        Some(util) => (
-            Some(GaugeValue::Svg(icon_quantity(util))),
-            attention_for(util, warning_threshold, danger_threshold),
-        ),
-        None => (None, GaugeValueAttention::Danger),
+        Some(util) => GaugeDisplay::Value {
+            value: GaugeValue::Svg(icon_quantity(util)),
+            attention: attention_for(util, warning_threshold, danger_threshold),
+        },
+        None => GaugeDisplay::Error,
     }
 }
 
@@ -221,10 +223,10 @@ fn cpu_stream() -> impl iced::futures::Stream<Item = crate::panels::gauges::gaug
                         if let Ok(mut info) = info_state.lock() {
                             info.lines = vec![cpu_model.clone(), "Load: 0.0%".to_string()];
                         }
-                        return Some((
-                            Some(GaugeValue::Svg(icon_quantity(0.0))),
-                            GaugeValueAttention::Nominal,
-                        ));
+                        return Some(GaugeDisplay::Value {
+                            value: GaugeValue::Svg(icon_quantity(0.0)),
+                            attention: GaugeValueAttention::Nominal,
+                        });
                     }
                 };
 
@@ -345,9 +347,9 @@ mod tests {
 
     #[test]
     fn returns_none_on_missing_utilization() {
-        let (value, attention) =
-            super::cpu_value(None, DEFAULT_WARNING_THRESHOLD, DEFAULT_DANGER_THRESHOLD);
-        assert!(value.is_none());
-        assert_eq!(attention, GaugeValueAttention::Danger);
+        assert!(matches!(
+            super::cpu_value(None, DEFAULT_WARNING_THRESHOLD, DEFAULT_DANGER_THRESHOLD),
+            GaugeDisplay::Error
+        ));
     }
 }

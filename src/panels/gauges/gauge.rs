@@ -31,6 +31,16 @@ pub enum GaugeValue {
 }
 
 #[derive(Debug, Clone)]
+pub enum GaugeDisplay {
+    Value {
+        value: GaugeValue,
+        attention: GaugeValueAttention,
+    },
+    Empty,
+    Error,
+}
+
+#[derive(Debug, Clone)]
 pub struct GaugeMenuItem {
     pub id: String,
     pub label: String,
@@ -50,8 +60,7 @@ pub struct GaugeMenu {
 pub struct GaugeModel {
     pub id: &'static str,
     pub icon: Option<svg::Handle>,
-    pub value: Option<GaugeValue>,
-    pub attention: GaugeValueAttention,
+    pub display: GaugeDisplay,
     pub nominal_color: Option<GaugeNominalColor>,
     pub on_click: Option<GaugeClickAction>,
     pub menu: Option<GaugeMenu>,
@@ -63,8 +72,7 @@ impl fmt::Debug for GaugeModel {
         f.debug_struct("GaugeModel")
             .field("id", &self.id)
             .field("icon", &self.icon)
-            .field("value", &self.value)
-            .field("attention", &self.attention)
+            .field("display", &self.display)
             .field("nominal_color", &self.nominal_color)
             .field(
                 "menu",
@@ -105,7 +113,7 @@ pub fn fixed_interval(
     id: &'static str,
     icon: Option<svg::Handle>,
     interval: impl Fn() -> Duration + Send + 'static,
-    tick: impl Fn() -> Option<(Option<GaugeValue>, GaugeValueAttention)> + Send + 'static,
+    tick: impl Fn() -> Option<GaugeDisplay> + Send + 'static,
     on_click: Option<GaugeClickAction>,
 ) -> impl iced::futures::Stream<Item = GaugeModel> {
     let (mut sender, receiver) = mpsc::channel(1);
@@ -125,12 +133,11 @@ pub fn fixed_interval(
         let _trigger_tx = trigger_tx;
 
         loop {
-            if let Some((value, attention)) = tick() {
+            if let Some(display) = tick() {
                 let _ = sender.try_send(GaugeModel {
                     id,
                     icon: icon.clone(),
-                    value,
-                    attention,
+                    display,
                     nominal_color: None,
                     on_click: on_click.clone(),
                     menu: None,
@@ -179,10 +186,10 @@ mod tests {
             || Duration::from_millis(5),
             move || {
                 ticks.fetch_add(1, Ordering::SeqCst);
-                Some((
-                    Some(GaugeValue::Text(String::from("ok"))),
-                    GaugeValueAttention::Nominal,
-                ))
+                Some(GaugeDisplay::Value {
+                    value: GaugeValue::Text(String::from("ok")),
+                    attention: GaugeValueAttention::Nominal,
+                })
             },
             None,
         );

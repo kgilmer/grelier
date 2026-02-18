@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use crate::bar::{BarState, Message, Panel, lerp_color};
 use crate::icon::{svg_asset, themed_svg_handle_cached};
 use crate::panels::gauges::gauge::{
-    GaugeInput, GaugeModel, GaugeNominalColor, GaugeValue, GaugeValueAttention,
+    GaugeDisplay, GaugeInput, GaugeModel, GaugeNominalColor, GaugeValue, GaugeValueAttention,
 };
 use crate::settings;
 use iced::alignment;
@@ -118,6 +118,14 @@ fn quantize_attention_level(level: f32) -> f32 {
     }
 }
 
+fn attention_level(attention: GaugeValueAttention) -> f32 {
+    match attention {
+        GaugeValueAttention::Nominal => 0.0,
+        GaugeValueAttention::Warning => 1.0,
+        GaugeValueAttention::Danger => 2.0,
+    }
+}
+
 fn scroll_input(delta: mouse::ScrollDelta) -> Option<GaugeInput> {
     match delta {
         mouse::ScrollDelta::Lines { x: _, y } | mouse::ScrollDelta::Pixels { x: _, y } => {
@@ -168,7 +176,6 @@ pub fn view<'a>(state: &'a BarState) -> Panel<'a> {
             .width(Length::Fill)
             .align_x(alignment::Horizontal::Center),
         |col, gauge| {
-            let gauge_attention = gauge.attention;
             let icon_attention = GaugeValueAttention::Nominal;
             let nominal_color = gauge
                 .nominal_color
@@ -235,13 +242,12 @@ pub fn view<'a>(state: &'a BarState) -> Panel<'a> {
                     .push(Space::new().height(Length::Fixed(gauge_icon_value_spacing)));
             }
 
-            let value: Element<'_, Message> = match &gauge.value {
-                Some(GaugeValue::Text(value)) => {
-                    let attention_level = match gauge_attention {
-                        GaugeValueAttention::Nominal => 0.0,
-                        GaugeValueAttention::Warning => 1.0,
-                        GaugeValueAttention::Danger => 2.0,
-                    };
+            let value: Element<'_, Message> = match &gauge.display {
+                GaugeDisplay::Value {
+                    value: GaugeValue::Text(value),
+                    attention,
+                } => {
+                    let attention_level = attention_level(*attention);
                     let value = value.clone();
                     AnimationBuilder::new(attention_level, move |level| {
                         text::Text::new(value.clone())
@@ -255,12 +261,11 @@ pub fn view<'a>(state: &'a BarState) -> Panel<'a> {
                     .animation(Easing::EASE_IN_OUT.very_quick())
                     .into()
                 }
-                Some(GaugeValue::Svg(handle)) => {
-                    let attention_level = match gauge_attention {
-                        GaugeValueAttention::Nominal => 0.0,
-                        GaugeValueAttention::Warning => 1.0,
-                        GaugeValueAttention::Danger => 2.0,
-                    };
+                GaugeDisplay::Value {
+                    value: GaugeValue::Svg(handle),
+                    attention,
+                } => {
+                    let attention_level = attention_level(*attention);
                     let handle = handle.clone();
                     let bar_theme = bar_theme.clone();
                     let svg_cache = svg_cache.clone();
@@ -282,7 +287,7 @@ pub fn view<'a>(state: &'a BarState) -> Panel<'a> {
                     .animation(Easing::EASE_IN_OUT.very_quick())
                     .into()
                 }
-                None => {
+                GaugeDisplay::Error => {
                     let attention_level = 2.0;
                     let ratio_inner_full_icon = ratio_inner_full_icon.clone();
                     let bar_theme = bar_theme.clone();
@@ -305,6 +310,7 @@ pub fn view<'a>(state: &'a BarState) -> Panel<'a> {
                     .animation(Easing::EASE_IN_OUT.very_quick())
                     .into()
                 }
+                GaugeDisplay::Empty => Space::new().into(),
             };
 
             let centered_value: Element<'_, Message> = container(value)
@@ -405,8 +411,10 @@ mod tests {
         GaugeModel {
             id,
             icon: None,
-            value: Some(GaugeValue::Text(id.to_string())),
-            attention: GaugeValueAttention::Nominal,
+            display: GaugeDisplay::Value {
+                value: GaugeValue::Text(id.to_string()),
+                attention: GaugeValueAttention::Nominal,
+            },
             nominal_color: None,
             on_click: None,
             menu: None,

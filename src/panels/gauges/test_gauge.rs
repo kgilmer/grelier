@@ -7,7 +7,7 @@ use std::time::Duration;
 use crate::icon::{icon_quantity, svg_asset};
 use crate::info_dialog::InfoDialog;
 use crate::panels::gauges::gauge::{
-    GaugeClick, GaugeClickAction, GaugeValue, GaugeValueAttention, fixed_interval,
+    GaugeClick, GaugeClickAction, GaugeDisplay, GaugeValue, GaugeValueAttention, fixed_interval,
 };
 use crate::panels::gauges::gauge_registry::{GaugeSpec, GaugeStream};
 use crate::settings::SettingSpec;
@@ -81,10 +81,15 @@ impl QuantityState {
         };
     }
 
-    fn next(&mut self) -> (Option<GaugeValue>, GaugeValueAttention) {
+    fn next(&mut self) -> GaugeDisplay {
         let value = self.sequence.next();
-        let value = value.map(|value| GaugeValue::Svg(icon_quantity(value)));
-        (value, self.attention)
+        match value {
+            Some(value) => GaugeDisplay::Value {
+                value: GaugeValue::Svg(icon_quantity(value)),
+                attention: self.attention,
+            },
+            None => GaugeDisplay::Error,
+        }
     }
 }
 
@@ -124,8 +129,7 @@ fn test_gauge_stream() -> impl iced::futures::Stream<Item = crate::panels::gauge
             let state = Arc::clone(&state);
             move || {
                 let mut state = state.lock().ok()?;
-                let (value, attention) = state.next();
-                Some((value, attention))
+                Some(state.next())
             }
         },
         Some(on_click),
