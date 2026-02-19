@@ -584,6 +584,7 @@ fn update(state: &mut BarState, message: Message) -> Task<Message> {
                         | "net_down"
                         | "net_up"
                         | "ram"
+                        | "session"
                         | "wifi"
                 )
                 && let Some(dialog) = gauge_info

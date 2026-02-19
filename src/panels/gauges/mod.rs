@@ -13,6 +13,7 @@ pub mod net_down;
 pub mod net_up;
 pub mod power;
 pub mod ram;
+pub mod session;
 #[cfg(debug_assertions)]
 pub mod test_gauge;
 pub mod wifi;
