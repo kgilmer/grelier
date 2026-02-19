@@ -504,9 +504,6 @@ impl BarState {
                 GaugeDialog::Info(dialog) => info_view(dialog),
             };
         }
-        if self.primary_window.is_some_and(|primary| primary != window) {
-            return container(Space::new()).into();
-        }
         if self.closing_dialogs.contains(&window) {
             return container(Space::new()).into();
         }

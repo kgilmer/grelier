@@ -15,7 +15,7 @@ This project is in active development and should not be considered stable.
 ## Usage
 
 ```
-Usage: grelier [-s <settings>] [--list-themes] [--list-gauges] [--list-panels] [-c <config>] [--list-settings] [--list-monitors] [--on-monitors <on-monitors>]
+Usage: grelier [-s <settings>] [--list-themes] [--list-gauges] [--list-panels] [-c <config>] [--list-settings] [--list-monitors] [--on-monitor <on-monitor>]
 
 Workspace + gauges display
 
@@ -27,8 +27,18 @@ Options:
   -c, --config      override the settings file path
   --list-settings   list app settings and exit
   --list-monitors   list available monitors and exit
-  --on-monitors     limit bar to specific monitors by name (comma-separated)
+  --on-monitor      limit bar to one monitor by name
   --help, help      display usage information
+```
+
+## Multi-Monitor Support
+
+By default, `grelier` opens a bar on all active monitors.
+
+Use `--on-monitor <name>` to target exactly one monitor. Monitor names can be listed with:
+
+```bash
+grelier --list-monitors
 ```
 
 ## Configuration
