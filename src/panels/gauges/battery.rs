@@ -1,6 +1,6 @@
 // Battery gauge driven by udev power_supply events and snapshots.
+use crate::dialog::info::InfoDialog;
 use crate::icon::{icon_quantity, svg_asset};
-use crate::info_dialog::InfoDialog;
 use crate::panels::gauges::gauge::{
     GaugeDisplay, GaugeMenu, GaugeMenuItem, GaugeModel, GaugeNominalColor, GaugeValue,
     GaugeValueAttention, MenuSelectAction, event_stream,

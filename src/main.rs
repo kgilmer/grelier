@@ -1,11 +1,8 @@
 // Entry point wiring CLI args, settings initialization, and gauge subscriptions for the bar.
-mod action_dialog;
 mod apps;
 mod bar;
-mod dialog_settings;
+mod dialog;
 mod icon;
-mod info_dialog;
-mod menu_dialog;
 mod monitor;
 mod panels;
 mod settings;

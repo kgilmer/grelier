@@ -4,8 +4,8 @@ use iced::mouse;
 use std::sync::Mutex;
 use std::time::Duration;
 
+use crate::dialog::info::InfoDialog;
 use crate::icon::{icon_quantity, svg_asset};
-use crate::info_dialog::InfoDialog;
 use crate::panels::gauges::gauge::{
     ActionSelectAction, GaugeActionDialog, GaugeActionItem, GaugeClick, GaugeClickAction,
     GaugeDisplay, GaugeValue, GaugeValueAttention, fixed_interval,

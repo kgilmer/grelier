@@ -1,7 +1,7 @@
 // Upload rate gauge backed by the shared network sampler.
 // Consumes Settings: grelier.gauge.net.* (via net_common).
+use crate::dialog::info::InfoDialog;
 use crate::icon::{icon_quantity, svg_asset};
-use crate::info_dialog::InfoDialog;
 use crate::panels::gauges::gauge::{GaugeDisplay, GaugeValue, GaugeValueAttention, fixed_interval};
 use crate::panels::gauges::gauge_registry::{GaugeSpec, GaugeStream};
 use crate::panels::gauges::net_common::{

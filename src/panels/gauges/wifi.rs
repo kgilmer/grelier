@@ -1,7 +1,7 @@
 // Wi-Fi signal/connection gauge that polls sysfs and /proc.
 // Consumes Settings: grelier.gauge.wifi.*.
+use crate::dialog::info::InfoDialog;
 use crate::icon::{icon_quantity, svg_asset};
-use crate::info_dialog::InfoDialog;
 use crate::panels::gauges::gauge::{
     GaugeDisplay, GaugeMenu, GaugeMenuItem, GaugeModel, GaugeValue, GaugeValueAttention,
     MenuSelectAction, event_stream,

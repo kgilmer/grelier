@@ -4,9 +4,9 @@ use std::collections::{HashMap, HashSet};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use crate::action_dialog::{action_view, dialog_dimensions as action_dialog_dimensions};
-use crate::info_dialog::{InfoDialog, dialog_dimensions as info_dialog_dimensions, info_view};
-use crate::menu_dialog::{dialog_dimensions as menu_dialog_dimensions, menu_view};
+use crate::dialog::action::{action_view, dialog_dimensions as action_dialog_dimensions};
+use crate::dialog::info::{InfoDialog, dialog_dimensions as info_dialog_dimensions, info_view};
+use crate::dialog::menu::{dialog_dimensions as menu_dialog_dimensions, menu_view};
 use crate::panels::gauges::gauge::{GaugeActionDialog, GaugeInput, GaugeMenu, GaugeModel};
 use crate::settings;
 use crate::sway_workspace::{WorkspaceApps, WorkspaceInfo};

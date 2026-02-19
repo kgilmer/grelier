@@ -7,7 +7,7 @@ use std::sync::{Arc, mpsc as sync_mpsc};
 use std::thread;
 use std::time::Duration;
 
-use crate::info_dialog::InfoDialog;
+use crate::dialog::info::InfoDialog;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum GaugeValueAttention {
