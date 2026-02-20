@@ -21,7 +21,7 @@ zbus = { version = "4", features = ["blocking"] }
 log = "0.4"
 syslog = "6"
 
-elbey_cache = { package = "elbey-cache", version = "0.8.2" }
+elbey_cache = { package = "elbey-cache", version = "0.8.3" }
 freedesktop-desktop-entry = "0.8.1"
 locale_config = "0.3.0"
 

@@ -66,7 +66,39 @@ pub fn fetch_outputs() -> Result<Vec<swayipc::Output>, Error> {
 
 /// Subscribe to workspace-related events.
 pub fn subscribe_workspace_events() -> Result<EventStream, Error> {
-    Connection::new()?.subscribe([EventType::Workspace, EventType::Window, EventType::Output])
+    Connection::new()?.subscribe([
+        EventType::Workspace,
+        EventType::Window,
+        EventType::Output,
+        EventType::Binding,
+    ])
+}
+
+fn is_mod4_l_binding(binding: &swayipc::BindingEvent) -> bool {
+    if binding.change != swayipc::BindingChange::Run {
+        return false;
+    }
+    if binding.binding.input_type != swayipc::InputType::Keyboard {
+        return false;
+    }
+    let has_super = binding.binding.event_state_mask.iter().any(|modifier| {
+        modifier.eq_ignore_ascii_case("Mod4")
+            || modifier.eq_ignore_ascii_case("Logo")
+            || modifier.eq_ignore_ascii_case("Super")
+            || modifier.eq_ignore_ascii_case("Meta")
+            || modifier.eq_ignore_ascii_case("Win")
+    });
+    // Some compositor/bindsym paths report an empty mask in binding events.
+    if !has_super && !binding.binding.event_state_mask.is_empty() {
+        return false;
+    }
+    let is_l_symbol = binding
+        .binding
+        .symbol
+        .as_deref()
+        .is_some_and(|symbol| symbol.eq_ignore_ascii_case("l"));
+    let is_l_keycode = binding.binding.input_code == 46;
+    is_l_symbol || is_l_keycode
 }
 
 /// Focus the workspace with the given name.
@@ -229,6 +261,11 @@ fn workspace_stream() -> impl iced::futures::Stream<Item = Message> {
                     let _ = sender.try_send(Message::OutputChanged);
                     send_workspaces(&mut sender);
                 }
+                Ok(Event::Binding(binding)) => {
+                    if is_mod4_l_binding(&binding) {
+                        let _ = sender.try_send(Message::TopAppsLauncherShortcut);
+                    }
+                }
                 Ok(_) => {}
                 Err(err) => {
                     log::error!("Workspace event stream error: {err}");
@@ -355,6 +392,25 @@ fn empty_node() -> swayipc::Node {
 mod tests {
     use super::*;
 
+    fn binding_event(
+        mask: &[&str],
+        symbol: Option<&str>,
+        input_code: u8,
+        input_type: &str,
+    ) -> swayipc::BindingEvent {
+        serde_json::from_value(serde_json::json!({
+            "change": "run",
+            "binding": {
+                "command": "nop",
+                "event_state_mask": mask,
+                "input_code": input_code,
+                "symbol": symbol,
+                "input_type": input_type
+            }
+        }))
+        .expect("binding event should deserialize")
+    }
+
     #[test]
     fn reuses_single_connection_for_fetch_and_focus() {
         // Ensure clean log before starting.
@@ -380,5 +436,49 @@ mod tests {
             calls.contains(&"get_workspaces") && calls.contains(&"run_command"),
             "expected both fetch and focus calls; got {calls:?}"
         );
+    }
+
+    #[test]
+    fn matches_super_l_binding_variants() {
+        assert!(is_mod4_l_binding(&binding_event(
+            &["Mod4"],
+            Some("l"),
+            0,
+            "keyboard",
+        )));
+        assert!(is_mod4_l_binding(&binding_event(
+            &["Logo"],
+            Some("L"),
+            0,
+            "keyboard",
+        )));
+        assert!(is_mod4_l_binding(&binding_event(
+            &[],
+            None,
+            46,
+            "keyboard",
+        )));
+    }
+
+    #[test]
+    fn rejects_non_launcher_bindings() {
+        assert!(!is_mod4_l_binding(&binding_event(
+            &["Shift"],
+            Some("l"),
+            0,
+            "keyboard",
+        )));
+        assert!(!is_mod4_l_binding(&binding_event(
+            &["Mod4"],
+            Some("k"),
+            0,
+            "keyboard",
+        )));
+        assert!(!is_mod4_l_binding(&binding_event(
+            &["Mod4"],
+            Some("l"),
+            0,
+            "mouse",
+        )));
     }
 }

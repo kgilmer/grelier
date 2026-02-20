@@ -5,6 +5,7 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use crate::dialog::action::{action_view, dialog_dimensions as action_dialog_dimensions};
+use crate::dialog::app_launcher::{AppLauncherDialog, launcher_view};
 use crate::dialog::info::{InfoDialog, dialog_dimensions as info_dialog_dimensions, info_view};
 use crate::dialog::menu::{dialog_dimensions as menu_dialog_dimensions, menu_view};
 use crate::panels::gauges::gauge::{GaugeActionDialog, GaugeInput, GaugeMenu, GaugeModel};
@@ -17,6 +18,9 @@ use iced::widget::svg::Svg;
 use iced::widget::{Column, Row, Space, Stack, container, mouse_area, rule};
 use iced::{Color, Element, Length, Task, Theme, mouse, window};
 use iced_layershell::actions::IcedNewPopupSettings;
+use iced_layershell::reexport::{
+    Anchor, KeyboardInteractivity, Layer, NewLayerShellSettings, OutputOption,
+};
 use iced_layershell::to_layer_message;
 
 const CLICK_FILTER_WINDOW: Duration = Duration::from_millis(250);
@@ -39,6 +43,11 @@ pub enum Message {
     TopAppClicked {
         app_id: String,
     },
+    TopAppsLauncherClicked,
+    TopAppsLauncherShortcut,
+    TopAppsLauncherFilterClicked,
+    TopAppsLauncherFilterChanged(String),
+    TopAppsLauncherItemSelected(String),
     BackgroundClicked,
     Gauge(GaugeModel),
     GaugeClicked {
@@ -214,11 +223,11 @@ impl std::str::FromStr for Orientation {
 }
 
 /// Runtime state for the bar, including panels, dialogs, and cache.
-#[derive(Clone)]
 pub struct BarState {
     pub workspaces: Vec<WorkspaceInfo>,
     pub workspace_apps: HashMap<String, Vec<crate::sway_workspace::WorkspaceApp>>,
     pub top_apps: Vec<AppDescriptor>,
+    pub app_catalog: Vec<AppDescriptor>,
     pub app_icons: AppIconCache,
     pub gauges: Vec<GaugeModel>,
     pub gauge_order: Vec<String>,
@@ -227,6 +236,9 @@ pub struct BarState {
     pub current_workspace: Option<String>,
     pub previous_workspace: Option<String>,
     pub dialog_windows: HashMap<window::Id, GaugeDialogWindow>,
+    pub launcher_window: Option<window::Id>,
+    pub launcher_window_opened: bool,
+    pub launcher: Option<AppLauncherDialog>,
     pub last_cursor: Option<iced::Point>,
     pub closing_dialogs: HashSet<window::Id>,
     pub gauge_dialog_anchor: HashMap<String, i32>,
@@ -246,6 +258,7 @@ impl Default for BarState {
             workspaces: Vec::new(),
             workspace_apps: HashMap::new(),
             top_apps: Vec::new(),
+            app_catalog: Vec::new(),
             app_icons: AppIconCache::default(),
             gauges: Vec::new(),
             gauge_order: Vec::new(),
@@ -254,6 +267,9 @@ impl Default for BarState {
             current_workspace: None,
             previous_workspace: None,
             dialog_windows: HashMap::new(),
+            launcher_window: None,
+            launcher_window_opened: false,
+            launcher: None,
             last_cursor: None,
             closing_dialogs: HashSet::new(),
             gauge_dialog_anchor: HashMap::new(),
@@ -334,11 +350,13 @@ impl BarState {
     pub fn with_gauge_order_and_icons(
         gauge_order: Vec<String>,
         app_icons: AppIconCache,
+        app_catalog: Vec<AppDescriptor>,
         top_apps: Vec<AppDescriptor>,
     ) -> Self {
         Self {
             gauge_order,
             top_apps,
+            app_catalog,
             app_icons,
             ..Self::default()
         }
@@ -441,6 +459,79 @@ impl BarState {
         Task::batch(ids.into_iter().map(close_window_task))
     }
 
+    pub fn open_top_apps_launcher(
+        &mut self,
+        launcher: AppLauncherDialog,
+        size: (u32, u32),
+    ) -> Task<Message> {
+        let mut tasks = vec![self.close_dialogs(), self.close_top_apps_launcher()];
+        let (width, height) = size;
+        let bar_width = settings::settings().get_parsed_or("grelier.bar.width", 28u32) as i32;
+        let orientation_raw = settings::settings().get_or("grelier.bar.orientation", "left");
+        let orientation = orientation_raw
+            .parse::<Orientation>()
+            .unwrap_or(Orientation::Left);
+        let screen_height = self
+            .workspaces
+            .iter()
+            .map(|ws| ws.rect.y + ws.rect.height)
+            .max()
+            .unwrap_or(height as i32);
+        let anchor_y = self
+            .last_cursor
+            .map(|p| p.y as i32)
+            .unwrap_or(screen_height / 2);
+        let max_top = (screen_height - height as i32).max(0);
+        let position_y = anchor_y.saturating_sub(height as i32 / 2).clamp(0, max_top);
+
+        let (anchor, margin) = match orientation {
+            Orientation::Left => (Anchor::Left | Anchor::Top, (position_y, 0, 0, bar_width)),
+            Orientation::Right => (Anchor::Right | Anchor::Top, (position_y, bar_width, 0, 0)),
+        };
+        let window = window::Id::unique();
+        let layer_settings = NewLayerShellSettings {
+            size: Some((width, height)),
+            layer: Layer::Top,
+            anchor,
+            exclusive_zone: Some(0),
+            margin: Some(margin),
+            // Launcher needs reliable keyboard input even when opened from a global
+            // compositor binding (e.g. Super+L), so request explicit keyboard ownership.
+            keyboard_interactivity: KeyboardInteractivity::Exclusive,
+            output_option: OutputOption::None,
+            events_transparent: false,
+            namespace: Some(Self::namespace()),
+        };
+        let task = Task::done(Message::NewLayerShell {
+            settings: layer_settings,
+            id: window,
+        });
+        self.launcher_window = Some(window);
+        self.launcher_window_opened = false;
+        self.launcher = Some(launcher);
+        self.last_dialog_opened_at = Some(Instant::now());
+        tasks.push(task);
+        Task::batch(tasks)
+    }
+
+    pub fn close_top_apps_launcher(&mut self) -> Task<Message> {
+        let Some(window) = self.launcher_window.take() else {
+            return Task::none();
+        };
+        self.launcher_window_opened = false;
+        self.launcher = None;
+        self.closing_dialogs.insert(window);
+        close_window_task(window)
+    }
+
+    pub fn has_open_overlays(&self) -> bool {
+        !self.dialog_windows.is_empty() || self.launcher_window.is_some()
+    }
+
+    pub fn close_overlays(&mut self) -> Task<Message> {
+        Task::batch([self.close_dialogs(), self.close_top_apps_launcher()])
+    }
+
     pub fn allow_click(&mut self) -> bool {
         self.allow_click_at(Instant::now())
     }
@@ -472,6 +563,21 @@ impl BarState {
         let border_alpha_1 = settings.get_parsed_or("grelier.bar.border.alpha_1", 0.6);
         let border_alpha_2 = settings.get_parsed_or("grelier.bar.border.alpha_2", 0.7);
         let border_alpha_3 = settings.get_parsed_or("grelier.bar.border.alpha_3", 0.9);
+
+        if self.launcher_window.is_some_and(|id| id == window) {
+            return self
+                .launcher
+                .as_ref()
+                .map(|dialog| {
+                    launcher_view(
+                        dialog,
+                        || Message::TopAppsLauncherFilterClicked,
+                        Message::TopAppsLauncherFilterChanged,
+                        Message::TopAppsLauncherItemSelected,
+                    )
+                })
+                .unwrap_or_else(|| container(Space::new()).into());
+        }
 
         if let Some(dialog_window) = self.dialog_windows.get(&window) {
             let gauge_id = dialog_window.gauge_id.clone();

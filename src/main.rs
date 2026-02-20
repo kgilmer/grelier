@@ -26,10 +26,16 @@ use crate::bar::{
     AppIconCache, BarState, DEFAULT_PANELS, GaugeDialog, GaugeDialogWindow, Message,
     close_window_task,
 };
+use crate::dialog::app_launcher::{
+    AppLauncherDialog, LauncherAppItem, dialog_dimensions as app_launcher_dialog_dimensions,
+    filter_input_id,
+};
 use crate::panels::gauges::gauge::{GaugeClick, GaugeInput, GaugeModel};
 use crate::panels::gauges::gauge_registry;
 use elbey_cache::Cache;
+use iced::widget::operation::focus;
 use log::{error, info, warn};
+use std::collections::HashSet;
 use std::io::Write;
 use std::path::Path;
 use std::time::{Duration, Instant};
@@ -368,6 +374,7 @@ fn main() -> Result<(), iced_layershell::Error> {
                 top_apps_count,
                 workspace_app_icons,
             );
+            let app_catalog = apps.clone();
             let refresh_task = if workspace_app_icons || top_apps_count > 0 {
                 Task::perform(
                     async move {
@@ -386,6 +393,7 @@ fn main() -> Result<(), iced_layershell::Error> {
                     let mut state = BarState::with_gauge_order_and_icons(
                         gauge_order.clone(),
                         app_icons,
+                        app_catalog,
                         top_apps,
                     );
                     state.bar_theme = theme_for_state.clone();
@@ -426,12 +434,62 @@ fn app_subscription(_state: &BarState, gauges: &[String]) -> Subscription<Messag
     Subscription::batch(subs)
 }
 
+fn launcher_items_from_catalog(apps: &[elbey_cache::AppDescriptor]) -> Vec<LauncherAppItem> {
+    let mut seen_appid = HashSet::new();
+    let mut items: Vec<LauncherAppItem> = apps
+        .iter()
+        .filter(|app| seen_appid.insert(app.appid.clone()))
+        .map(|app| LauncherAppItem {
+            appid: app.appid.clone(),
+            title: app.title.clone(),
+            lower_title: if app.lower_title.trim().is_empty() {
+                app.title.to_ascii_lowercase()
+            } else {
+                app.lower_title.clone()
+            },
+            exec_count: app.exec_count,
+            icon_handle: app.icon_handle.clone(),
+        })
+        .collect();
+
+    items.sort_by(|a, b| {
+        b.exec_count
+            .cmp(&a.exec_count)
+            .then_with(|| a.lower_title.cmp(&b.lower_title))
+            .then_with(|| a.appid.cmp(&b.appid))
+    });
+
+    let mut seen_name = HashSet::new();
+    items
+        .into_iter()
+        .filter(|item| seen_name.insert(item.lower_title.trim().to_string()))
+        .collect()
+}
+
+fn open_top_apps_launcher_dialog(state: &mut BarState) -> Task<Message> {
+    if !state.dialog_windows.is_empty() {
+        return state.close_overlays();
+    }
+    if state.launcher_window.is_some() {
+        if state.launcher_window_opened {
+            return state.close_top_apps_launcher();
+        }
+        let _ = state.close_top_apps_launcher();
+    }
+    let launcher = AppLauncherDialog::new(launcher_items_from_catalog(&state.app_catalog));
+    let (width, height) = app_launcher_dialog_dimensions(&launcher);
+    let open_task = state.open_top_apps_launcher(launcher, (width, height));
+    Task::batch([open_task, focus(filter_input_id())])
+}
+
 fn update(state: &mut BarState, message: Message) -> Task<Message> {
     let is_click_message = matches!(
         message,
         Message::WorkspaceClicked(_)
             | Message::WorkspaceAppClicked { .. }
             | Message::TopAppClicked { .. }
+            | Message::TopAppsLauncherClicked
+            | Message::TopAppsLauncherItemSelected(_)
             | Message::BackgroundClicked
             | Message::GaugeClicked { .. }
             | Message::MenuItemSelected { .. }
@@ -451,53 +509,139 @@ fn update(state: &mut BarState, message: Message) -> Task<Message> {
                 .collect();
         }
         Message::WorkspaceClicked(name) => {
-            if !state.dialog_windows.is_empty() {
-                return state.close_dialogs();
+            if state.has_open_overlays() {
+                return state.close_overlays();
             }
             if let Err(err) = sway_workspace::focus_workspace(&name) {
                 error!("Failed to focus workspace \"{name}\": {err}");
             }
         }
         Message::WorkspaceAppClicked { con_id, app_id } => {
-            if !state.dialog_windows.is_empty() {
-                return state.close_dialogs();
+            if state.has_open_overlays() {
+                return state.close_overlays();
             }
             if let Err(err) = sway_workspace::focus_con_id(con_id) {
                 error!("Failed to focus app \"{app_id}\" (con_id {con_id}): {err}");
             }
         }
         Message::TopAppClicked { app_id } => {
-            if !state.dialog_windows.is_empty() {
-                return state.close_dialogs();
+            if state.has_open_overlays() {
+                return state.close_overlays();
             }
             if let Err(err) = sway_workspace::launch_app(&app_id) {
                 error!("Failed to launch app \"{app_id}\": {err}");
                 return Task::none();
             }
-            if let Some(app) = state.top_apps.iter().find(|app| app.appid == app_id) {
+            if let Some(app) = state.app_catalog.iter().find(|app| app.appid == app_id) {
                 let mut cache = Cache::new(apps::load_desktop_apps);
                 if let Err(err) = cache.record_launch(app) {
                     error!("Failed to update app cache for \"{app_id}\": {err}");
                 }
                 let top_apps_count =
                     settings::settings().get_parsed_or("grelier.app.top_apps.count", 6usize);
-                state.top_apps = cache.top_apps(top_apps_count).unwrap_or_default();
+                state.top_apps = cache
+                    .top_apps(top_apps_count)
+                    .unwrap_or_default()
+                    .into_iter()
+                    .filter(|app| app.exec_count > 0)
+                    .collect();
             }
+        }
+        Message::TopAppsLauncherClicked => {
+            return open_top_apps_launcher_dialog(state);
+        }
+        Message::TopAppsLauncherShortcut => {
+            let open_task = open_top_apps_launcher_dialog(state);
+            if let Some(window) = state.launcher_window {
+                return Task::batch([open_task, window::gain_focus(window)]);
+            }
+            return open_task;
+        }
+        Message::TopAppsLauncherFilterChanged(filter) => {
+            if let Some(dialog) = state.launcher.as_mut() {
+                dialog.filter = filter;
+                dialog.clear_selection();
+            }
+        }
+        Message::TopAppsLauncherFilterClicked => {
+            if let Some(dialog) = state.launcher.as_mut() {
+                dialog.clear_selection();
+            }
+            return focus(filter_input_id());
+        }
+        Message::TopAppsLauncherItemSelected(app_id) => {
+            if let Err(err) = sway_workspace::launch_app(&app_id) {
+                error!("Failed to launch app \"{app_id}\": {err}");
+                return Task::none();
+            }
+            if let Some(app) = state.app_catalog.iter().find(|app| app.appid == app_id) {
+                let mut cache = Cache::new(apps::load_desktop_apps);
+                if let Err(err) = cache.record_launch(app) {
+                    error!("Failed to update app cache for \"{app_id}\": {err}");
+                }
+                let top_apps_count =
+                    settings::settings().get_parsed_or("grelier.app.top_apps.count", 6usize);
+                state.top_apps = cache
+                    .top_apps(top_apps_count)
+                    .unwrap_or_default()
+                    .into_iter()
+                    .filter(|app| app.exec_count > 0)
+                    .collect();
+            }
+            return state.close_top_apps_launcher();
         }
         Message::IcedEvent(iced::Event::Mouse(mouse::Event::CursorMoved { position })) => {
             state.last_cursor = Some(position);
         }
         Message::BackgroundClicked => {
-            if !state.dialog_windows.is_empty() {
-                return state.close_dialogs();
+            if state.has_open_overlays() {
+                return state.close_overlays();
             }
         }
         Message::IcedEvent(iced::Event::Keyboard(iced::keyboard::Event::KeyPressed {
-            key: iced::keyboard::Key::Named(iced::keyboard::key::Named::Escape),
+            key,
+            text,
+            modifiers,
             ..
         })) => {
-            if !state.dialog_windows.is_empty() {
-                return state.close_dialogs();
+            if key == iced::keyboard::Key::Named(iced::keyboard::key::Named::Escape)
+                && state.has_open_overlays()
+            {
+                return state.close_overlays();
+            }
+
+            // TODO(upstream): Remove this fallback once iced_layershell/iced text_input focus
+            // handling reliably delivers character input to the launcher filter on all compositors.
+            if state.launcher_window.is_some()
+                && let Some(dialog) = state.launcher.as_mut()
+            {
+                if key == iced::keyboard::Key::Named(iced::keyboard::key::Named::ArrowDown) {
+                    if dialog.selected_index.is_none() {
+                        dialog.select_first();
+                    } else {
+                        dialog.move_selection(1);
+                    }
+                } else if key == iced::keyboard::Key::Named(iced::keyboard::key::Named::ArrowUp) {
+                    if dialog.selected_index.is_none() {
+                        dialog.select_first();
+                    } else {
+                        dialog.move_selection(-1);
+                    }
+                } else if key == iced::keyboard::Key::Named(iced::keyboard::key::Named::Enter) {
+                    if let Some(app_id) = dialog.selected_appid() {
+                        return Task::done(Message::TopAppsLauncherItemSelected(app_id));
+                    }
+                } else if key == iced::keyboard::Key::Named(iced::keyboard::key::Named::Backspace)
+                    && dialog.selected_index.is_none()
+                {
+                    dialog.filter.pop();
+                } else if !(modifiers.control() || modifiers.alt() || modifiers.logo())
+                    && dialog.selected_index.is_none()
+                    && let Some(input) = text.as_deref()
+                    && !input.chars().any(char::is_control)
+                {
+                    dialog.filter.push_str(input);
+                }
             }
         }
         Message::Gauge(gauge) => {
@@ -506,8 +650,8 @@ fn update(state: &mut BarState, message: Message) -> Task<Message> {
         }
         Message::GaugeClicked { id, input } => {
             // If any dialog is open, any click just dismisses it.
-            if !state.dialog_windows.is_empty() {
-                return state.close_dialogs();
+            if state.has_open_overlays() {
+                return state.close_overlays();
             }
 
             let (gauge_menu, gauge_action, gauge_info, gauge_callback) =
@@ -639,11 +783,17 @@ fn update(state: &mut BarState, message: Message) -> Task<Message> {
         Message::WindowEvent(window, event) => {
             if let iced::window::Event::Opened { size, .. } = event {
                 let mut tasks = vec![set_input_region_task(window, size)];
+                if state.launcher_window == Some(window) {
+                    state.launcher_window_opened = true;
+                    tasks.push(window::gain_focus(window));
+                    tasks.push(focus(filter_input_id()));
+                }
                 if let Some(task) = track_bar_window(state, window) {
                     tasks.push(task);
                 }
                 return Task::batch(tasks);
             }
+
             if event != iced::window::Event::Closed
                 && let Some(task) = track_bar_window(state, window)
             {
@@ -660,6 +810,7 @@ fn update(state: &mut BarState, message: Message) -> Task<Message> {
                 let settings = settings::settings();
                 let workspace_app_icons =
                     settings.get_bool_or("grelier.app.workspace.app_icons", true);
+                state.app_catalog = apps.clone();
                 state.app_icons = if workspace_app_icons {
                     AppIconCache::from_app_descriptors_ref(&apps)
                 } else {
@@ -672,6 +823,14 @@ fn update(state: &mut BarState, message: Message) -> Task<Message> {
             }
         },
         Message::WindowClosed(window) => {
+            if state
+                .launcher_window
+                .is_some_and(|launcher| launcher == window)
+            {
+                state.launcher_window = None;
+                state.launcher_window_opened = false;
+                state.launcher = None;
+            }
             let is_primary = state
                 .primary_window
                 .is_some_and(|primary| primary == window);
@@ -686,7 +845,7 @@ fn update(state: &mut BarState, message: Message) -> Task<Message> {
                 }
                 state.primary_window = None;
                 state.pending_primary_window = true;
-                let mut tasks = vec![state.close_dialogs()];
+                let mut tasks = vec![state.close_overlays()];
                 let id = window::Id::unique();
                 let task = Task::done(Message::NewLayerShell {
                     settings: layershell_reopen_settings(),
@@ -792,7 +951,12 @@ fn update(state: &mut BarState, message: Message) -> Task<Message> {
 }
 
 fn track_bar_window(state: &mut BarState, window: window::Id) -> Option<Task<Message>> {
-    if state.dialog_windows.contains_key(&window) || state.closing_dialogs.contains(&window) {
+    if state.dialog_windows.contains_key(&window)
+        || state.closing_dialogs.contains(&window)
+        || state
+            .launcher_window
+            .is_some_and(|launcher| launcher == window)
+    {
         return None;
     }
 
@@ -846,7 +1010,7 @@ fn reopen_primary_window(state: &mut BarState) -> Task<Message> {
         .extend(closing_bar_windows.iter().copied());
 
     Task::batch(
-        std::iter::once(state.close_dialogs())
+        std::iter::once(state.close_overlays())
             .chain(closing_bar_windows.into_iter().map(close_window_task))
             .chain(std::iter::once(Task::done(Message::ForgetLastOutput)))
             .chain(std::iter::once(Task::done(Message::NewLayerShell {
@@ -859,6 +1023,12 @@ fn reopen_primary_window(state: &mut BarState) -> Task<Message> {
 fn handle_window_focus_change(state: &mut BarState, focused: bool) -> Task<Message> {
     // Keep dialogs open when the bar regains focus.
     if focused {
+        return Task::none();
+    }
+
+    // Launcher runs as its own layer-shell window and can trigger transient unfocus
+    // events on the bar surface during normal open/focus transitions.
+    if state.launcher_window.is_some() {
         return Task::none();
     }
 
@@ -912,6 +1082,7 @@ mod tests {
     use crate::bar::{GaugeDialog, GaugeDialogWindow};
     use crate::panels::gauges::gauge::{GaugeDisplay, GaugeMenu, GaugeValue, GaugeValueAttention};
     use crate::settings_storage::SettingsStorage;
+    use elbey_cache::{AppDescriptor, IconHandle};
     use std::sync::Arc;
     use std::sync::Mutex;
     use std::sync::atomic::{AtomicBool, Ordering};
@@ -1342,5 +1513,55 @@ mod tests {
             } => panic!("expected text gauge value"),
             _ => panic!("expected value"),
         }
+    }
+
+    fn test_app(appid: &str, title: &str, lower_title: &str, exec_count: usize) -> AppDescriptor {
+        AppDescriptor {
+            appid: appid.to_string(),
+            title: title.to_string(),
+            lower_title: lower_title.to_string(),
+            exec: None,
+            exec_count,
+            icon_name: None,
+            icon_path: None,
+            icon_handle: IconHandle::NotLoaded,
+        }
+    }
+
+    #[test]
+    fn launcher_items_sorted_by_popularity_then_name_and_deduped() {
+        let apps = vec![
+            test_app("org.code", "Code", "code", 5),
+            test_app("org.code", "Code Insiders", "code insiders", 100),
+            test_app("org.alpha", "Alpha", "alpha", 10),
+            test_app("org.firefox", "Firefox", "firefox", 20),
+            test_app("org.firefox.dev", "Firefox Developer", "firefox", 1),
+        ];
+
+        let items = launcher_items_from_catalog(&apps);
+        let appids: Vec<&str> = items.iter().map(|item| item.appid.as_str()).collect();
+
+        assert_eq!(
+            appids,
+            vec!["org.firefox", "org.alpha", "org.code"],
+            "launcher items should sort by exec_count desc then lower_title and dedup by appid/name"
+        );
+    }
+
+    #[test]
+    fn launcher_items_use_title_lowercase_when_lower_title_missing() {
+        let apps = vec![
+            test_app("org.zeta", "Zeta", "", 10),
+            test_app("org.beta", "Beta", "beta", 10),
+        ];
+
+        let items = launcher_items_from_catalog(&apps);
+        let appids: Vec<&str> = items.iter().map(|item| item.appid.as_str()).collect();
+
+        assert_eq!(
+            appids,
+            vec!["org.beta", "org.zeta"],
+            "blank lower_title should fall back to title lowercase for alpha tie-break"
+        );
     }
 }
