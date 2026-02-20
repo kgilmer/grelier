@@ -74,27 +74,27 @@ pub fn custom_theme_from_settings(settings: &Settings) -> Result<Theme, String> 
 
     let background = parse_color_setting(
         CUSTOM_THEME_SETTING_KEYS[0],
-        values[0].as_deref().unwrap_or("")
+        values[0].as_deref().unwrap_or(""),
     )?;
     let text = parse_color_setting(
         CUSTOM_THEME_SETTING_KEYS[1],
-        values[1].as_deref().unwrap_or("")
+        values[1].as_deref().unwrap_or(""),
     )?;
     let primary = parse_color_setting(
         CUSTOM_THEME_SETTING_KEYS[2],
-        values[2].as_deref().unwrap_or("")
+        values[2].as_deref().unwrap_or(""),
     )?;
     let success = parse_color_setting(
         CUSTOM_THEME_SETTING_KEYS[3],
-        values[3].as_deref().unwrap_or("")
+        values[3].as_deref().unwrap_or(""),
     )?;
     let warning = parse_color_setting(
         CUSTOM_THEME_SETTING_KEYS[4],
-        values[4].as_deref().unwrap_or("")
+        values[4].as_deref().unwrap_or(""),
     )?;
     let danger = parse_color_setting(
         CUSTOM_THEME_SETTING_KEYS[5],
-        values[5].as_deref().unwrap_or("")
+        values[5].as_deref().unwrap_or(""),
     )?;
 
     Ok(Theme::Custom(Arc::new(Custom::new(
@@ -186,7 +186,11 @@ mod tests {
 
     fn temp_storage_path(name: &str) -> (SettingsStorage, PathBuf) {
         let mut dir = std::env::temp_dir();
-        dir.push(format!("grelier_theme_test_{}_{}", name, std::process::id()));
+        dir.push(format!(
+            "grelier_theme_test_{}_{}",
+            name,
+            std::process::id()
+        ));
         fs::create_dir_all(&dir).expect("create temp dir");
         let mut file_path = dir.clone();
         file_path.push(format!("Settings-{}.xresources", env!("CARGO_PKG_VERSION")));
@@ -234,10 +238,7 @@ mod tests {
             "grelier.bar.theme.warning".to_string(),
             "DDEEFF".to_string(),
         );
-        map.insert(
-            "grelier.bar.theme.danger".to_string(),
-            "010203".to_string(),
-        );
+        map.insert("grelier.bar.theme.danger".to_string(), "010203".to_string());
         let (settings, dir) = build_settings(map, "valid");
 
         let theme = custom_theme_from_settings(&settings).expect("valid custom theme");
