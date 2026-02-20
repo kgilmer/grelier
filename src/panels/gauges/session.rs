@@ -120,7 +120,6 @@ fn session_stream() -> impl iced::futures::Stream<Item = GaugeModel> {
         None,
     )
     .map(move |mut model| {
-        model.hide_value = true;
         model.action_dialog = Some(action_dialog.clone());
         model.info = Some(InfoDialog {
             title: "Session".to_string(),

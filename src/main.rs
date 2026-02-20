@@ -1004,7 +1004,6 @@ mod tests {
                 value: GaugeValue::Text("12\n00".to_string()),
                 attention: GaugeValueAttention::Nominal,
             },
-            hide_value: false,
             nominal_color: None,
             on_click: None,
             menu: None,
@@ -1018,7 +1017,6 @@ mod tests {
                 value: GaugeValue::Text("12\n01".to_string()),
                 attention: GaugeValueAttention::Nominal,
             },
-            hide_value: false,
             nominal_color: None,
             on_click: None,
             menu: None,
@@ -1041,7 +1039,6 @@ mod tests {
                 value: GaugeValue::Text("01\n01".to_string()),
                 attention: GaugeValueAttention::Nominal,
             },
-            hide_value: false,
             nominal_color: None,
             on_click: None,
             menu: None,
@@ -1074,7 +1071,6 @@ mod tests {
             id: "audio_out",
             icon: None,
             display: GaugeDisplay::Empty,
-            hide_value: false,
             nominal_color: None,
             on_click: Some(Arc::new({
                 let clicked = clicked.clone();
@@ -1131,7 +1127,6 @@ mod tests {
             id: "audio_out",
             icon: None,
             display: GaugeDisplay::Empty,
-            hide_value: false,
             nominal_color: None,
             on_click: None,
             menu: None,
@@ -1202,7 +1197,6 @@ mod tests {
             id: "audio_out",
             icon: None,
             display: GaugeDisplay::Empty,
-            hide_value: false,
             nominal_color: None,
             on_click: None,
             menu: Some(GaugeMenu {

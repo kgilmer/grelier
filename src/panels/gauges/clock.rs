@@ -212,7 +212,6 @@ fn seconds_stream() -> impl iced::futures::Stream<Item = crate::panels::gauges::
                 id: "clock",
                 icon: Some(icon),
                 display,
-                hide_value: false,
                 nominal_color: None,
                 on_click: Some(on_click.clone()),
                 menu: None,

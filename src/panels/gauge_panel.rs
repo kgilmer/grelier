@@ -182,7 +182,7 @@ pub fn view<'a>(state: &'a BarState) -> Panel<'a> {
                 .unwrap_or(GaugeNominalColor::SecondaryStrong);
             let bar_theme = bar_theme.clone();
             let svg_cache = svg_cache.clone();
-            let show_value = !gauge.hide_value;
+            let show_value = !matches!(&gauge.display, GaugeDisplay::Empty);
             let dialog_open = state
                 .dialog_windows
                 .values()
@@ -261,7 +261,11 @@ pub fn view<'a>(state: &'a BarState) -> Panel<'a> {
                                 .width(Length::Fill)
                                 .align_x(text::Alignment::Center)
                                 .style(move |theme: &Theme| text::Style {
-                                    color: Some(attention_color_at_level(level, nominal_color, theme)),
+                                    color: Some(attention_color_at_level(
+                                        level,
+                                        nominal_color,
+                                        theme,
+                                    )),
                                 })
                                 .into()
                         })
@@ -429,7 +433,6 @@ mod tests {
                 value: GaugeValue::Text(id.to_string()),
                 attention: GaugeValueAttention::Nominal,
             },
-            hide_value: false,
             nominal_color: None,
             on_click: None,
             menu: None,
