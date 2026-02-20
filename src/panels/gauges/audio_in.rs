@@ -1,7 +1,7 @@
 // PulseAudio input volume gauge with mute/adjust actions and device menu.
 // Consumes Settings: grelier.gauge.audio_in.step_percent.
+use crate::dialog::info::InfoDialog;
 use crate::icon::{icon_quantity, svg_asset};
-use crate::info_dialog::InfoDialog;
 use crate::panels::gauges::gauge::{
     GaugeClick, GaugeClickAction, GaugeDisplay, GaugeMenu, GaugeMenuItem, GaugeValue,
     GaugeValueAttention, MenuSelectAction, event_stream,
@@ -379,6 +379,7 @@ fn audio_in_stream() -> impl iced::futures::Stream<Item = crate::panels::gauges:
                     nominal_color: None,
                     on_click: Some(on_click.clone()),
                     menu,
+                    action_dialog: None,
                     info: Some(info),
                 });
             };

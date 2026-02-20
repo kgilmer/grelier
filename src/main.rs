@@ -1,10 +1,8 @@
 // Entry point wiring CLI args, settings initialization, and gauge subscriptions for the bar.
 mod apps;
 mod bar;
-mod dialog_settings;
+mod dialog;
 mod icon;
-mod info_dialog;
-mod menu_dialog;
 mod monitor;
 mod panels;
 mod settings;
@@ -466,6 +464,7 @@ fn update(state: &mut BarState, message: Message) -> Task<Message> {
             | Message::BackgroundClicked
             | Message::GaugeClicked { .. }
             | Message::MenuItemSelected { .. }
+            | Message::ActionItemSelected { .. }
     );
     if is_click_message && !state.allow_click() {
         return Task::none();
@@ -540,15 +539,27 @@ fn update(state: &mut BarState, message: Message) -> Task<Message> {
                 return state.close_dialogs();
             }
 
-            let (gauge_menu, gauge_info, gauge_callback) =
+            let (gauge_menu, gauge_action, gauge_info, gauge_callback) =
                 match state.gauges.iter().find(|g| g.id == id) {
                     Some(gauge) => (
                         gauge.menu.clone(),
+                        gauge.action_dialog.clone(),
                         gauge.info.clone(),
                         gauge.on_click.clone(),
                     ),
-                    None => (None, None, None),
+                    None => (None, None, None, None),
                 };
+
+            if matches!(input, GaugeInput::Button(iced::mouse::Button::Right))
+                && let Some(dialog) = gauge_action
+            {
+                let anchor_y = state
+                    .gauge_dialog_anchor
+                    .get(&id)
+                    .copied()
+                    .or_else(|| panels::gauge_panel::anchor_y(state));
+                return state.open_action_dialog(&id, dialog, anchor_y);
+            }
 
             if matches!(input, GaugeInput::Button(iced::mouse::Button::Right))
                 && let Some(menu) = gauge_menu
@@ -573,6 +584,7 @@ fn update(state: &mut BarState, message: Message) -> Task<Message> {
                         | "net_down"
                         | "net_up"
                         | "ram"
+                        | "session"
                         | "wifi"
                 )
                 && let Some(dialog) = gauge_info
@@ -610,6 +622,25 @@ fn update(state: &mut BarState, message: Message) -> Task<Message> {
                 menu(item_id);
             }
             return close_window_task(window);
+        }
+        Message::ActionItemSelected {
+            window,
+            gauge_id,
+            item_id,
+        } => {
+            state.dialog_windows.remove(&window);
+            state.closing_dialogs.remove(&window);
+            let _ = state.close_dialogs();
+            if let Some(action) = state
+                .gauges
+                .iter()
+                .find(|g| g.id == gauge_id)
+                .and_then(|g| g.action_dialog.as_ref())
+                .and_then(|dialog| dialog.on_select.clone())
+            {
+                action(item_id.clone());
+            }
+            return Task::done(Message::RemoveWindow(window));
         }
         Message::MenuItemHoverEnter { window, item_id } => {
             if let Some(dialog_window) = state.dialog_windows.get_mut(&window) {
@@ -976,6 +1007,7 @@ mod tests {
             nominal_color: None,
             on_click: None,
             menu: None,
+            action_dialog: None,
             info: None,
         };
         let g2 = GaugeModel {
@@ -988,6 +1020,7 @@ mod tests {
             nominal_color: None,
             on_click: None,
             menu: None,
+            action_dialog: None,
             info: None,
         };
 
@@ -1009,6 +1042,7 @@ mod tests {
             nominal_color: None,
             on_click: None,
             menu: None,
+            action_dialog: None,
             info: None,
         };
         update_gauge(&mut gauges, g3.clone());
@@ -1043,6 +1077,7 @@ mod tests {
                 move |_click| clicked.store(true, Ordering::SeqCst)
             })),
             menu: None,
+            action_dialog: None,
             info: None,
         });
 
@@ -1095,6 +1130,7 @@ mod tests {
             nominal_color: None,
             on_click: None,
             menu: None,
+            action_dialog: None,
             info: None,
         });
 
@@ -1168,6 +1204,7 @@ mod tests {
                 items: Vec::new(),
                 on_select: Some(on_select),
             }),
+            action_dialog: None,
             info: None,
         });
 

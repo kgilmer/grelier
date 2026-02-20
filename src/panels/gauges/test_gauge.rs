@@ -4,10 +4,11 @@ use iced::mouse;
 use std::sync::Mutex;
 use std::time::Duration;
 
+use crate::dialog::info::InfoDialog;
 use crate::icon::{icon_quantity, svg_asset};
-use crate::info_dialog::InfoDialog;
 use crate::panels::gauges::gauge::{
-    GaugeClick, GaugeClickAction, GaugeDisplay, GaugeValue, GaugeValueAttention, fixed_interval,
+    ActionSelectAction, GaugeActionDialog, GaugeActionItem, GaugeClick, GaugeClickAction,
+    GaugeDisplay, GaugeValue, GaugeValueAttention, fixed_interval,
 };
 use crate::panels::gauges::gauge_registry::{GaugeSpec, GaugeStream};
 use crate::settings::SettingSpec;
@@ -105,11 +106,31 @@ fn test_gauge_stream() -> impl iced::futures::Stream<Item = crate::panels::gauge
             "Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat.".to_string(),
         ],
     };
+    let action_dialog = GaugeActionDialog {
+        title: "Test Actions".to_string(),
+        items: vec![
+            GaugeActionItem {
+                id: "ram.svg".to_string(),
+                icon: svg_asset("ram.svg"),
+            },
+            GaugeActionItem {
+                id: "disk.svg".to_string(),
+                icon: svg_asset("disk.svg"),
+            },
+            GaugeActionItem {
+                id: "microchip.svg".to_string(),
+                icon: svg_asset("microchip.svg"),
+            },
+        ],
+        on_select: Some(Arc::new(|item: String| {
+            println!("{item}");
+        }) as ActionSelectAction),
+    };
     let on_click: GaugeClickAction = {
         let state = Arc::clone(&state);
         Arc::new(move |click: GaugeClick| {
             let _attention = if let Ok(mut state) = state.lock() {
-                if let crate::panels::gauges::gauge::GaugeInput::Button(mouse::Button::Right) =
+                if let crate::panels::gauges::gauge::GaugeInput::Button(mouse::Button::Left) =
                     click.input
                 {
                     state.cycle_attention();
@@ -136,8 +157,10 @@ fn test_gauge_stream() -> impl iced::futures::Stream<Item = crate::panels::gauge
     )
     .map({
         let info_dialog = info_dialog.clone();
+        let action_dialog = action_dialog.clone();
         move |mut model| {
             model.info = Some(info_dialog.clone());
+            model.action_dialog = Some(action_dialog.clone());
             model
         }
     })
@@ -205,7 +228,7 @@ mod tests {
     }
 
     #[test]
-    fn attention_cycles_on_right_click() {
+    fn attention_cycles_on_left_click() {
         let mut state = QuantityState::new();
         assert_eq!(state.attention, GaugeValueAttention::Nominal);
 

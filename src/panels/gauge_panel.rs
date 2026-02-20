@@ -182,16 +182,17 @@ pub fn view<'a>(state: &'a BarState) -> Panel<'a> {
                 .unwrap_or(GaugeNominalColor::SecondaryStrong);
             let bar_theme = bar_theme.clone();
             let svg_cache = svg_cache.clone();
+            let show_value = !matches!(&gauge.display, GaugeDisplay::Empty);
+            let dialog_open = state
+                .dialog_windows
+                .values()
+                .any(|window| window.gauge_id == gauge.id);
 
             let mut gauge_column = Column::new()
                 .align_x(alignment::Horizontal::Center)
                 .width(Length::Fill);
 
             if let Some(icon) = &gauge.icon {
-                let dialog_open = state
-                    .dialog_windows
-                    .values()
-                    .any(|window| window.gauge_id == gauge.id);
                 let attention = icon_attention;
                 let icon_handle = icon.clone();
                 let bar_theme = bar_theme.clone();
@@ -200,13 +201,17 @@ pub fn view<'a>(state: &'a BarState) -> Panel<'a> {
                     AnimationBuilder::new(if dialog_open { 1.0 } else { 0.0 }, move |t| {
                         let icon_view: Element<'_, Message> = {
                             let theme = &bar_theme;
-                            let (start, end) =
+                            let (base_start, base_end) =
                                 nominal_gradient_colors(GaugeNominalColor::SecondaryStrong, theme);
-                            let fallback = attention_color(
+                            let base_fallback = attention_color(
                                 attention,
                                 GaugeNominalColor::SecondaryStrong,
                                 theme,
                             );
+                            let selected_foreground = theme.palette().background;
+                            let start = lerp_color(base_start, selected_foreground, t);
+                            let end = lerp_color(base_end, selected_foreground, t);
+                            let fallback = lerp_color(base_fallback, selected_foreground, t);
                             themed_svg_element(
                                 svg_cache.clone(),
                                 icon_handle.clone(),
@@ -221,8 +226,7 @@ pub fn view<'a>(state: &'a BarState) -> Panel<'a> {
                             .width(Length::Fixed(gauge_icon_size))
                             .height(Length::Fixed(gauge_icon_size))
                             .style(move |theme: &Theme| {
-                                let target =
-                                    nominal_color_value(GaugeNominalColor::SecondaryStrong, theme);
+                                let target = theme.palette().primary;
                                 let transparent = Color { a: 0.0, ..target };
                                 container::Style {
                                     background: Some(lerp_color(transparent, target, t).into()),
@@ -237,94 +241,108 @@ pub fn view<'a>(state: &'a BarState) -> Panel<'a> {
                     .width(Length::Fill)
                     .align_x(alignment::Horizontal::Center)
                     .into();
-                gauge_column = gauge_column
-                    .push(centered_icon)
-                    .push(Space::new().height(Length::Fixed(gauge_icon_value_spacing)));
+                gauge_column = gauge_column.push(centered_icon).push(if show_value {
+                    Space::new().height(Length::Fixed(gauge_icon_value_spacing))
+                } else {
+                    Space::new().height(Length::Fixed(0.0))
+                });
             }
 
-            let value: Element<'_, Message> = match &gauge.display {
-                GaugeDisplay::Value {
-                    value: GaugeValue::Text(value),
-                    attention,
-                } => {
-                    let attention_level = attention_level(*attention);
-                    let value = value.clone();
-                    AnimationBuilder::new(attention_level, move |level| {
-                        text::Text::new(value.clone())
-                            .width(Length::Fill)
-                            .align_x(text::Alignment::Center)
-                            .style(move |theme: &Theme| text::Style {
-                                color: Some(attention_color_at_level(level, nominal_color, theme)),
-                            })
-                            .into()
-                    })
-                    .animation(Easing::EASE_IN_OUT.very_quick())
-                    .into()
-                }
-                GaugeDisplay::Value {
-                    value: GaugeValue::Svg(handle),
-                    attention,
-                } => {
-                    let attention_level = attention_level(*attention);
-                    let handle = handle.clone();
-                    let bar_theme = bar_theme.clone();
-                    let svg_cache = svg_cache.clone();
-                    AnimationBuilder::new(attention_level, move |level| {
-                        let theme = &bar_theme;
-                        let quantized = quantize_attention_level(level);
-                        let (start, end) =
-                            attention_gradient_colors_at_level(quantized, nominal_color, theme);
-                        let fallback = attention_color_at_level(quantized, nominal_color, theme);
-                        themed_svg_element(
-                            svg_cache.clone(),
-                            handle.clone(),
-                            start,
-                            end,
-                            gauge_value_icon_size,
-                            Some(fallback),
-                        )
-                    })
-                    .animation(Easing::EASE_IN_OUT.very_quick())
-                    .into()
-                }
-                GaugeDisplay::Error => {
-                    let attention_level = 2.0;
-                    let ratio_inner_full_icon = ratio_inner_full_icon.clone();
-                    let bar_theme = bar_theme.clone();
-                    let svg_cache = svg_cache.clone();
-                    AnimationBuilder::new(attention_level, move |level| {
-                        let theme = &bar_theme;
-                        let quantized = quantize_attention_level(level);
-                        let (start, end) =
-                            attention_gradient_colors_at_level(quantized, nominal_color, theme);
-                        let fallback = attention_color_at_level(quantized, nominal_color, theme);
-                        themed_svg_element(
-                            svg_cache.clone(),
-                            ratio_inner_full_icon.clone(),
-                            start,
-                            end,
-                            gauge_value_icon_size,
-                            Some(fallback),
-                        )
-                    })
-                    .animation(Easing::EASE_IN_OUT.very_quick())
-                    .into()
-                }
-                GaugeDisplay::Empty => Space::new().into(),
+            let centered_value: Option<Element<'_, Message>> = if show_value {
+                let value: Element<'_, Message> = match &gauge.display {
+                    GaugeDisplay::Value {
+                        value: GaugeValue::Text(value),
+                        attention,
+                    } => {
+                        let attention_level = attention_level(*attention);
+                        let value = value.clone();
+                        AnimationBuilder::new(attention_level, move |level| {
+                            text::Text::new(value.clone())
+                                .width(Length::Fill)
+                                .align_x(text::Alignment::Center)
+                                .style(move |theme: &Theme| text::Style {
+                                    color: Some(attention_color_at_level(
+                                        level,
+                                        nominal_color,
+                                        theme,
+                                    )),
+                                })
+                                .into()
+                        })
+                        .animation(Easing::EASE_IN_OUT.very_quick())
+                        .into()
+                    }
+                    GaugeDisplay::Value {
+                        value: GaugeValue::Svg(handle),
+                        attention,
+                    } => {
+                        let attention_level = attention_level(*attention);
+                        let handle = handle.clone();
+                        let bar_theme = bar_theme.clone();
+                        let svg_cache = svg_cache.clone();
+                        AnimationBuilder::new(attention_level, move |level| {
+                            let theme = &bar_theme;
+                            let quantized = quantize_attention_level(level);
+                            let (start, end) =
+                                attention_gradient_colors_at_level(quantized, nominal_color, theme);
+                            let fallback =
+                                attention_color_at_level(quantized, nominal_color, theme);
+                            themed_svg_element(
+                                svg_cache.clone(),
+                                handle.clone(),
+                                start,
+                                end,
+                                gauge_value_icon_size,
+                                Some(fallback),
+                            )
+                        })
+                        .animation(Easing::EASE_IN_OUT.very_quick())
+                        .into()
+                    }
+                    GaugeDisplay::Error => {
+                        let attention_level = 2.0;
+                        let ratio_inner_full_icon = ratio_inner_full_icon.clone();
+                        let bar_theme = bar_theme.clone();
+                        let svg_cache = svg_cache.clone();
+                        AnimationBuilder::new(attention_level, move |level| {
+                            let theme = &bar_theme;
+                            let quantized = quantize_attention_level(level);
+                            let (start, end) =
+                                attention_gradient_colors_at_level(quantized, nominal_color, theme);
+                            let fallback =
+                                attention_color_at_level(quantized, nominal_color, theme);
+                            themed_svg_element(
+                                svg_cache.clone(),
+                                ratio_inner_full_icon.clone(),
+                                start,
+                                end,
+                                gauge_value_icon_size,
+                                Some(fallback),
+                            )
+                        })
+                        .animation(Easing::EASE_IN_OUT.very_quick())
+                        .into()
+                    }
+                    GaugeDisplay::Empty => Space::new().into(),
+                };
+                Some(
+                    container(value)
+                        .width(Length::Fill)
+                        .align_x(alignment::Horizontal::Center)
+                        .into(),
+                )
+            } else {
+                None
             };
 
-            let centered_value: Element<'_, Message> = container(value)
-                .width(Length::Fill)
-                .align_x(alignment::Horizontal::Center)
-                .into();
-
             let gauge_id = gauge.id.to_string();
-            let gauge_element: Element<'_, Message> = mouse_area(
-                gauge_column
-                    .push(centered_value)
-                    .align_x(alignment::Horizontal::Center)
-                    .width(Length::Fill),
-            )
+            let gauge_element: Element<'_, Message> = mouse_area({
+                let mut column = gauge_column.align_x(alignment::Horizontal::Center);
+                if let Some(value) = centered_value {
+                    column = column.push(value);
+                }
+                column.width(Length::Fill)
+            })
             .on_press(Message::GaugeClicked {
                 id: gauge_id.clone(),
                 input: GaugeInput::Button(mouse::Button::Left),
@@ -418,6 +436,7 @@ mod tests {
             nominal_color: None,
             on_click: None,
             menu: None,
+            action_dialog: None,
             info: None,
         }
     }

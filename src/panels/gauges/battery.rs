@@ -1,6 +1,6 @@
 // Battery gauge driven by udev power_supply events and snapshots.
+use crate::dialog::info::InfoDialog;
 use crate::icon::{icon_quantity, svg_asset};
-use crate::info_dialog::InfoDialog;
 use crate::panels::gauges::gauge::{
     GaugeDisplay, GaugeMenu, GaugeMenuItem, GaugeModel, GaugeNominalColor, GaugeValue,
     GaugeValueAttention, MenuSelectAction, event_stream,
@@ -274,6 +274,7 @@ fn snapshot_model(
                 nominal_color,
                 on_click: None,
                 menu,
+                action_dialog: None,
                 info: info_state.lock().ok().map(|info| info.clone()),
             });
         }
@@ -299,6 +300,7 @@ fn snapshot_model(
         nominal_color: None,
         on_click: None,
         menu,
+        action_dialog: None,
         info: info_state.lock().ok().map(|info| info.clone()),
     })
 }

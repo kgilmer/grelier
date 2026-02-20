@@ -1,7 +1,7 @@
 // Disk usage gauge for a configurable filesystem path.
 // Consumes Settings: grelier.gauge.disk.*.
+use crate::dialog::info::InfoDialog;
 use crate::icon::{icon_quantity, svg_asset};
-use crate::info_dialog::InfoDialog;
 use crate::panels::gauges::gauge::{GaugeDisplay, GaugeValue, GaugeValueAttention, fixed_interval};
 use crate::panels::gauges::gauge_registry::{GaugeSpec, GaugeStream};
 use crate::settings;

@@ -215,6 +215,7 @@ fn seconds_stream() -> impl iced::futures::Stream<Item = crate::panels::gauges::
                 nominal_color: None,
                 on_click: Some(on_click.clone()),
                 menu: None,
+                action_dialog: None,
                 info: None,
             });
 

@@ -4,7 +4,9 @@ A desktop bar for Sway on Linux
 
 ## Overview
 
-This program displays a fixed bar on the left or right-hand side of the screen.  It shows a list of all workspaces at the top, a selection of frequently launched apps in the center, and a user-configurable set of gauges at the bottom.  A gauge is something that displays system information or provides some action to change system state.  The program can take configuration parameters from CLI arguments or use Xresource-style key-value pairs specified in `$HOME/.config/grelier/Settings-<version>.xresources`.
+A the top level is a persistent window that says on the screen at all times, called the `bar`.  The `bar` lives either on the left or right side of the screen.  The bar contains a set of `panel`s.  There is a workspace `panel` that displays and allows navigation of desktop workspaces.  There is a `top_apps` panel that, can display a finite list of the top most used apps on the system.  There is a `gauge` panel which displays a set of configured gauges.  A gauge displays some information about the system or user state, and optionally can provide some basic management functions based on the `gauge`.  For example, the `wifi` gauge allows the user to select from the set of previously configured access points.  The `session` gauge displays system uptime and allows the user to suspend, reboot, or shutdown the system. The program can take configuration parameters from CLI arguments or use Xresource-style key-value pairs specified in `$HOME/.config/grelier/Settings-<version>.xresources`.
+
+Generally right-click actions are read-only, for example seeing network download statistics, and left-click actions cause some change to occur, for example selecting the output audio device.
 
 ### Status
 
