@@ -4,8 +4,7 @@ use crate::icon::{icon_quantity, svg_asset};
 use crate::info_dialog::InfoDialog;
 use crate::panels::gauges::gauge::{
     GaugeDisplay, GaugeMenu, GaugeMenuItem, GaugeModel, GaugeValue, GaugeValueAttention,
-    MenuSelectAction,
-    event_stream,
+    MenuSelectAction, event_stream,
 };
 use crate::panels::gauges::gauge_registry::{GaugeSpec, GaugeStream};
 use crate::settings;

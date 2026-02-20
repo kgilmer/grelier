@@ -25,9 +25,7 @@ const SYS_BACKLIGHT: &str = "/sys/class/backlight";
 fn brightness_value(percent: Option<u8>) -> GaugeDisplay {
     match percent {
         Some(p) => GaugeDisplay::Value {
-            value: GaugeValue::Svg(icon_quantity(
-                p as f32 / ABS_MAX_PERCENT as f32,
-            )),
+            value: GaugeValue::Svg(icon_quantity(p as f32 / ABS_MAX_PERCENT as f32)),
             attention: GaugeValueAttention::Nominal,
         },
         None => GaugeDisplay::Error,

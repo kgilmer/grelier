@@ -306,19 +306,27 @@ mod tests {
             "face is rendered as an inset rounded square matching quantity icon corner ratio"
         );
         assert!(
-            data.contains("x1=\"256\" y1=\"12\" x2=\"256\" y2=\"68\" stroke=\"black\" stroke-width=\"28\""),
+            data.contains(
+                "x1=\"256\" y1=\"12\" x2=\"256\" y2=\"68\" stroke=\"black\" stroke-width=\"28\""
+            ),
             "mask includes thicker and longer top-center inverse 12 o'clock marker"
         );
         assert!(
-            data.contains("x1=\"500\" y1=\"256\" x2=\"444\" y2=\"256\" stroke=\"black\" stroke-width=\"28\""),
+            data.contains(
+                "x1=\"500\" y1=\"256\" x2=\"444\" y2=\"256\" stroke=\"black\" stroke-width=\"28\""
+            ),
             "mask includes inverse 3 o'clock marker"
         );
         assert!(
-            data.contains("x1=\"256\" y1=\"500\" x2=\"256\" y2=\"444\" stroke=\"black\" stroke-width=\"28\""),
+            data.contains(
+                "x1=\"256\" y1=\"500\" x2=\"256\" y2=\"444\" stroke=\"black\" stroke-width=\"28\""
+            ),
             "mask includes inverse 6 o'clock marker"
         );
         assert!(
-            data.contains("x1=\"12\" y1=\"256\" x2=\"68\" y2=\"256\" stroke=\"black\" stroke-width=\"28\""),
+            data.contains(
+                "x1=\"12\" y1=\"256\" x2=\"68\" y2=\"256\" stroke=\"black\" stroke-width=\"28\""
+            ),
             "mask includes inverse 9 o'clock marker"
         );
         assert!(

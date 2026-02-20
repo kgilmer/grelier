@@ -2,9 +2,7 @@
 // Consumes Settings: grelier.gauge.cpu.*.
 use crate::icon::{icon_quantity, svg_asset};
 use crate::info_dialog::InfoDialog;
-use crate::panels::gauges::gauge::{
-    GaugeDisplay, GaugeValue, GaugeValueAttention, fixed_interval,
-};
+use crate::panels::gauges::gauge::{GaugeDisplay, GaugeValue, GaugeValueAttention, fixed_interval};
 use crate::panels::gauges::gauge_registry::{GaugeSpec, GaugeStream};
 use crate::settings;
 use crate::settings::SettingSpec;

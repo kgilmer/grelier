@@ -2,9 +2,7 @@
 // Consumes Settings: grelier.gauge.ram.*.
 use crate::icon::{icon_quantity, svg_asset};
 use crate::info_dialog::InfoDialog;
-use crate::panels::gauges::gauge::{
-    GaugeDisplay, GaugeValue, GaugeValueAttention, fixed_interval,
-};
+use crate::panels::gauges::gauge::{GaugeDisplay, GaugeValue, GaugeValueAttention, fixed_interval};
 use crate::panels::gauges::gauge_registry::{GaugeSpec, GaugeStream};
 use crate::settings;
 use crate::settings::SettingSpec;
@@ -307,7 +305,8 @@ fn ram_stream() -> impl iced::futures::Stream<Item = crate::panels::gauges::gaug
                     state.update_interval_state(util);
                 }
 
-                let display = ram_value(utilization, free_ratio, warning_threshold, danger_threshold);
+                let display =
+                    ram_value(utilization, free_ratio, warning_threshold, danger_threshold);
                 Some(display)
             }
         },

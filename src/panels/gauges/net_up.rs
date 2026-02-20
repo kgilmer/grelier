@@ -2,9 +2,7 @@
 // Consumes Settings: grelier.gauge.net.* (via net_common).
 use crate::icon::{icon_quantity, svg_asset};
 use crate::info_dialog::InfoDialog;
-use crate::panels::gauges::gauge::{
-    GaugeDisplay, GaugeValue, GaugeValueAttention, fixed_interval,
-};
+use crate::panels::gauges::gauge::{GaugeDisplay, GaugeValue, GaugeValueAttention, fixed_interval};
 use crate::panels::gauges::gauge_registry::{GaugeSpec, GaugeStream};
 use crate::panels::gauges::net_common::{
     NetIntervalState, SlidingWindow, format_rate_per_sec, net_interval_config_from_settings,
@@ -17,10 +15,7 @@ use std::time::Duration;
 
 const RATE_WINDOW_SAMPLES: usize = 60;
 
-fn map_rate(
-    rate: Option<f64>,
-    window: &mut SlidingWindow,
-) -> (GaugeDisplay, f64) {
+fn map_rate(rate: Option<f64>, window: &mut SlidingWindow) -> (GaugeDisplay, f64) {
     match rate {
         Some(bytes_per_sec) => {
             let ratio = window.push(bytes_per_sec);
