@@ -1,3 +1,5 @@
+#![cfg_attr(not(feature = "workspaces"), allow(dead_code))]
+
 // Sway IPC helpers for workspace state, focus, and subscriptions.
 use std::cell::RefCell;
 

@@ -12,6 +12,7 @@ pub struct SettingSpec {
     pub default: &'static str,
 }
 
+#[cfg_attr(not(feature = "gauges"), allow(dead_code))]
 pub const NO_SETTINGS: &[SettingSpec] = &[];
 
 /// Base settings shared by the bar regardless of which gauges are enabled.

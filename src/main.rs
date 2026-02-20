@@ -1,4 +1,5 @@
 // Entry point wiring CLI args, settings initialization, and gauge subscriptions for the bar.
+#[cfg(any(feature = "workspaces", feature = "top_apps"))]
 mod apps;
 mod bar;
 mod dialog;
@@ -23,11 +24,12 @@ use iced_layershell::settings::{LayerShellSettings, Settings as LayerShellAppSet
 
 use crate::bar::Orientation;
 use crate::bar::{
-    AppIconCache, BarState, DEFAULT_PANELS, GaugeDialog, GaugeDialogWindow, Message,
+    AppIconCache, BarState, GaugeDialog, GaugeDialogWindow, Message, default_panels,
     close_window_task,
 };
 use crate::panels::gauges::gauge::{GaugeClick, GaugeInput, GaugeModel};
 use crate::panels::gauges::gauge_registry;
+#[cfg(any(feature = "workspaces", feature = "top_apps"))]
 use elbey_cache::Cache;
 use log::{error, info, warn};
 use std::io::Write;
@@ -245,7 +247,7 @@ fn main() -> Result<(), iced_layershell::Error> {
     let default_gauges = gauge_registry::default_gauges();
     let base_setting_specs = settings::base_setting_specs(
         default_gauges,
-        DEFAULT_PANELS,
+        default_panels(),
         DEFAULT_ORIENTATION,
         DEFAULT_THEME,
     );
@@ -356,43 +358,58 @@ fn main() -> Result<(), iced_layershell::Error> {
 
     let gauge_order = gauges;
     let gauges_for_subscription = gauge_order.clone();
+    #[cfg(any(feature = "workspaces", feature = "top_apps"))]
     let workspace_app_icons = settings_store.get_bool_or("grelier.app.workspace.app_icons", true);
+    #[cfg(any(feature = "workspaces", feature = "top_apps"))]
     let top_apps_count = settings_store.get_parsed_or("grelier.app.top_apps.count", 6usize);
 
     let theme_for_state = theme.clone();
     let run_result = daemon(
         move || {
-            let mut icon_cache = Cache::new(apps::load_desktop_apps);
-            let (mut apps, app_icons, top_apps) = apps::load_cached_apps_from_cache(
-                &mut icon_cache,
-                top_apps_count,
-                workspace_app_icons,
-            );
-            let refresh_task = if workspace_app_icons || top_apps_count > 0 {
-                Task::perform(
-                    async move {
-                        let top_apps = icon_cache
-                            .refresh_with_top(&mut apps, top_apps_count)
-                            .map_err(|err| err.to_string())?;
-                        Ok((apps, top_apps))
+            #[cfg(any(feature = "workspaces", feature = "top_apps"))]
+            {
+                let mut icon_cache = Cache::new(apps::load_desktop_apps);
+                let (mut apps, app_icons, top_apps) = apps::load_cached_apps_from_cache(
+                    &mut icon_cache,
+                    top_apps_count,
+                    workspace_app_icons,
+                );
+                let refresh_task = if workspace_app_icons || top_apps_count > 0 {
+                    Task::perform(
+                        async move {
+                            let top_apps = icon_cache
+                                .refresh_with_top(&mut apps, top_apps_count)
+                                .map_err(|err| err.to_string())?;
+                            Ok((apps, top_apps))
+                        },
+                        Message::CacheRefreshed,
+                    )
+                } else {
+                    Task::none()
+                };
+                (
+                    {
+                        let mut state = BarState::with_gauge_order_and_icons(
+                            gauge_order.clone(),
+                            app_icons,
+                            top_apps,
+                        );
+                        state.bar_theme = theme_for_state.clone();
+                        state
                     },
-                    Message::CacheRefreshed,
+                    refresh_task,
                 )
-            } else {
-                Task::none()
-            };
-            (
-                {
-                    let mut state = BarState::with_gauge_order_and_icons(
-                        gauge_order.clone(),
-                        app_icons,
-                        top_apps,
-                    );
-                    state.bar_theme = theme_for_state.clone();
-                    state
-                },
-                refresh_task,
-            )
+            }
+            #[cfg(not(any(feature = "workspaces", feature = "top_apps")))]
+            {
+                let mut state = BarState::with_gauge_order_and_icons(
+                    gauge_order.clone(),
+                    AppIconCache::default(),
+                    Vec::new(),
+                );
+                state.bar_theme = theme_for_state.clone();
+                (state, Task::none())
+            }
         },
         BarState::namespace,
         update,
@@ -410,15 +427,18 @@ fn main() -> Result<(), iced_layershell::Error> {
     run_result
 }
 
-fn app_subscription(_state: &BarState, gauges: &[String]) -> Subscription<Message> {
+fn app_subscription(_state: &BarState, _gauges: &[String]) -> Subscription<Message> {
+    #[allow(unused_mut)]
     let mut subs = vec![
-        sway_workspace::workspace_subscription(),
         event::listen().map(Message::IcedEvent),
         window::open_events().map(Message::WindowOpened),
         window::events().map(|(id, event)| Message::WindowEvent(id, event)),
         window::close_events().map(Message::WindowClosed),
     ];
-    for gauge in gauges {
+    #[cfg(feature = "workspaces")]
+    subs.push(sway_workspace::workspace_subscription());
+    #[cfg(feature = "gauges")]
+    for gauge in _gauges {
         if let Some(spec) = gauge_registry::find(gauge) {
             subs.push(gauge_registry::subscription_for(spec));
         }
@@ -443,6 +463,7 @@ fn update(state: &mut BarState, message: Message) -> Task<Message> {
 
     match message {
         Message::Workspaces { workspaces, apps } => {
+            #[cfg(feature = "workspaces")]
             panels::ws_panel::update_workspace_focus(state, &workspaces);
             state.workspaces = workspaces;
             state.workspace_apps = apps
@@ -474,6 +495,7 @@ fn update(state: &mut BarState, message: Message) -> Task<Message> {
                 error!("Failed to launch app \"{app_id}\": {err}");
                 return Task::none();
             }
+            #[cfg(any(feature = "workspaces", feature = "top_apps"))]
             if let Some(app) = state.top_apps.iter().find(|app| app.appid == app_id) {
                 let mut cache = Cache::new(apps::load_desktop_apps);
                 if let Err(err) = cache.record_launch(app) {
@@ -528,7 +550,16 @@ fn update(state: &mut BarState, message: Message) -> Task<Message> {
                     .gauge_dialog_anchor
                     .get(&id)
                     .copied()
-                    .or_else(|| panels::gauge_panel::anchor_y(state));
+                    .or_else(|| {
+                        #[cfg(feature = "gauges")]
+                        {
+                            panels::gauge_panel::anchor_y(state)
+                        }
+                        #[cfg(not(feature = "gauges"))]
+                        {
+                            None
+                        }
+                    });
                 return state.open_action_dialog(&id, dialog, anchor_y);
             }
 
@@ -539,7 +570,16 @@ fn update(state: &mut BarState, message: Message) -> Task<Message> {
                     .gauge_dialog_anchor
                     .get(&id)
                     .copied()
-                    .or_else(|| panels::gauge_panel::anchor_y(state));
+                    .or_else(|| {
+                        #[cfg(feature = "gauges")]
+                        {
+                            panels::gauge_panel::anchor_y(state)
+                        }
+                        #[cfg(not(feature = "gauges"))]
+                        {
+                            None
+                        }
+                    });
                 return state.open_menu(&id, menu, anchor_y);
             }
 
@@ -564,7 +604,16 @@ fn update(state: &mut BarState, message: Message) -> Task<Message> {
                     .gauge_dialog_anchor
                     .get(&id)
                     .copied()
-                    .or_else(|| panels::gauge_panel::anchor_y(state));
+                    .or_else(|| {
+                        #[cfg(feature = "gauges")]
+                        {
+                            panels::gauge_panel::anchor_y(state)
+                        }
+                        #[cfg(not(feature = "gauges"))]
+                        {
+                            None
+                        }
+                    });
                 return state.open_info_dialog(&id, dialog, anchor_y);
             }
 
@@ -935,7 +984,7 @@ mod tests {
         let mut all_setting_specs = Vec::new();
         let base_setting_specs = settings::base_setting_specs(
             gauge_registry::default_gauges(),
-            DEFAULT_PANELS,
+            default_panels(),
             DEFAULT_ORIENTATION,
             DEFAULT_THEME,
         );

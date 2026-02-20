@@ -1,7 +1,12 @@
+#![cfg_attr(
+    not(any(feature = "workspaces", feature = "top_apps", feature = "gauges")),
+    allow(dead_code)
+)]
+
 // Bar application state, update handling, and view composition for panels.
 // Consumes Settings: grelier.bar.width, grelier.bar.border.*.
 use std::collections::{HashMap, HashSet};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
 use crate::dialog::action::{action_view, dialog_dimensions as action_dialog_dimensions};
@@ -10,18 +15,35 @@ use crate::dialog::menu::{dialog_dimensions as menu_dialog_dimensions, menu_view
 use crate::panels::gauges::gauge::{GaugeActionDialog, GaugeInput, GaugeMenu, GaugeModel};
 use crate::settings;
 use crate::sway_workspace::{WorkspaceApps, WorkspaceInfo};
+#[cfg(any(feature = "workspaces", feature = "top_apps"))]
 use elbey_cache::{AppDescriptor, FALLBACK_ICON_HANDLE, IconHandle};
 use iced::alignment;
+#[cfg(any(feature = "workspaces", feature = "top_apps"))]
 use iced::widget::image::Image;
+#[cfg(any(feature = "workspaces", feature = "top_apps"))]
 use iced::widget::svg::Svg;
 use iced::widget::{Column, Row, Space, Stack, container, mouse_area, rule};
 use iced::{Color, Element, Length, Task, Theme, mouse, window};
 use iced_layershell::actions::IcedNewPopupSettings;
 use iced_layershell::to_layer_message;
 
+#[cfg(not(any(feature = "workspaces", feature = "top_apps")))]
+#[derive(Debug, Clone)]
+pub struct AppDescriptor {
+    pub appid: String,
+    pub lower_title: String,
+    pub icon_name: Option<String>,
+    pub icon_handle: IconHandle,
+}
+
+#[cfg(not(any(feature = "workspaces", feature = "top_apps")))]
+#[derive(Debug, Clone, Default)]
+pub enum IconHandle {
+    #[default]
+    NotLoaded,
+}
+
 const CLICK_FILTER_WINDOW: Duration = Duration::from_millis(250);
-/// Default panel ordering when no explicit panel list is set.
-pub const DEFAULT_PANELS: &str = "workspaces,top_apps,gauges";
 
 /// Application-level messages for the bar, panels, and dialogs.
 #[to_layer_message(multi)]
@@ -78,32 +100,68 @@ pub enum Message {
 /// Supported panel types that can be ordered in the bar.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum PanelKind {
+    #[cfg(feature = "workspaces")]
     Workspaces,
+    #[cfg(feature = "top_apps")]
     TopApps,
+    #[cfg(feature = "gauges")]
     Gauges,
 }
 
 impl PanelKind {
     pub fn parse(value: &str) -> Option<Self> {
         match value.trim().to_ascii_lowercase().as_str() {
+            #[cfg(feature = "workspaces")]
             "workspaces" => Some(PanelKind::Workspaces),
+            #[cfg(feature = "top_apps")]
             "top_apps" => Some(PanelKind::TopApps),
+            #[cfg(feature = "gauges")]
             "gauges" => Some(PanelKind::Gauges),
             _ => None,
         }
     }
 
+    #[cfg(any(feature = "workspaces", feature = "top_apps", feature = "gauges"))]
     pub fn as_str(&self) -> &'static str {
         match self {
+            #[cfg(feature = "workspaces")]
             PanelKind::Workspaces => "workspaces",
+            #[cfg(feature = "top_apps")]
             PanelKind::TopApps => "top_apps",
+            #[cfg(feature = "gauges")]
             PanelKind::Gauges => "gauges",
         }
     }
+
+    #[cfg(not(any(feature = "workspaces", feature = "top_apps", feature = "gauges")))]
+    pub fn as_str(&self) -> &'static str {
+        match *self {}
+    }
 }
 
-pub const PANEL_KINDS: &[PanelKind] =
-    &[PanelKind::Workspaces, PanelKind::TopApps, PanelKind::Gauges];
+fn enabled_panel_kinds() -> Vec<PanelKind> {
+    #[allow(unused_mut)]
+    let mut kinds = Vec::new();
+    #[cfg(feature = "workspaces")]
+    kinds.push(PanelKind::Workspaces);
+    #[cfg(feature = "top_apps")]
+    kinds.push(PanelKind::TopApps);
+    #[cfg(feature = "gauges")]
+    kinds.push(PanelKind::Gauges);
+    kinds
+}
+
+pub fn default_panels() -> &'static str {
+    static DEFAULT_PANELS: OnceLock<&'static str> = OnceLock::new();
+    DEFAULT_PANELS.get_or_init(|| {
+        let panels = enabled_panel_kinds()
+            .iter()
+            .map(PanelKind::as_str)
+            .collect::<Vec<_>>()
+            .join(",");
+        Box::leak(panels.into_boxed_str())
+    })
+}
 
 pub(crate) fn close_window_task(window: window::Id) -> Task<Message> {
     let callback = iced_layershell::actions::ActionCallback::new(|_region| {});
@@ -117,7 +175,7 @@ pub(crate) fn close_window_task(window: window::Id) -> Task<Message> {
 }
 
 pub fn list_panels() {
-    for kind in PANEL_KINDS {
+    for kind in enabled_panel_kinds() {
         println!("{}", kind.as_str());
     }
 }
@@ -164,6 +222,7 @@ pub(crate) fn lerp_color(from: Color, to: Color, t: f32) -> Color {
     }
 }
 
+#[cfg(any(feature = "workspaces", feature = "top_apps"))]
 pub(crate) fn app_icon_view(handle: &IconHandle, size: f32) -> Element<'_, Message> {
     match handle {
         IconHandle::Raster(handle) => Image::new(handle.clone())
@@ -221,10 +280,14 @@ pub struct BarState {
     pub top_apps: Vec<AppDescriptor>,
     pub app_icons: AppIconCache,
     pub gauges: Vec<GaugeModel>,
+    #[cfg_attr(not(feature = "gauges"), allow(dead_code))]
     pub gauge_order: Vec<String>,
     pub bar_theme: Theme,
+    #[cfg_attr(not(feature = "gauges"), allow(dead_code))]
     pub themed_svg_cache: Arc<Mutex<HashMap<String, iced::widget::svg::Handle>>>,
+    #[cfg_attr(not(feature = "workspaces"), allow(dead_code))]
     pub current_workspace: Option<String>,
+    #[cfg_attr(not(feature = "workspaces"), allow(dead_code))]
     pub previous_workspace: Option<String>,
     pub dialog_windows: HashMap<window::Id, GaugeDialogWindow>,
     pub last_cursor: Option<iced::Point>,
@@ -285,7 +348,7 @@ pub struct AppIconCache {
 }
 
 impl AppIconCache {
-    pub fn from_app_descriptors_ref(apps: &[elbey_cache::AppDescriptor]) -> Self {
+    pub fn from_app_descriptors_ref(apps: &[AppDescriptor]) -> Self {
         let mut cache = AppIconCache::default();
         for app in apps {
             cache
@@ -303,6 +366,10 @@ impl AppIconCache {
         cache
     }
 
+    #[cfg_attr(
+        not(any(feature = "workspaces", feature = "top_apps")),
+        allow(dead_code)
+    )]
     pub fn icon_for(&self, app_id: &str) -> Option<&IconHandle> {
         let lower = app_id.to_ascii_lowercase();
         self.by_appid
@@ -508,23 +575,31 @@ impl BarState {
             return container(Space::new()).into();
         }
 
-        let mut panel_order =
-            panel_order_from_setting(&settings.get_or("grelier.panels", DEFAULT_PANELS));
-        if panel_order.is_empty() {
-            panel_order = panel_order_from_setting(DEFAULT_PANELS);
-        }
-
+        #[cfg(any(feature = "workspaces", feature = "top_apps", feature = "gauges"))]
         let mut layout = Column::new().width(Length::Fill).height(Length::Fill);
-        let mut iter = panel_order.iter().peekable();
-        while let Some(panel) = iter.next() {
-            let panel = match panel {
-                PanelKind::Workspaces => crate::panels::ws_panel::view(self),
-                PanelKind::TopApps => crate::panels::top_apps_panel::view(self),
-                PanelKind::Gauges => crate::panels::gauge_panel::view(self),
-            };
-            layout = layout.push(panel.view());
-            if iter.peek().is_some() {
-                layout = layout.push(Space::new().height(Length::Fill));
+        #[cfg(not(any(feature = "workspaces", feature = "top_apps", feature = "gauges")))]
+        let layout = Column::new().width(Length::Fill).height(Length::Fill);
+        #[cfg(any(feature = "workspaces", feature = "top_apps", feature = "gauges"))]
+        {
+            let mut panel_order =
+                panel_order_from_setting(&settings.get_or("grelier.panels", default_panels()));
+            if panel_order.is_empty() {
+                panel_order = panel_order_from_setting(default_panels());
+            }
+            let mut iter = panel_order.iter().peekable();
+            while let Some(panel) = iter.next() {
+                let panel = match panel {
+                    #[cfg(feature = "workspaces")]
+                    PanelKind::Workspaces => crate::panels::ws_panel::view(self),
+                    #[cfg(feature = "top_apps")]
+                    PanelKind::TopApps => crate::panels::top_apps_panel::view(self),
+                    #[cfg(feature = "gauges")]
+                    PanelKind::Gauges => crate::panels::gauge_panel::view(self),
+                };
+                layout = layout.push(panel.view());
+                if iter.peek().is_some() {
+                    layout = layout.push(Space::new().height(Length::Fill));
+                }
             }
         }
 
@@ -594,6 +669,13 @@ mod tests {
     fn panel_order_filters_duplicates() {
         let order = panel_order_from_setting("gauges,workspaces,gauges,top_apps");
         let labels: Vec<_> = order.iter().map(PanelKind::as_str).collect();
-        assert_eq!(labels, vec!["gauges", "workspaces", "top_apps"]);
+        let mut expected = Vec::new();
+        #[cfg(feature = "gauges")]
+        expected.push("gauges");
+        #[cfg(feature = "workspaces")]
+        expected.push("workspaces");
+        #[cfg(feature = "top_apps")]
+        expected.push("top_apps");
+        assert_eq!(labels, expected);
     }
 }

@@ -3,27 +3,51 @@ name = "grelier"
 version = "0.1.0"
 edition = "2024"
 
+[features]
+default = ["workspaces", "top_apps", "gauges"]
+workspaces = [
+    "dep:elbey_cache",
+    "dep:freedesktop-desktop-entry",
+    "dep:locale_config",
+    "dep:iced_anim",
+]
+top_apps = [
+    "dep:elbey_cache",
+    "dep:freedesktop-desktop-entry",
+    "dep:locale_config",
+]
+gauges = [
+    "dep:chrono",
+    "dep:udev",
+    "dep:battery",
+    "dep:libpulse-binding",
+    "dep:inventory",
+    "dep:zbus",
+    "dep:iced_anim",
+    "dep:iced_core",
+]
+
 [dependencies]
 iced = { version = "0.14", features = ["image", "svg"] }
-iced_core = "0.14"
+iced_core = { version = "0.14", optional = true }
 iced_layershell = "0.14.2"
-iced_anim = "0.3.1"
+iced_anim = { version = "0.3.1", optional = true }
 
-chrono = { version = "0.4", default-features = false, features = ["clock"] }
-udev = "0.7"
+chrono = { version = "0.4", default-features = false, features = ["clock"], optional = true }
+udev = { version = "0.7", optional = true }
 argh = "0.1"
-battery = "0.7"
+battery = { version = "0.7", optional = true }
 
 swayipc = "3"
-libpulse-binding = "2.28"
-inventory = "0.3"
-zbus = { version = "4", features = ["blocking"] }
+libpulse-binding = { version = "2.28", optional = true }
+inventory = { version = "0.3", optional = true }
+zbus = { version = "4", features = ["blocking"], optional = true }
 log = "0.4"
 syslog = "6"
 
-elbey_cache = { package = "elbey-cache", version = "0.8.2" }
-freedesktop-desktop-entry = "0.8.1"
-locale_config = "0.3.0"
+elbey_cache = { package = "elbey-cache", version = "0.8.2", optional = true }
+freedesktop-desktop-entry = { version = "0.8.1", optional = true }
+locale_config = { version = "0.3.0", optional = true }
 
 [dev-dependencies]
 serde_json = "1"

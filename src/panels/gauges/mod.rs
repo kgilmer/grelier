@@ -1,18 +1,32 @@
+#[cfg(feature = "gauges")]
 pub mod audio_in;
+#[cfg(feature = "gauges")]
 pub mod audio_out;
+#[cfg(feature = "gauges")]
 pub mod battery;
+#[cfg(feature = "gauges")]
 pub mod brightness;
+#[cfg(feature = "gauges")]
 pub mod clock;
+#[cfg(feature = "gauges")]
 pub mod cpu;
+#[cfg(feature = "gauges")]
 pub mod date;
+#[cfg(feature = "gauges")]
 pub mod disk;
 pub mod gauge;
 pub mod gauge_registry;
+#[cfg(feature = "gauges")]
 pub mod net_common;
+#[cfg(feature = "gauges")]
 pub mod net_down;
+#[cfg(feature = "gauges")]
 pub mod net_up;
+#[cfg(feature = "gauges")]
 pub mod ram;
+#[cfg(feature = "gauges")]
 pub mod session;
-#[cfg(debug_assertions)]
+#[cfg(all(feature = "gauges", debug_assertions))]
 pub mod test_gauge;
+#[cfg(feature = "gauges")]
 pub mod wifi;

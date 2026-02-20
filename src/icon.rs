@@ -1,6 +1,10 @@
 // SVG asset helpers and quantity icon selection for gauges.
-use iced::{Color, widget::svg};
+#[cfg(feature = "gauges")]
+use iced::Color;
+use iced::widget::svg;
+#[cfg(feature = "gauges")]
 use iced_core::svg::Data;
+#[cfg(feature = "gauges")]
 use std::collections::HashMap;
 use std::path::Path;
 
@@ -8,6 +12,7 @@ use std::path::Path;
 pub const ASSETS_DIR: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/assets");
 
 /// Return (and cache) a themed SVG handle with gradient stops replaced by colors.
+#[cfg(feature = "gauges")]
 pub fn themed_svg_handle_cached(
     cache: &std::sync::Arc<std::sync::Mutex<HashMap<String, svg::Handle>>>,
     handle: &svg::Handle,
@@ -32,6 +37,7 @@ pub fn themed_svg_handle_cached(
     Some(themed)
 }
 
+#[cfg(feature = "gauges")]
 fn svg_template_from_handle(handle: &svg::Handle) -> Option<String> {
     match handle.data() {
         Data::Path(path) => std::fs::read_to_string(path).ok(),
@@ -39,6 +45,7 @@ fn svg_template_from_handle(handle: &svg::Handle) -> Option<String> {
     }
 }
 
+#[cfg(feature = "gauges")]
 fn svg_with_gradient_stops(template: &str, start_hex: &str, end_hex: &str) -> Vec<u8> {
     template
         .replacen(
@@ -57,6 +64,7 @@ fn svg_with_gradient_stops(template: &str, start_hex: &str, end_hex: &str) -> Ve
         .into_bytes()
 }
 
+#[cfg(feature = "gauges")]
 fn color_to_hex(color: Color) -> String {
     let r = (color.r.clamp(0.0, 1.0) * 255.0).round() as u8;
     let g = (color.g.clamp(0.0, 1.0) * 255.0).round() as u8;
@@ -70,7 +78,7 @@ pub fn svg_asset(name: &str) -> svg::Handle {
     svg::Handle::from_path(path)
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "gauges"))]
 mod svg_tests {
     use super::*;
     use std::sync::{Arc, Mutex};
@@ -139,6 +147,7 @@ mod svg_tests {
 /// Returns the appropriate handle to the SVG representing the quantity `value`.
 /// `value` must be a number between 0 and 1.  0 indicates "no quantity" and 1 indicates "full quantity".
 /// ratio-0.svg through ratio-7.svg are the icons returned.
+#[cfg(feature = "gauges")]
 pub fn icon_quantity(value: f32) -> svg::Handle {
     let clamped = value.clamp(0.0, 1.0);
     let index = (clamped * 7.0).round() as u8;
@@ -147,7 +156,7 @@ pub fn icon_quantity(value: f32) -> svg::Handle {
     svg_asset(&icon_name)
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "gauges"))]
 mod tests {
     use super::*;
 

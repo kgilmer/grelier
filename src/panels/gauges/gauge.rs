@@ -1,3 +1,5 @@
+#![cfg_attr(not(feature = "gauges"), allow(dead_code))]
+
 // Gauge models, menus, and stream helpers for interval/event-driven gauges.
 use iced::futures::channel::mpsc;
 use iced::mouse;

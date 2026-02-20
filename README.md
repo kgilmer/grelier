@@ -31,6 +31,25 @@ Options:
   --help, help      display usage information
 ```
 
+### Cargo features
+
+- `workspaces` (default): enables the workspace panel.
+- `top_apps` (default): enables the top apps panel.
+- `gauges` (default): enables the gauges panel.
+
+Examples:
+
+```bash
+# build with all panel features (default)
+cargo build
+
+# build without panel features
+cargo build --no-default-features
+
+# build with only the workspace panel
+cargo build --no-default-features --features workspaces
+```
+
 ## Multi-Monitor Support
 
 By default, `grelier` opens a bar on all active monitors.
