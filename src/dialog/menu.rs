@@ -1,6 +1,6 @@
 // Menu sizing and rendering for gauge popup dialogs.
 // Consumes Settings: grelier.dialog.*, grelier.menu_dialog.*.
-use crate::dialog::common::{self, BorderSettings, BorderSides};
+use crate::dialog::common::{self, BorderSettings};
 use crate::icon::svg_asset;
 use crate::panels::gauges::gauge::{GaugeMenu, GaugeMenuItem};
 use crate::settings;
@@ -227,15 +227,5 @@ pub fn menu_view<'a, Message: Clone + 'a>(
         cfg.container_padding_x as u16,
     );
 
-    common::stack_with_border(
-        content,
-        border_settings,
-        BorderSides {
-            top: true,
-            top_reversed: true,
-            bottom: true,
-            left: false,
-            right: true,
-        },
-    )
+    common::stack_with_border(content, border_settings, common::popup_border_sides())
 }

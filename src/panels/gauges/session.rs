@@ -2,7 +2,7 @@
 use crate::dialog::info::InfoDialog;
 use crate::icon::svg_asset;
 use crate::panels::gauges::gauge::{
-    ActionSelectAction, GaugeActionDialog, GaugeActionItem, GaugeModel, GaugeValueAttention,
+    ActionSelectAction, GaugeActionDialog, GaugeActionItem, GaugeDisplay, GaugeModel,
     fixed_interval,
 };
 use crate::panels::gauges::gauge_registry::{GaugeSpec, GaugeStream};
@@ -116,7 +116,7 @@ fn session_stream() -> impl iced::futures::Stream<Item = GaugeModel> {
         "session",
         Some(svg_asset("shutdown.svg")),
         || Duration::from_secs(DEFAULT_REFRESH_INTERVAL_SECS),
-        || Some((None, GaugeValueAttention::Nominal)),
+        || Some(GaugeDisplay::Empty),
         None,
     )
     .map(move |mut model| {

@@ -1,6 +1,6 @@
 // Info dialog sizing and rendering for gauge popup dialogs.
 // Consumes Settings: grelier.dialog.*, grelier.info_dialog.*.
-use crate::dialog::common::{self, BorderSettings, BorderSides};
+use crate::dialog::common::{self, BorderSettings};
 use crate::settings;
 use iced::widget::{Column, Space, Text};
 use iced::{Element, Length};
@@ -170,15 +170,5 @@ pub fn info_view<'a, Message: 'a>(dialog: &'a InfoDialog) -> Element<'a, Message
         dialog_cfg.container_padding_x as u16,
     );
 
-    common::stack_with_border(
-        content,
-        border_settings,
-        BorderSides {
-            top: true,
-            top_reversed: true,
-            bottom: true,
-            left: false,
-            right: true,
-        },
-    )
+    common::stack_with_border(content, border_settings, common::popup_border_sides())
 }

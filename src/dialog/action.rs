@@ -1,6 +1,6 @@
 // Action dialog sizing and rendering for gauge popup dialogs.
 // Consumes Settings: grelier.dialog.*, grelier.action_dialog.*.
-use crate::dialog::common::{self, BorderSettings, BorderSides};
+use crate::dialog::common::{self, BorderSettings};
 use crate::panels::gauges::gauge::{GaugeActionDialog, GaugeActionItem};
 use crate::settings;
 use iced::alignment;
@@ -62,21 +62,15 @@ impl ActionDialogSettings {
 /// Calculate a reasonable window size for an action dialog based on button count.
 pub fn dialog_dimensions(dialog: &GaugeActionDialog) -> (u32, u32) {
     let cfg = ActionDialogSettings::load();
-    let border_settings = BorderSettings::load();
 
     let button_height = cfg.icon_size + cfg.button_padding_y * 2;
-    let height = button_height
-        + cfg.border_padding_y.saturating_mul(2)
-        + (border_settings.column_width * 2.0_f32).ceil() as u32;
+    let height = button_height + cfg.border_padding_y.saturating_mul(2);
 
     let button_width = cfg.icon_size + cfg.button_padding_x * 2;
     let buttons = dialog.items.len().max(1) as u32;
     let buttons_width =
         buttons * button_width + cfg.item_spacing_x.saturating_mul(buttons.saturating_sub(1));
-    let width = (buttons_width
-        + cfg.border_padding_x * 2
-        + (border_settings.column_width * 2.0_f32).ceil() as u32)
-        .clamp(cfg.min_width, cfg.max_width);
+    let width = (buttons_width + cfg.border_padding_x * 2).clamp(cfg.min_width, cfg.max_width);
 
     (width, height)
 }
@@ -136,15 +130,5 @@ pub fn action_view<'a, Message: Clone + 'a>(
         cfg.border_padding_x as u16,
     );
 
-    common::stack_with_border(
-        content,
-        border_settings,
-        BorderSides {
-            top: true,
-            top_reversed: false,
-            bottom: true,
-            left: true,
-            right: true,
-        },
-    )
+    common::stack_with_border(content, border_settings, common::popup_border_sides())
 }

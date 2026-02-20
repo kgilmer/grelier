@@ -67,6 +67,16 @@ pub struct BorderSides {
     pub right: bool,
 }
 
+pub fn popup_border_sides() -> BorderSides {
+    BorderSides {
+        top: true,
+        top_reversed: true,
+        bottom: true,
+        left: false,
+        right: true,
+    }
+}
+
 fn lerp_color(from: Color, to: Color, t: f32) -> Color {
     let t = t.clamp(0.0, 1.0);
     Color {
@@ -242,4 +252,19 @@ pub fn dialog_surface<'a, Message: 'a>(
             ..container::Style::default()
         })
         .into()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn popup_border_sides_match_standard_dialog_profile() {
+        let sides = popup_border_sides();
+        assert!(sides.top);
+        assert!(sides.top_reversed);
+        assert!(sides.bottom);
+        assert!(!sides.left);
+        assert!(sides.right);
+    }
 }

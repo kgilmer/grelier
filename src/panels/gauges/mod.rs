@@ -11,7 +11,6 @@ pub mod gauge_registry;
 pub mod net_common;
 pub mod net_down;
 pub mod net_up;
-pub mod power;
 pub mod ram;
 pub mod session;
 #[cfg(debug_assertions)]

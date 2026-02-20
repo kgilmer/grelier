@@ -183,16 +183,16 @@ pub fn view<'a>(state: &'a BarState) -> Panel<'a> {
             let bar_theme = bar_theme.clone();
             let svg_cache = svg_cache.clone();
             let show_value = !gauge.hide_value;
+            let dialog_open = state
+                .dialog_windows
+                .values()
+                .any(|window| window.gauge_id == gauge.id);
 
             let mut gauge_column = Column::new()
                 .align_x(alignment::Horizontal::Center)
                 .width(Length::Fill);
 
             if let Some(icon) = &gauge.icon {
-                let dialog_open = state
-                    .dialog_windows
-                    .values()
-                    .any(|window| window.gauge_id == gauge.id);
                 let attention = icon_attention;
                 let icon_handle = icon.clone();
                 let bar_theme = bar_theme.clone();
@@ -201,13 +201,17 @@ pub fn view<'a>(state: &'a BarState) -> Panel<'a> {
                     AnimationBuilder::new(if dialog_open { 1.0 } else { 0.0 }, move |t| {
                         let icon_view: Element<'_, Message> = {
                             let theme = &bar_theme;
-                            let (start, end) =
+                            let (base_start, base_end) =
                                 nominal_gradient_colors(GaugeNominalColor::SecondaryStrong, theme);
-                            let fallback = attention_color(
+                            let base_fallback = attention_color(
                                 attention,
                                 GaugeNominalColor::SecondaryStrong,
                                 theme,
                             );
+                            let selected_foreground = theme.palette().background;
+                            let start = lerp_color(base_start, selected_foreground, t);
+                            let end = lerp_color(base_end, selected_foreground, t);
+                            let fallback = lerp_color(base_fallback, selected_foreground, t);
                             themed_svg_element(
                                 svg_cache.clone(),
                                 icon_handle.clone(),
@@ -222,8 +226,7 @@ pub fn view<'a>(state: &'a BarState) -> Panel<'a> {
                             .width(Length::Fixed(gauge_icon_size))
                             .height(Length::Fixed(gauge_icon_size))
                             .style(move |theme: &Theme| {
-                                let target =
-                                    nominal_color_value(GaugeNominalColor::SecondaryStrong, theme);
+                                let target = theme.palette().primary;
                                 let transparent = Color { a: 0.0, ..target };
                                 container::Style {
                                     background: Some(lerp_color(transparent, target, t).into()),
@@ -258,11 +261,7 @@ pub fn view<'a>(state: &'a BarState) -> Panel<'a> {
                                 .width(Length::Fill)
                                 .align_x(text::Alignment::Center)
                                 .style(move |theme: &Theme| text::Style {
-                                    color: Some(attention_color_at_level(
-                                        level,
-                                        nominal_color,
-                                        theme,
-                                    )),
+                                    color: Some(attention_color_at_level(level, nominal_color, theme)),
                                 })
                                 .into()
                         })
