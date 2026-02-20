@@ -30,7 +30,6 @@ use crate::panels::gauges::gauge::{GaugeClick, GaugeInput, GaugeModel};
 use crate::panels::gauges::gauge_registry;
 use elbey_cache::Cache;
 use log::{error, info, warn};
-use std::ffi::OsString;
 use std::io::Write;
 use std::path::Path;
 use std::time::{Duration, Instant};
@@ -204,9 +203,9 @@ struct Args {
     #[argh(switch)]
     list_monitors: bool,
 
-    /// limit bar to specific monitors by name (comma-separated)
-    #[argh(option, long = "on-monitors")]
-    on_monitors: Option<String>,
+    /// limit bar to one monitor by name
+    #[argh(option, long = "on-monitor")]
+    on_monitor: Option<String>,
 }
 
 fn main() -> Result<(), iced_layershell::Error> {
@@ -236,22 +235,8 @@ fn main() -> Result<(), iced_layershell::Error> {
         return Ok(());
     }
 
-    let monitor_names = monitor::normalize_monitor_selection(args.on_monitors.as_deref())
+    let monitor_name = monitor::normalize_monitor_selection(args.on_monitor.as_deref())
         .unwrap_or_else(|err| exit_with_error(err));
-
-    if monitor_names.len() > 1 {
-        let exe = match std::env::current_exe() {
-            Ok(path) => path,
-            Err(err) => {
-                exit_with_error(format!("Failed to locate executable: {err}"));
-            }
-        };
-        let forward_args = build_forward_args(&args);
-        if let Err(err) = monitor::spawn_per_monitor(&exe, &forward_args, &monitor_names) {
-            exit_with_error(err);
-        }
-        return Ok(());
-    }
 
     if let Err(err) = ensure_layershell_environment() {
         exit_with_error(err);
@@ -330,10 +315,9 @@ fn main() -> Result<(), iced_layershell::Error> {
         Orientation::Right => Anchor::Right,
     };
 
-    let start_mode = if let Some(name) = monitor_names.first() {
-        StartMode::TargetScreen(name.clone())
-    } else {
-        StartMode::AllScreens
+    let start_mode = match monitor_name {
+        Some(name) => StartMode::TargetScreen(name),
+        None => StartMode::AllScreens,
     };
 
     let settings = LayerShellAppSettings {
@@ -424,19 +408,6 @@ fn main() -> Result<(), iced_layershell::Error> {
         Err(err) => error!("Exiting with error after bar run completed: {err}"),
     }
     run_result
-}
-
-fn build_forward_args(args: &Args) -> Vec<OsString> {
-    let mut out = Vec::new();
-    for setting in &args.setting {
-        out.push(OsString::from("--settings"));
-        out.push(OsString::from(setting));
-    }
-    if let Some(config) = &args.config {
-        out.push(OsString::from("--config"));
-        out.push(config.as_os_str().to_os_string());
-    }
-    out
 }
 
 fn app_subscription(_state: &BarState, gauges: &[String]) -> Subscription<Message> {
@@ -708,6 +679,11 @@ fn update(state: &mut BarState, message: Message) -> Task<Message> {
             state.closing_dialogs.remove(&window);
             state.bar_windows.remove(&window);
             if is_primary {
+                if let Some(next_primary) = state.bar_windows.iter().copied().next() {
+                    state.primary_window = Some(next_primary);
+                    state.pending_primary_window = false;
+                    return Task::none();
+                }
                 state.primary_window = None;
                 state.pending_primary_window = true;
                 let mut tasks = vec![state.close_dialogs()];
@@ -768,6 +744,10 @@ fn update(state: &mut BarState, message: Message) -> Task<Message> {
             if recently_handled {
                 return Task::none();
             }
+            if state.bar_windows.len() > 1 {
+                state.last_output_change_at = Some(now);
+                return Task::none();
+            }
             if state.pending_primary_window && state.primary_window.is_none() {
                 return Task::none();
             }
@@ -816,37 +796,16 @@ fn track_bar_window(state: &mut BarState, window: window::Id) -> Option<Task<Mes
         return None;
     }
 
-    state.bar_windows.insert(window);
-    state.last_bar_window_opened_at = Some(Instant::now());
-    let promote_new_primary = state.primary_window != Some(window);
-    if promote_new_primary {
-        if let Some(primary) = state.primary_window.take() {
-            state.closing_dialogs.insert(primary);
-        }
+    let inserted = state.bar_windows.insert(window);
+    if inserted {
+        state.last_bar_window_opened_at = Some(Instant::now());
+    }
+    if state.primary_window.is_none() {
         state.primary_window = Some(window);
         state.pending_primary_window = false;
     }
 
-    let primary = state.primary_window?;
-
-    let stale_windows: Vec<window::Id> = state
-        .bar_windows
-        .iter()
-        .copied()
-        .filter(|id| *id != primary)
-        .collect();
-    for id in stale_windows {
-        state.closing_dialogs.insert(id);
-        state.bar_windows.remove(&id);
-    }
-
-    if state.closing_dialogs.is_empty() {
-        None
-    } else {
-        Some(Task::batch(
-            state.closing_dialogs.iter().copied().map(close_window_task),
-        ))
-    }
+    None
 }
 
 fn layershell_reopen_settings() -> NewLayerShellSettings {
@@ -1328,24 +1287,47 @@ mod tests {
     }
 
     #[test]
-    fn track_bar_window_promotes_new_primary_and_queues_single_close_bundle() {
+    fn track_bar_window_keeps_existing_primary_and_preserves_windows() {
         let mut state = BarState::default();
         let old_primary = window::Id::unique();
         let new_primary = window::Id::unique();
         state.primary_window = Some(old_primary);
         state.bar_windows.insert(old_primary);
 
-        let task = track_bar_window(&mut state, new_primary).expect("close task should be queued");
+        let task = track_bar_window(&mut state, new_primary);
 
-        assert_eq!(state.primary_window, Some(new_primary));
-        assert!(state.closing_dialogs.contains(&old_primary));
-        assert_eq!(state.bar_windows.len(), 1, "only new primary should remain");
+        assert!(task.is_none(), "tracking bars should not queue closes");
+        assert_eq!(state.primary_window, Some(old_primary));
+        assert!(state.closing_dialogs.is_empty());
+        assert_eq!(
+            state.bar_windows.len(),
+            2,
+            "both windows should remain tracked"
+        );
+        assert!(state.bar_windows.contains(&old_primary));
         assert!(state.bar_windows.contains(&new_primary));
+    }
+
+    #[test]
+    fn window_closed_promotes_remaining_bar_to_primary_without_reopen() {
+        let mut state = BarState::default();
+        let old_primary = window::Id::unique();
+        let other = window::Id::unique();
+        state.primary_window = Some(old_primary);
+        state.bar_windows.insert(old_primary);
+        state.bar_windows.insert(other);
+
+        let task = update(&mut state, Message::WindowClosed(old_primary));
+
         assert_eq!(
             task.units(),
-            2,
-            "old window close should emit input clear + remove"
+            0,
+            "closing one bar should not reopen when another remains"
         );
+        assert_eq!(state.primary_window, Some(other));
+        assert!(!state.pending_primary_window);
+        assert_eq!(state.bar_windows.len(), 1);
+        assert!(state.bar_windows.contains(&other));
     }
 
     fn assert_text_value(model: &GaugeModel, expected: &str) {
