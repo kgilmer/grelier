@@ -9,6 +9,7 @@ use std::time::Duration;
 
 use crate::dialog::info::InfoDialog;
 
+/// Severity level used when rendering gauge values.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum GaugeValueAttention {
     #[default]
@@ -17,6 +18,7 @@ pub enum GaugeValueAttention {
     Danger,
 }
 
+/// Base color family used when a value is in a nominal state.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum GaugeNominalColor {
     #[default]
@@ -24,12 +26,14 @@ pub enum GaugeNominalColor {
     Primary,
 }
 
+/// Renderable content for a gauge value.
 #[derive(Debug, Clone)]
 pub enum GaugeValue {
     Text(String),
     Svg(svg::Handle),
 }
 
+/// What a gauge should display for its value area.
 #[derive(Debug, Clone)]
 pub enum GaugeDisplay {
     Value {
@@ -40,6 +44,7 @@ pub enum GaugeDisplay {
     Error,
 }
 
+/// One selectable entry in a gauge menu.
 #[derive(Debug, Clone)]
 pub struct GaugeMenuItem {
     pub id: String,
@@ -47,9 +52,12 @@ pub struct GaugeMenuItem {
     pub selected: bool,
 }
 
+/// Callback invoked when a gauge menu item is selected.
 pub type MenuSelectAction = Arc<dyn Fn(String) + Send + Sync>;
+/// Callback invoked when a gauge action item is selected.
 pub type ActionSelectAction = MenuSelectAction;
 
+/// Context menu model shown for a gauge.
 #[derive(Clone)]
 pub struct GaugeMenu {
     pub title: String,
@@ -57,12 +65,14 @@ pub struct GaugeMenu {
     pub on_select: Option<MenuSelectAction>,
 }
 
+/// One action entry shown in a gauge action dialog.
 #[derive(Debug, Clone)]
 pub struct GaugeActionItem {
     pub id: String,
     pub icon: svg::Handle,
 }
 
+/// Action dialog model shown for a gauge.
 #[derive(Clone)]
 pub struct GaugeActionDialog {
     pub title: String,
@@ -70,6 +80,7 @@ pub struct GaugeActionDialog {
     pub on_select: Option<ActionSelectAction>,
 }
 
+/// Full render/update model for a single gauge instance.
 #[derive(Clone)]
 pub struct GaugeModel {
     pub id: &'static str,
@@ -117,6 +128,7 @@ impl fmt::Debug for GaugeModel {
     }
 }
 
+/// Supported user input events for a gauge.
 #[derive(Debug, Clone, Copy)]
 pub enum GaugeInput {
     Button(mouse::Button),
@@ -124,11 +136,13 @@ pub enum GaugeInput {
     ScrollDown,
 }
 
+/// Click/scroll payload delivered to gauge click handlers.
 #[derive(Debug, Clone, Copy)]
 pub struct GaugeClick {
     pub input: GaugeInput,
 }
 
+/// Callback invoked when a gauge receives pointer input.
 pub type GaugeClickAction = Arc<dyn Fn(GaugeClick) + Send + Sync>;
 
 /// Create a gauge stream that polls on a (potentially dynamic) interval.
