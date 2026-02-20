@@ -258,7 +258,7 @@ fn snapshot_model(
                 .unwrap_or(false);
             let is_full = status_full || capacity_percent.map(|value| value >= 95).unwrap_or(false);
             let nominal_color = if matches!(ac_online, Some(true)) && is_full {
-                Some(GaugeNominalColor::Primary)
+                Some(GaugeNominalColor::SecondaryStrong)
             } else {
                 None
             };
