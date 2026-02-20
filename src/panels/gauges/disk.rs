@@ -2,7 +2,7 @@
 // Consumes Settings: grelier.gauge.disk.*.
 use crate::icon::{icon_quantity, svg_asset};
 use crate::info_dialog::InfoDialog;
-use crate::panels::gauges::gauge::{GaugeValue, GaugeValueAttention, fixed_interval};
+use crate::panels::gauges::gauge::{GaugeDisplay, GaugeValue, GaugeValueAttention, fixed_interval};
 use crate::panels::gauges::gauge_registry::{GaugeSpec, GaugeStream};
 use crate::settings;
 use crate::settings::SettingSpec;
@@ -150,13 +150,13 @@ fn disk_value(
     utilization: Option<f32>,
     warning_threshold: f32,
     danger_threshold: f32,
-) -> (Option<GaugeValue>, GaugeValueAttention) {
+) -> GaugeDisplay {
     match utilization {
-        Some(util) => (
-            Some(GaugeValue::Svg(icon_quantity(util))),
-            attention_for(util, warning_threshold, danger_threshold),
-        ),
-        None => (None, GaugeValueAttention::Danger),
+        Some(util) => GaugeDisplay::Value {
+            value: GaugeValue::Svg(icon_quantity(util)),
+            attention: attention_for(util, warning_threshold, danger_threshold),
+        },
+        None => GaugeDisplay::Error,
     }
 }
 
@@ -199,8 +199,7 @@ fn disk_stream() -> impl iced::futures::Stream<Item = crate::panels::gauges::gau
                         Some((usage.used as f32 / usage.total as f32).clamp(0.0, 1.0))
                     }
                 });
-                let (value, attention) =
-                    disk_value(utilization, warning_threshold, danger_threshold);
+                let display = disk_value(utilization, warning_threshold, danger_threshold);
                 if let Ok(mut info) = info_state.lock() {
                     let device = mount_device_for_path(&path)
                         .unwrap_or_else(|| "Unknown device".to_string());
@@ -214,7 +213,7 @@ fn disk_stream() -> impl iced::futures::Stream<Item = crate::panels::gauges::gau
                         .unwrap_or_else(|| ("Total: N/A".to_string(), "Used: N/A".to_string()));
                     info.lines = vec![device, total_line, used_line];
                 }
-                Some((value, attention))
+                Some(display)
             }
         },
         None,
@@ -273,9 +272,9 @@ mod tests {
 
     #[test]
     fn returns_none_on_missing_utilization() {
-        let (value, attention) =
-            disk_value(None, DEFAULT_WARNING_THRESHOLD, DEFAULT_DANGER_THRESHOLD);
-        assert!(value.is_none());
-        assert_eq!(attention, GaugeValueAttention::Danger);
+        assert!(matches!(
+            disk_value(None, DEFAULT_WARNING_THRESHOLD, DEFAULT_DANGER_THRESHOLD),
+            GaugeDisplay::Error
+        ));
     }
 }

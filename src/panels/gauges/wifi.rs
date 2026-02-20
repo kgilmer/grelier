@@ -3,8 +3,8 @@
 use crate::icon::{icon_quantity, svg_asset};
 use crate::info_dialog::InfoDialog;
 use crate::panels::gauges::gauge::{
-    GaugeMenu, GaugeMenuItem, GaugeModel, GaugeValue, GaugeValueAttention, MenuSelectAction,
-    event_stream,
+    GaugeDisplay, GaugeMenu, GaugeMenuItem, GaugeModel, GaugeValue, GaugeValueAttention,
+    MenuSelectAction, event_stream,
 };
 use crate::panels::gauges::gauge_registry::{GaugeSpec, GaugeStream};
 use crate::settings;
@@ -530,11 +530,13 @@ fn wifi_gauge(snapshot: WifiSnapshot, menu: Option<GaugeMenu>) -> GaugeModel {
     GaugeModel {
         id: "wifi",
         icon: Some(svg_asset(icon)),
-        value: match snapshot.state {
-            WifiState::NoDevice => None,
-            _ => Some(GaugeValue::Svg(icon_quantity(snapshot.strength))),
+        display: match snapshot.state {
+            WifiState::NoDevice => GaugeDisplay::Error,
+            _ => GaugeDisplay::Value {
+                value: GaugeValue::Svg(icon_quantity(snapshot.strength)),
+                attention,
+            },
         },
-        attention,
         nominal_color: None,
         on_click: None,
         menu,

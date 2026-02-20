@@ -3,7 +3,8 @@
 use crate::icon::{icon_quantity, svg_asset};
 use crate::info_dialog::InfoDialog;
 use crate::panels::gauges::gauge::{
-    GaugeClick, GaugeClickAction, GaugeInput, GaugeValue, GaugeValueAttention, event_stream,
+    GaugeClick, GaugeClickAction, GaugeDisplay, GaugeInput, GaugeValue, GaugeValueAttention,
+    event_stream,
 };
 use crate::panels::gauges::gauge_registry::{GaugeSpec, GaugeStream};
 use crate::settings;
@@ -21,15 +22,13 @@ const DEFAULT_REFRESH_INTERVAL_SECS: u64 = 2;
 const ABS_MAX_PERCENT: u8 = 100;
 const SYS_BACKLIGHT: &str = "/sys/class/backlight";
 
-fn brightness_value(percent: Option<u8>) -> (Option<GaugeValue>, GaugeValueAttention) {
+fn brightness_value(percent: Option<u8>) -> GaugeDisplay {
     match percent {
-        Some(p) => (
-            Some(GaugeValue::Svg(icon_quantity(
-                p as f32 / ABS_MAX_PERCENT as f32,
-            ))),
-            GaugeValueAttention::Nominal,
-        ),
-        None => (None, GaugeValueAttention::Danger),
+        Some(p) => GaugeDisplay::Value {
+            value: GaugeValue::Svg(icon_quantity(p as f32 / ABS_MAX_PERCENT as f32)),
+            attention: GaugeValueAttention::Nominal,
+        },
+        None => GaugeDisplay::Error,
     }
 }
 
@@ -163,14 +162,9 @@ fn brightness_stream() -> impl iced::futures::Stream<Item = crate::panels::gauge
 
             let info_state = Arc::clone(&info_state);
             let mut send_state = |percent: Option<u8>,
-                                  attention: GaugeValueAttention,
+                                  _attention: GaugeValueAttention,
                                   device_name: Option<String>| {
-                let (value, default_attention) = brightness_value(percent);
-                let attention = if value.is_some() {
-                    attention
-                } else {
-                    default_attention
-                };
+                let display = brightness_value(percent);
                 let info = if let Ok(mut info) = info_state.lock() {
                     let device_line =
                         device_name.unwrap_or_else(|| "No backlight device".to_string());
@@ -187,8 +181,7 @@ fn brightness_stream() -> impl iced::futures::Stream<Item = crate::panels::gauge
                 let _ = sender.try_send(crate::panels::gauges::gauge::GaugeModel {
                     id: "brightness",
                     icon: Some(svg_asset("brightness.svg")),
-                    value,
-                    attention,
+                    display,
                     nominal_color: None,
                     on_click: Some(on_click.clone()),
                     menu: None,
@@ -304,8 +297,10 @@ mod tests {
 
     #[test]
     fn brightness_value_uses_quantity_icon() {
-        let (value, attention) = brightness_value(Some(50));
-        let GaugeValue::Svg(handle) = value.expect("expected a brightness gauge value") else {
+        let GaugeDisplay::Value { value, attention } = brightness_value(Some(50)) else {
+            panic!("expected a brightness gauge value");
+        };
+        let GaugeValue::Svg(handle) = value else {
             panic!("expected svg value for brightness");
         };
         assert_eq!(handle, icon_quantity(50.0 / 100.0));
@@ -314,9 +309,7 @@ mod tests {
 
     #[test]
     fn brightness_value_is_none_on_error() {
-        let (value, attention) = brightness_value(None);
-        assert!(value.is_none());
-        assert_eq!(attention, GaugeValueAttention::Danger);
+        assert!(matches!(brightness_value(None), GaugeDisplay::Error));
     }
 
     #[test]

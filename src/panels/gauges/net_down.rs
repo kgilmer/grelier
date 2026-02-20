@@ -2,7 +2,7 @@
 // Consumes Settings: grelier.gauge.net.* (via net_common).
 use crate::icon::{icon_quantity, svg_asset};
 use crate::info_dialog::InfoDialog;
-use crate::panels::gauges::gauge::{GaugeValue, GaugeValueAttention, fixed_interval};
+use crate::panels::gauges::gauge::{GaugeDisplay, GaugeValue, GaugeValueAttention, fixed_interval};
 use crate::panels::gauges::gauge_registry::{GaugeSpec, GaugeStream};
 use crate::panels::gauges::net_common::{
     NetIntervalState, SlidingWindow, format_rate_per_sec, net_interval_config_from_settings,
@@ -15,22 +15,23 @@ use std::time::Duration;
 
 const RATE_WINDOW_SAMPLES: usize = 60;
 
-fn map_rate(
-    rate: Option<f64>,
-    window: &mut SlidingWindow,
-) -> (Option<GaugeValue>, GaugeValueAttention, f64) {
+fn map_rate(rate: Option<f64>, window: &mut SlidingWindow) -> (GaugeDisplay, f64) {
     match rate {
         Some(bytes_per_sec) => {
             let ratio = window.push(bytes_per_sec);
             (
-                Some(GaugeValue::Svg(icon_quantity(ratio))),
-                GaugeValueAttention::Nominal,
+                GaugeDisplay::Value {
+                    value: GaugeValue::Svg(icon_quantity(ratio)),
+                    attention: GaugeValueAttention::Nominal,
+                },
                 bytes_per_sec,
             )
         }
         None => (
-            Some(GaugeValue::Svg(icon_quantity(0.0))),
-            GaugeValueAttention::Warning,
+            GaugeDisplay::Value {
+                value: GaugeValue::Svg(icon_quantity(0.0)),
+                attention: GaugeValueAttention::Warning,
+            },
             0.0,
         ),
     }
@@ -77,7 +78,7 @@ fn net_down_stream() -> impl iced::futures::Stream<Item = crate::panels::gauges:
                     .unwrap_or((None, None));
                 let rate = rate.map(|r| r.download_bytes_per_sec);
 
-                let (value, attention, bytes_per_sec) = match window.lock() {
+                let (display, bytes_per_sec) = match window.lock() {
                     Ok(mut window) => map_rate(rate, &mut window),
                     Err(_) => map_rate(rate, &mut SlidingWindow::new(RATE_WINDOW_SAMPLES)),
                 };
@@ -91,7 +92,7 @@ fn net_down_stream() -> impl iced::futures::Stream<Item = crate::panels::gauges:
                     state.update(bytes_per_sec);
                 }
 
-                Some((value, attention))
+                Some(display)
             }
         },
         None,
@@ -133,8 +134,12 @@ mod tests {
     #[test]
     fn returns_none_on_missing_rate() {
         let mut window = SlidingWindow::new(RATE_WINDOW_SAMPLES);
-        let (value, attention, bytes) = map_rate(None, &mut window);
-        let GaugeValue::Svg(handle) = value.expect("expected value for missing rate") else {
+        let (display, bytes) = map_rate(None, &mut window);
+        let GaugeDisplay::Value {
+            value: GaugeValue::Svg(handle),
+            attention,
+        } = display
+        else {
             panic!("expected svg value for missing rate");
         };
         assert_eq!(handle, icon_quantity(0.0));
