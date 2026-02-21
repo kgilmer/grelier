@@ -23,7 +23,6 @@ pub enum GaugeValueAttention {
 pub enum GaugeNominalColor {
     #[default]
     SecondaryStrong,
-    Primary,
 }
 
 /// Renderable content for a gauge value.

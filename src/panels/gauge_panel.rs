@@ -41,21 +41,13 @@ fn themed_svg_element(
     }
 }
 
-fn nominal_color_value(nominal_color: GaugeNominalColor, theme: &Theme) -> Color {
-    match nominal_color {
-        GaugeNominalColor::SecondaryStrong => theme.extended_palette().secondary.strong.color,
-        GaugeNominalColor::Primary => theme.palette().primary,
-    }
+fn nominal_color_value(_nominal_color: GaugeNominalColor, theme: &Theme) -> Color {
+    theme.extended_palette().secondary.strong.color
 }
 
-fn nominal_gradient_colors(nominal_color: GaugeNominalColor, theme: &Theme) -> (Color, Color) {
+fn nominal_gradient_colors(_nominal_color: GaugeNominalColor, theme: &Theme) -> (Color, Color) {
     let palette = theme.extended_palette();
-    match nominal_color {
-        GaugeNominalColor::SecondaryStrong => {
-            (palette.secondary.weak.color, palette.secondary.strong.color)
-        }
-        GaugeNominalColor::Primary => (palette.primary.weak.color, palette.primary.strong.color),
-    }
+    (palette.secondary.weak.color, palette.secondary.strong.color)
 }
 
 fn attention_color(
@@ -396,17 +388,17 @@ mod gradient_tests {
         let palette = theme.extended_palette();
 
         let (start0, end0) =
-            attention_gradient_colors_at_level(0.0, GaugeNominalColor::Primary, &theme);
-        assert_color_close(start0, palette.primary.weak.color, 1e-5);
-        assert_color_close(end0, palette.primary.strong.color, 1e-5);
+            attention_gradient_colors_at_level(0.0, GaugeNominalColor::SecondaryStrong, &theme);
+        assert_color_close(start0, palette.secondary.weak.color, 1e-5);
+        assert_color_close(end0, palette.secondary.strong.color, 1e-5);
 
         let (start1, end1) =
-            attention_gradient_colors_at_level(1.0, GaugeNominalColor::Primary, &theme);
+            attention_gradient_colors_at_level(1.0, GaugeNominalColor::SecondaryStrong, &theme);
         assert_color_close(start1, palette.warning.weak.color, 1e-5);
         assert_color_close(end1, palette.warning.strong.color, 1e-5);
 
         let (start2, end2) =
-            attention_gradient_colors_at_level(2.0, GaugeNominalColor::Primary, &theme);
+            attention_gradient_colors_at_level(2.0, GaugeNominalColor::SecondaryStrong, &theme);
         assert_color_close(start2, palette.danger.weak.color, 1e-5);
         assert_color_close(end2, palette.danger.strong.color, 1e-5);
     }
