@@ -128,6 +128,8 @@ fn battery_stream() -> impl iced::futures::Stream<Item = GaugeModel> {
 
         for event in monitor.iter() {
             let dev = event.device();
+            // TODO(future-pr): This emits on routine udev events and can be log-chatty; keep as-is
+            // for now and revisit severity/deduping in the logging-noise follow-up PR.
             if is_mains(&dev) {
                 let online = mains_online(&dev);
                 let status = property_str(&dev, "POWER_SUPPLY_STATUS");

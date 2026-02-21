@@ -195,6 +195,8 @@ fn brightness_stream() -> impl iced::futures::Stream<Item = crate::panels::gauge
                 match ctl.percent() {
                     Ok(p) => percent = Some(p),
                     Err(err) => {
+                        // TODO(future-pr): Repeated read failures can spam logs in runtime loops;
+                        // keep behavior for now and add deduping/backoff in follow-up PR.
                         log::error!("brightness gauge: failed to read brightness: {err}");
                         backlight = None;
                     }
@@ -221,6 +223,8 @@ fn brightness_stream() -> impl iced::futures::Stream<Item = crate::panels::gauge
                             if let Some(ref ctl) = backlight
                                 && let Err(err) = ctl.adjust_percent(delta)
                             {
+                                // TODO(future-pr): This can repeat for persistent device errors;
+                                // keep as-is for now and throttle/dedupe in follow-up PR.
                                 log::error!("brightness gauge: failed to adjust brightness: {err}");
                                 backlight = None;
                             }
@@ -240,6 +244,8 @@ fn brightness_stream() -> impl iced::futures::Stream<Item = crate::panels::gauge
                         match ctl.percent() {
                             Ok(p) => Some(p),
                             Err(err) => {
+                                // TODO(future-pr): Periodic refresh retries may emit repeated
+                                // errors; defer log-noise reduction to follow-up PR.
                                 log::error!("brightness gauge: failed to read brightness: {err}");
                                 backlight = None;
                                 None

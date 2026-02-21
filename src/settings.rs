@@ -220,6 +220,8 @@ impl Settings {
         let map = match storage.load() {
             Ok(map) => map,
             Err(err) => {
+                // TODO(future-pr): This currently logs and continues; revisit whether storage
+                // load failure should be treated as fatal abort per stricter error policy.
                 log::error!("Failed to load settings storage: {err}");
                 HashMap::new()
             }
@@ -269,6 +271,8 @@ impl Settings {
         let snapshot = map.clone();
         drop(map);
         if let Err(err) = self.storage.save(&snapshot) {
+            // TODO(future-pr): Save failure is currently non-fatal and may repeat; revisit
+            // abort-vs-continue policy and potential log deduping.
             log::error!("Failed to save settings storage: {err}");
         }
     }
@@ -282,6 +286,8 @@ impl Settings {
         let snapshot = map.clone();
         drop(map);
         if let Err(err) = self.storage.save(&snapshot) {
+            // TODO(future-pr): Save failure is currently non-fatal and may repeat; revisit
+            // abort-vs-continue policy and potential log deduping.
             log::error!("Failed to save settings storage: {err}");
         }
     }

@@ -1,5 +1,6 @@
 // Sway IPC helpers for workspace state, focus, and subscriptions.
 use std::cell::RefCell;
+use std::collections::HashSet;
 
 use crate::bar::Message;
 use iced::Subscription;
@@ -187,51 +188,85 @@ pub fn workspace_subscription() -> Subscription<Message> {
     Subscription::run(workspace_stream)
 }
 
+#[derive(Default)]
+struct ErrorLogGate {
+    seen: HashSet<&'static str>,
+}
+
+impl ErrorLogGate {
+    fn should_log(&mut self, key: &'static str) -> bool {
+        self.seen.insert(key)
+    }
+
+    fn reset(&mut self, key: &'static str) {
+        self.seen.remove(key);
+    }
+}
+
+fn send_workspaces(sender: &mut mpsc::Sender<Message>, log_gate: &mut ErrorLogGate) {
+    match fetch_workspaces() {
+        Ok(ws) => {
+            log_gate.reset("fetch_workspaces");
+            let info = ws.into_iter().map(to_workspace_info).collect();
+            let apps = match fetch_workspace_apps() {
+                Ok(apps) => {
+                    log_gate.reset("fetch_workspace_apps");
+                    apps
+                }
+                Err(err) => {
+                    if log_gate.should_log("fetch_workspace_apps") {
+                        log::error!("Failed to fetch workspace app names: {err}");
+                    }
+                    Vec::new()
+                }
+            };
+            sender
+                .try_send(Message::Workspaces {
+                    workspaces: info,
+                    apps,
+                })
+                .expect("failed to send workspace info");
+        }
+        Err(err) => {
+            if log_gate.should_log("fetch_workspaces") {
+                log::error!("Failed to fetch workspaces: {err}");
+            }
+        }
+    }
+}
+
 fn workspace_stream() -> impl iced::futures::Stream<Item = Message> {
     let (mut sender, receiver) = mpsc::channel(16);
 
     std::thread::spawn(move || {
-        let send_workspaces = |sender: &mut mpsc::Sender<Message>| match fetch_workspaces() {
-            Ok(ws) => {
-                let info = ws.into_iter().map(to_workspace_info).collect();
-                let apps = match fetch_workspace_apps() {
-                    Ok(apps) => apps,
-                    Err(err) => {
-                        log::error!("Failed to fetch workspace app names: {err}");
-                        Vec::new()
-                    }
-                };
-                sender
-                    .try_send(Message::Workspaces {
-                        workspaces: info,
-                        apps,
-                    })
-                    .expect("failed to send workspace info");
-            }
-            Err(err) => log::error!("Failed to fetch workspaces: {err}"),
-        };
-
-        send_workspaces(&mut sender);
+        let mut log_gate = ErrorLogGate::default();
+        send_workspaces(&mut sender, &mut log_gate);
 
         let mut stream = match subscribe_workspace_events() {
             Ok(stream) => stream,
             Err(err) => {
-                log::error!("Failed to subscribe to workspace events: {err}");
+                if log_gate.should_log("subscribe_workspace_events") {
+                    log::error!("Failed to subscribe to workspace events: {err}");
+                }
                 return;
             }
         };
 
         for event in &mut stream {
             match event {
-                Ok(Event::Workspace(_)) => send_workspaces(&mut sender),
-                Ok(Event::Window(_)) => send_workspaces(&mut sender),
+                Ok(Event::Workspace(_)) => send_workspaces(&mut sender, &mut log_gate),
+                Ok(Event::Window(_)) => send_workspaces(&mut sender, &mut log_gate),
                 Ok(Event::Output(_)) => {
                     let _ = sender.try_send(Message::OutputChanged);
-                    send_workspaces(&mut sender);
+                    send_workspaces(&mut sender, &mut log_gate);
                 }
-                Ok(_) => {}
+                Ok(_) => {
+                    log_gate.reset("workspace_event_stream");
+                }
                 Err(err) => {
-                    log::error!("Workspace event stream error: {err}");
+                    if log_gate.should_log("workspace_event_stream") {
+                        log::error!("Workspace event stream error: {err}");
+                    }
                     break;
                 }
             }
@@ -354,6 +389,24 @@ fn empty_node() -> swayipc::Node {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn error_log_gate_suppresses_repeated_keys() {
+        let mut gate = ErrorLogGate::default();
+
+        assert!(gate.should_log("fetch_workspaces"));
+        assert!(!gate.should_log("fetch_workspaces"));
+        assert!(!gate.should_log("fetch_workspaces"));
+    }
+
+    #[test]
+    fn error_log_gate_allows_log_after_reset() {
+        let mut gate = ErrorLogGate::default();
+
+        assert!(gate.should_log("fetch_workspace_apps"));
+        gate.reset("fetch_workspace_apps");
+        assert!(gate.should_log("fetch_workspace_apps"));
+    }
 
     #[test]
     fn reuses_single_connection_for_fetch_and_focus() {

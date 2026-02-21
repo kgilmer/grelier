@@ -668,6 +668,8 @@ fn update(state: &mut BarState, message: Message) -> Task<Message> {
                 state.top_apps = top_apps;
             }
             Err(err) => {
+                // TODO(future-pr): Persistent cache refresh failures can repeatedly log in normal
+                // runtime; keep as-is for now and add throttling/deduping in follow-up PR.
                 error!("Failed to refresh icon cache: {err}");
             }
         },
