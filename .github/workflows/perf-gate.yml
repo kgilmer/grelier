@@ -1,0 +1,54 @@
+name: Perf Gate
+on:
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: perf-gate-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  CARGO_INCREMENTAL: 0
+  CARGO_TERM_COLOR: always
+
+jobs:
+  gate:
+    name: Benchmark Regression Gate
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install system dependencies
+        uses: ./.github/actions/install-system-deps
+        with:
+          packages: libxkbcommon-dev libwayland-dev libudev-dev libpulse-dev
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Configure cache
+        uses: Swatinem/rust-cache@v2
+
+      - name: Run performance benchmarks
+        run: |
+          CARGO_TERM_COLOR=never cargo bench --bench perf_gauges -- --output-format bencher \
+            | tee benchmark-output.txt
+
+      - name: Compare benchmark result with baseline
+        uses: benchmark-action/github-action-benchmark@v1
+        with:
+          name: Gauge Performance
+          tool: cargo
+          output-file-path: benchmark-output.txt
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          auto-push: false
+          gh-pages-branch: perf-data
+          benchmark-data-dir-path: dev/bench
+          fail-on-alert: true
+          alert-threshold: "110%"

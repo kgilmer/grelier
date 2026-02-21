@@ -3,6 +3,7 @@ use iced::futures::channel::mpsc;
 use iced::mouse;
 use iced::widget::svg;
 use std::fmt;
+use std::sync::atomic::{AtomicU8, Ordering};
 use std::sync::{Arc, mpsc as sync_mpsc};
 use std::thread;
 use std::time::Duration;
@@ -145,12 +146,64 @@ pub struct GaugeClick {
 /// Callback invoked when a gauge receives pointer input.
 pub type GaugeClickAction = Arc<dyn Fn(GaugeClick) + Send + Sync>;
 
-/// Create a gauge stream that polls on a (potentially dynamic) interval.
-pub fn fixed_interval(
-    id: &'static str,
-    icon: Option<svg::Handle>,
+/// Runtime mode used by gauge stream helpers.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum GaugeRuntimeMode {
+    Normal,
+    Benchmark,
+}
+
+#[allow(dead_code)]
+impl GaugeRuntimeMode {
+    fn as_u8(self) -> u8 {
+        match self {
+            GaugeRuntimeMode::Normal => 0,
+            GaugeRuntimeMode::Benchmark => 1,
+        }
+    }
+
+    fn from_u8(value: u8) -> Self {
+        match value {
+            1 => GaugeRuntimeMode::Benchmark,
+            _ => GaugeRuntimeMode::Normal,
+        }
+    }
+}
+
+static GAUGE_RUNTIME_MODE: AtomicU8 = AtomicU8::new(0);
+
+pub fn gauge_runtime_mode() -> GaugeRuntimeMode {
+    GaugeRuntimeMode::from_u8(GAUGE_RUNTIME_MODE.load(Ordering::Relaxed))
+}
+
+#[allow(dead_code)]
+pub fn set_gauge_runtime_mode(mode: GaugeRuntimeMode) {
+    GAUGE_RUNTIME_MODE.store(mode.as_u8(), Ordering::Relaxed);
+}
+
+#[allow(dead_code)]
+pub struct GaugeRuntimeModeGuard {
+    previous: GaugeRuntimeMode,
+}
+
+impl Drop for GaugeRuntimeModeGuard {
+    fn drop(&mut self) {
+        set_gauge_runtime_mode(self.previous);
+    }
+}
+
+#[allow(dead_code)]
+pub fn scoped_gauge_runtime_mode(mode: GaugeRuntimeMode) -> GaugeRuntimeModeGuard {
+    let previous = gauge_runtime_mode();
+    set_gauge_runtime_mode(mode);
+    GaugeRuntimeModeGuard { previous }
+}
+
+/// Create a gauge stream that polls on a (potentially dynamic) interval and builds
+/// full `GaugeModel` values in each tick.
+pub fn fixed_interval_model(
     interval: impl Fn() -> Duration + Send + 'static,
-    tick: impl Fn() -> Option<GaugeDisplay> + Send + 'static,
+    tick: impl Fn() -> Option<GaugeModel> + Send + 'static,
     on_click: Option<GaugeClickAction>,
 ) -> impl iced::futures::Stream<Item = GaugeModel> {
     let (mut sender, receiver) = mpsc::channel(1);
@@ -165,26 +218,24 @@ pub fn fixed_interval(
     });
 
     thread::spawn(move || {
-        // Keep a sender alive even if there is no click handler to prevent the channel
-        // from disconnecting and stopping the loop after the first tick.
         let _trigger_tx = trigger_tx;
 
         loop {
-            if let Some(display) = tick() {
-                let _ = sender.try_send(GaugeModel {
-                    id,
-                    icon: icon.clone(),
-                    display,
-                    nominal_color: None,
-                    on_click: on_click.clone(),
-                    menu: None,
-                    action_dialog: None,
-                    info: None,
-                });
+            if let Some(mut model) = tick() {
+                model.on_click = on_click.clone();
+                if let Err(err) = sender.try_send(model)
+                    && err.is_disconnected()
+                {
+                    break;
+                }
             }
 
-            let sleep_duration = interval();
-            match trigger_rx.recv_timeout(sleep_duration) {
+            if gauge_runtime_mode() == GaugeRuntimeMode::Benchmark {
+                thread::yield_now();
+                continue;
+            }
+
+            match trigger_rx.recv_timeout(interval()) {
                 Ok(_) | Err(sync_mpsc::RecvTimeoutError::Timeout) => continue,
                 Err(sync_mpsc::RecvTimeoutError::Disconnected) => break,
             }
@@ -192,6 +243,32 @@ pub fn fixed_interval(
     });
 
     receiver
+}
+
+/// Create a gauge stream that polls on a (potentially dynamic) interval.
+pub fn fixed_interval(
+    id: &'static str,
+    icon: Option<svg::Handle>,
+    interval: impl Fn() -> Duration + Send + 'static,
+    tick: impl Fn() -> Option<GaugeDisplay> + Send + 'static,
+    on_click: Option<GaugeClickAction>,
+) -> impl iced::futures::Stream<Item = GaugeModel> {
+    fixed_interval_model(
+        interval,
+        move || {
+            tick().map(|display| GaugeModel {
+                id,
+                icon: icon.clone(),
+                display,
+                nominal_color: None,
+                on_click: None,
+                menu: None,
+                action_dialog: None,
+                info: None,
+            })
+        },
+        on_click,
+    )
 }
 
 /// Create a gauge stream driven by external events.
