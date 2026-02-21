@@ -2,8 +2,8 @@
 use crate::dialog::info::InfoDialog;
 use crate::icon::{icon_quantity, svg_asset};
 use crate::panels::gauges::gauge::{
-    GaugeDisplay, GaugeMenu, GaugeMenuItem, GaugeModel, GaugeNominalColor, GaugeValue,
-    GaugeValueAttention, MenuSelectAction, event_stream,
+    GaugeDisplay, GaugeMenu, GaugeMenuItem, GaugeModel, GaugeValue, GaugeValueAttention,
+    MenuSelectAction, event_stream,
 };
 use crate::panels::gauges::gauge_registry::{GaugeSpec, GaugeStream};
 use crate::settings;
@@ -249,19 +249,6 @@ fn snapshot_model(
             ac_online = ac_online_from_status(status.as_deref());
         }
         if let Some(display) = battery_value(&dev, warning_percent, danger_percent) {
-            let capacity = property_str(&dev, "POWER_SUPPLY_CAPACITY")
-                .or_else(|| property_str(&dev, "CAPACITY"));
-            let capacity_percent = capacity.as_deref().and_then(|cap| cap.parse::<u8>().ok());
-            let status_full = status
-                .as_deref()
-                .map(|value| value.eq_ignore_ascii_case("Full"))
-                .unwrap_or(false);
-            let is_full = status_full || capacity_percent.map(|value| value >= 95).unwrap_or(false);
-            let nominal_color = if matches!(ac_online, Some(true)) && is_full {
-                Some(GaugeNominalColor::SecondaryStrong)
-            } else {
-                None
-            };
             let icon = Some(svg_asset(power_icon_for_status(
                 status.as_deref(),
                 ac_online,
@@ -271,7 +258,6 @@ fn snapshot_model(
                 id: "battery",
                 icon,
                 display,
-                nominal_color,
                 on_click: None,
                 menu,
                 action_dialog: None,
@@ -297,7 +283,6 @@ fn snapshot_model(
         id: "battery",
         icon: Some(svg_asset("power.svg")),
         display: GaugeDisplay::Error,
-        nominal_color: None,
         on_click: None,
         menu,
         action_dialog: None,
