@@ -237,10 +237,7 @@ pub fn view<'a>(state: &'a BarState) -> Panel<'a> {
                                 .width(Length::Fill)
                                 .align_x(text::Alignment::Center)
                                 .style(move |theme: &Theme| text::Style {
-                                    color: Some(attention_color_at_level(
-                                        level,
-                                        theme,
-                                    )),
+                                    color: Some(attention_color_at_level(level, theme)),
                                 })
                                 .into()
                         })
@@ -366,18 +363,15 @@ mod gradient_tests {
         let theme = Theme::Nord;
         let palette = theme.extended_palette();
 
-        let (start0, end0) =
-            attention_gradient_colors_at_level(0.0, &theme);
+        let (start0, end0) = attention_gradient_colors_at_level(0.0, &theme);
         assert_color_close(start0, palette.secondary.weak.color, 1e-5);
         assert_color_close(end0, palette.secondary.strong.color, 1e-5);
 
-        let (start1, end1) =
-            attention_gradient_colors_at_level(1.0, &theme);
+        let (start1, end1) = attention_gradient_colors_at_level(1.0, &theme);
         assert_color_close(start1, palette.warning.weak.color, 1e-5);
         assert_color_close(end1, palette.warning.strong.color, 1e-5);
 
-        let (start2, end2) =
-            attention_gradient_colors_at_level(2.0, &theme);
+        let (start2, end2) = attention_gradient_colors_at_level(2.0, &theme);
         assert_color_close(start2, palette.danger.weak.color, 1e-5);
         assert_color_close(end2, palette.danger.strong.color, 1e-5);
     }
