@@ -231,3 +231,19 @@ cargo build --release
 ./target/release/grelier &
 cat ~/.config/grelier/Settings-<version>.xresources
 ```
+
+## Performance Benchmarks
+
+The project includes Criterion benchmarks for gauge update/polling cost. These are intended to detect regressions over time for long-running bar workloads.
+
+- Benchmark target: `benches/perf_gauges.rs`
+- Command: `cargo bench --bench perf_gauges`
+- Fast smoke run: `cargo bench --bench perf_gauges -- --warm-up-time 0.05 --measurement-time 0.05`
+- Results: `target/criterion/`
+
+Gauge coverage is registry-driven and automatic. New gauges are included without benchmark-specific code when they are registered in `gauge_registry` and emit on a polling loop (for example via `fixed_interval` / `fixed_interval_model`).
+
+CI tracking and gate:
+
+- `Perf Trend` workflow stores benchmark history on branch `perf-data` under `dev/bench`.
+- `Perf Gate` workflow runs on PRs and fails when benchmark regressions exceed the configured alert threshold (currently `110%`, i.e. 10% slower than baseline).

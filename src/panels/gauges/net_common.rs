@@ -176,7 +176,7 @@ impl NetDataProvider for SystemNetProvider {
 }
 
 /// Tracks a shared set of counters and reuses fresh samples to avoid duplicate `/proc` reads.
-pub struct NetSampler<P: NetDataProvider = SystemNetProvider> {
+pub(crate) struct NetSampler<P: NetDataProvider = SystemNetProvider> {
     provider: P,
     last_sample: Option<NetSample>,
     last_rates: Option<NetRates>,
@@ -196,6 +196,12 @@ impl NetSampler<SystemNetProvider> {
             },
             sampler_config_from_settings(),
         )
+    }
+}
+
+impl Default for NetSampler<SystemNetProvider> {
+    fn default() -> Self {
+        Self::new()
     }
 }
 
@@ -289,7 +295,7 @@ impl<P: NetDataProvider> NetSampler<P> {
 
 static SHARED_NET_SAMPLER: OnceLock<Arc<Mutex<NetSampler>>> = OnceLock::new();
 
-pub fn shared_net_sampler() -> Arc<Mutex<NetSampler>> {
+pub(crate) fn shared_net_sampler() -> Arc<Mutex<NetSampler>> {
     SHARED_NET_SAMPLER
         .get_or_init(|| Arc::new(Mutex::new(NetSampler::new())))
         .clone()

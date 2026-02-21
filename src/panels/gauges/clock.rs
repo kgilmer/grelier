@@ -2,17 +2,15 @@
 // Consumes Settings: grelier.gauge.clock.hourformat, grelier.gauge.clock.showseconds, grelier.gauge.clock.show_text.
 use chrono::Local;
 use chrono::Timelike;
-use iced::futures::channel::mpsc;
 use iced::mouse;
 use iced::widget::svg;
 use std::f32::consts::PI;
-use std::sync::mpsc as sync_mpsc;
 use std::sync::{Arc, Mutex};
-use std::thread;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use crate::panels::gauges::gauge::{
-    GaugeClick, GaugeClickAction, GaugeDisplay, GaugeModel, GaugeValue, GaugeValueAttention,
+    GaugeClick, GaugeClickAction, GaugeDisplay, GaugeInput, GaugeModel, GaugeValue,
+    GaugeValueAttention, fixed_interval_model,
 };
 use crate::panels::gauges::gauge_registry::{GaugeSpec, GaugeStream};
 use crate::settings;
@@ -143,26 +141,25 @@ fn seconds_stream() -> impl iced::futures::Stream<Item = crate::panels::gauges::
     let show_text = settings::settings().get_bool_or("grelier.gauge.clock.show_text", true);
     let format_state = Arc::new(Mutex::new(hour_format_from_setting()));
     let icon_state: Arc<Mutex<Option<ClockIconState>>> = Arc::new(Mutex::new(None));
-    let (mut sender, receiver) = mpsc::channel(1);
-    let (trigger_tx, trigger_rx) = sync_mpsc::channel::<()>();
 
     let on_click: GaugeClickAction = {
         let format_state = Arc::clone(&format_state);
-        let trigger_tx = trigger_tx.clone();
         Arc::new(move |click: GaugeClick| {
-            if let crate::panels::gauges::gauge::GaugeInput::Button(button) = click.input
-                && let mouse::Button::Right = button
+            if let GaugeInput::Button(button) = click.input
+                && button == mouse::Button::Right
                 && let Ok(mut format) = format_state.lock()
             {
                 *format = format.toggle();
-                let _ = trigger_tx.send(());
             }
         })
     };
 
-    thread::spawn(move || {
-        let _trigger_tx = trigger_tx;
-        loop {
+    fixed_interval_model(
+        move || {
+            let interval_secs = if show_text && show_seconds { 1 } else { 60 };
+            duration_until_window_boundary(interval_secs)
+        },
+        move || {
             let now = Local::now();
             let minute_key = now.hour() * 60 + now.minute();
             let icon = if let Ok(mut state) = icon_state.lock() {
@@ -208,26 +205,19 @@ fn seconds_stream() -> impl iced::futures::Stream<Item = crate::panels::gauges::
                 GaugeDisplay::Empty
             };
 
-            let _ = sender.try_send(GaugeModel {
+            Some(GaugeModel {
                 id: "clock",
                 icon: Some(icon),
                 display,
                 nominal_color: None,
-                on_click: Some(on_click.clone()),
+                on_click: None,
                 menu: None,
                 action_dialog: None,
                 info: None,
-            });
-
-            let interval = if show_text && show_seconds { 1 } else { 60 };
-            match trigger_rx.recv_timeout(duration_until_window_boundary(interval)) {
-                Ok(_) | Err(sync_mpsc::RecvTimeoutError::Timeout) => continue,
-                Err(sync_mpsc::RecvTimeoutError::Disconnected) => break,
-            }
-        }
-    });
-
-    receiver
+            })
+        },
+        Some(on_click),
+    )
 }
 
 pub fn settings() -> &'static [SettingSpec] {
