@@ -18,14 +18,6 @@ pub enum GaugeValueAttention {
     Danger,
 }
 
-/// Base color family used when a value is in a nominal state.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
-pub enum GaugeNominalColor {
-    #[default]
-    SecondaryStrong,
-    Primary,
-}
-
 /// Renderable content for a gauge value.
 #[derive(Debug, Clone)]
 pub enum GaugeValue {
@@ -86,7 +78,6 @@ pub struct GaugeModel {
     pub id: &'static str,
     pub icon: Option<svg::Handle>,
     pub display: GaugeDisplay,
-    pub nominal_color: Option<GaugeNominalColor>,
     pub on_click: Option<GaugeClickAction>,
     pub menu: Option<GaugeMenu>,
     pub action_dialog: Option<GaugeActionDialog>,
@@ -99,7 +90,6 @@ impl fmt::Debug for GaugeModel {
             .field("id", &self.id)
             .field("icon", &self.icon)
             .field("display", &self.display)
-            .field("nominal_color", &self.nominal_color)
             .field(
                 "menu",
                 &self
@@ -175,7 +165,6 @@ pub fn fixed_interval(
                     id,
                     icon: icon.clone(),
                     display,
-                    nominal_color: None,
                     on_click: on_click.clone(),
                     menu: None,
                     action_dialog: None,

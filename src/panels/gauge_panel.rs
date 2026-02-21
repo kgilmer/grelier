@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use crate::bar::{BarState, Message, Panel, lerp_color};
 use crate::icon::{svg_asset, themed_svg_handle_cached};
 use crate::panels::gauges::gauge::{
-    GaugeDisplay, GaugeInput, GaugeModel, GaugeNominalColor, GaugeValue, GaugeValueAttention,
+    GaugeDisplay, GaugeInput, GaugeModel, GaugeValue, GaugeValueAttention,
 };
 use crate::settings;
 use iced::alignment;
@@ -41,37 +41,25 @@ fn themed_svg_element(
     }
 }
 
-fn nominal_color_value(nominal_color: GaugeNominalColor, theme: &Theme) -> Color {
-    match nominal_color {
-        GaugeNominalColor::SecondaryStrong => theme.extended_palette().secondary.strong.color,
-        GaugeNominalColor::Primary => theme.palette().primary,
-    }
+fn nominal_color_value(theme: &Theme) -> Color {
+    theme.extended_palette().secondary.strong.color
 }
 
-fn nominal_gradient_colors(nominal_color: GaugeNominalColor, theme: &Theme) -> (Color, Color) {
+fn nominal_gradient_colors(theme: &Theme) -> (Color, Color) {
     let palette = theme.extended_palette();
-    match nominal_color {
-        GaugeNominalColor::SecondaryStrong => {
-            (palette.secondary.weak.color, palette.secondary.strong.color)
-        }
-        GaugeNominalColor::Primary => (palette.primary.weak.color, palette.primary.strong.color),
-    }
+    (palette.secondary.weak.color, palette.secondary.strong.color)
 }
 
-fn attention_color(
-    attention: GaugeValueAttention,
-    nominal_color: GaugeNominalColor,
-    theme: &Theme,
-) -> Color {
+fn attention_color(attention: GaugeValueAttention, theme: &Theme) -> Color {
     match attention {
-        GaugeValueAttention::Nominal => nominal_color_value(nominal_color, theme),
+        GaugeValueAttention::Nominal => nominal_color_value(theme),
         GaugeValueAttention::Warning => theme.extended_palette().warning.base.color,
         GaugeValueAttention::Danger => theme.extended_palette().danger.base.color,
     }
 }
 
-fn attention_color_at_level(level: f32, nominal_color: GaugeNominalColor, theme: &Theme) -> Color {
-    let normal = nominal_color_value(nominal_color, theme);
+fn attention_color_at_level(level: f32, theme: &Theme) -> Color {
+    let normal = nominal_color_value(theme);
     let warning = theme.extended_palette().warning.base.color;
     let danger = theme.extended_palette().danger.base.color;
     if level <= 1.0 {
@@ -81,13 +69,9 @@ fn attention_color_at_level(level: f32, nominal_color: GaugeNominalColor, theme:
     }
 }
 
-fn attention_gradient_colors_at_level(
-    level: f32,
-    nominal_color: GaugeNominalColor,
-    theme: &Theme,
-) -> (Color, Color) {
+fn attention_gradient_colors_at_level(level: f32, theme: &Theme) -> (Color, Color) {
     let palette = theme.extended_palette();
-    let (normal_weak, normal_strong) = nominal_gradient_colors(nominal_color, theme);
+    let (normal_weak, normal_strong) = nominal_gradient_colors(theme);
     let warning_weak = palette.warning.weak.color;
     let warning_strong = palette.warning.strong.color;
     let danger_weak = palette.danger.weak.color;
@@ -177,9 +161,6 @@ pub fn view<'a>(state: &'a BarState) -> Panel<'a> {
             .align_x(alignment::Horizontal::Center),
         |col, gauge| {
             let icon_attention = GaugeValueAttention::Nominal;
-            let nominal_color = gauge
-                .nominal_color
-                .unwrap_or(GaugeNominalColor::SecondaryStrong);
             let bar_theme = bar_theme.clone();
             let svg_cache = svg_cache.clone();
             let show_value = !matches!(&gauge.display, GaugeDisplay::Empty);
@@ -201,13 +182,8 @@ pub fn view<'a>(state: &'a BarState) -> Panel<'a> {
                     AnimationBuilder::new(if dialog_open { 1.0 } else { 0.0 }, move |t| {
                         let icon_view: Element<'_, Message> = {
                             let theme = &bar_theme;
-                            let (base_start, base_end) =
-                                nominal_gradient_colors(GaugeNominalColor::SecondaryStrong, theme);
-                            let base_fallback = attention_color(
-                                attention,
-                                GaugeNominalColor::SecondaryStrong,
-                                theme,
-                            );
+                            let (base_start, base_end) = nominal_gradient_colors(theme);
+                            let base_fallback = attention_color(attention, theme);
                             let selected_foreground = theme.palette().background;
                             let start = lerp_color(base_start, selected_foreground, t);
                             let end = lerp_color(base_end, selected_foreground, t);
@@ -261,11 +237,7 @@ pub fn view<'a>(state: &'a BarState) -> Panel<'a> {
                                 .width(Length::Fill)
                                 .align_x(text::Alignment::Center)
                                 .style(move |theme: &Theme| text::Style {
-                                    color: Some(attention_color_at_level(
-                                        level,
-                                        nominal_color,
-                                        theme,
-                                    )),
+                                    color: Some(attention_color_at_level(level, theme)),
                                 })
                                 .into()
                         })
@@ -283,10 +255,8 @@ pub fn view<'a>(state: &'a BarState) -> Panel<'a> {
                         AnimationBuilder::new(attention_level, move |level| {
                             let theme = &bar_theme;
                             let quantized = quantize_attention_level(level);
-                            let (start, end) =
-                                attention_gradient_colors_at_level(quantized, nominal_color, theme);
-                            let fallback =
-                                attention_color_at_level(quantized, nominal_color, theme);
+                            let (start, end) = attention_gradient_colors_at_level(quantized, theme);
+                            let fallback = attention_color_at_level(quantized, theme);
                             themed_svg_element(
                                 svg_cache.clone(),
                                 handle.clone(),
@@ -307,10 +277,8 @@ pub fn view<'a>(state: &'a BarState) -> Panel<'a> {
                         AnimationBuilder::new(attention_level, move |level| {
                             let theme = &bar_theme;
                             let quantized = quantize_attention_level(level);
-                            let (start, end) =
-                                attention_gradient_colors_at_level(quantized, nominal_color, theme);
-                            let fallback =
-                                attention_color_at_level(quantized, nominal_color, theme);
+                            let (start, end) = attention_gradient_colors_at_level(quantized, theme);
+                            let fallback = attention_color_at_level(quantized, theme);
                             themed_svg_element(
                                 svg_cache.clone(),
                                 ratio_inner_full_icon.clone(),
@@ -395,18 +363,15 @@ mod gradient_tests {
         let theme = Theme::Nord;
         let palette = theme.extended_palette();
 
-        let (start0, end0) =
-            attention_gradient_colors_at_level(0.0, GaugeNominalColor::Primary, &theme);
-        assert_color_close(start0, palette.primary.weak.color, 1e-5);
-        assert_color_close(end0, palette.primary.strong.color, 1e-5);
+        let (start0, end0) = attention_gradient_colors_at_level(0.0, &theme);
+        assert_color_close(start0, palette.secondary.weak.color, 1e-5);
+        assert_color_close(end0, palette.secondary.strong.color, 1e-5);
 
-        let (start1, end1) =
-            attention_gradient_colors_at_level(1.0, GaugeNominalColor::Primary, &theme);
+        let (start1, end1) = attention_gradient_colors_at_level(1.0, &theme);
         assert_color_close(start1, palette.warning.weak.color, 1e-5);
         assert_color_close(end1, palette.warning.strong.color, 1e-5);
 
-        let (start2, end2) =
-            attention_gradient_colors_at_level(2.0, GaugeNominalColor::Primary, &theme);
+        let (start2, end2) = attention_gradient_colors_at_level(2.0, &theme);
         assert_color_close(start2, palette.danger.weak.color, 1e-5);
         assert_color_close(end2, palette.danger.strong.color, 1e-5);
     }
@@ -433,7 +398,6 @@ mod tests {
                 value: GaugeValue::Text(id.to_string()),
                 attention: GaugeValueAttention::Nominal,
             },
-            nominal_color: None,
             on_click: None,
             menu: None,
             action_dialog: None,
