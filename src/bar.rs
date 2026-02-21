@@ -347,6 +347,10 @@ pub struct GaugeDialogWindow {
 }
 
 impl BarState {
+    fn dialog_offset_x() -> i32 {
+        settings::settings().get_parsed_or("grelier.bar.width", 28u32) as i32
+    }
+
     pub fn with_gauge_order_and_icons(
         gauge_order: Vec<String>,
         app_icons: AppIconCache,
@@ -416,7 +420,7 @@ impl BarState {
         let mut tasks = vec![self.close_dialogs()];
 
         let (width, height) = size;
-        let bar_width = settings::settings().get_parsed_or("grelier.bar.width", 28u32) as i32;
+        let bar_width = Self::dialog_offset_x();
         let anchor_y = anchor_y
             .or_else(|| self.gauge_dialog_anchor.get(gauge_id).copied())
             .or_else(|| self.last_cursor.map(|p| p.y as i32))
@@ -466,7 +470,6 @@ impl BarState {
     ) -> Task<Message> {
         let mut tasks = vec![self.close_dialogs(), self.close_top_apps_launcher()];
         let (width, height) = size;
-        let bar_width = settings::settings().get_parsed_or("grelier.bar.width", 28u32) as i32;
         let orientation_raw = settings::settings().get_or("grelier.bar.orientation", "left");
         let orientation = orientation_raw
             .parse::<Orientation>()
@@ -485,8 +488,11 @@ impl BarState {
         let position_y = anchor_y.saturating_sub(height as i32 / 2).clamp(0, max_top);
 
         let (anchor, margin) = match orientation {
-            Orientation::Left => (Anchor::Left | Anchor::Top, (position_y, 0, 0, bar_width)),
-            Orientation::Right => (Anchor::Right | Anchor::Top, (position_y, bar_width, 0, 0)),
+            // Popup dialogs are positioned relative to the bar surface (x = bar width),
+            // while this launcher is a top-level layer-shell surface positioned relative
+            // to the output. Using horizontal margin 0 keeps it aligned with other dialogs.
+            Orientation::Left => (Anchor::Left | Anchor::Top, (position_y, 0, 0, 0)),
+            Orientation::Right => (Anchor::Right | Anchor::Top, (position_y, 0, 0, 0)),
         };
         let window = window::Id::unique();
         let layer_settings = NewLayerShellSettings {
