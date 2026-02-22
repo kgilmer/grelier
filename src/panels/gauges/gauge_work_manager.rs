@@ -76,11 +76,13 @@ fn pump_ready_notifications<C: Clock>(
     manager: &mut GaugeWorkManager<C>,
     sleep_for: Duration,
 ) {
+    // If work is already due, avoid a blocking receive and just drain ready signals.
     if sleep_for.is_zero() {
         drain_ready_notifications(ready_rx, manager);
         return;
     }
 
+    // Sleep until the next deadline unless an external ready signal arrives sooner.
     match ready_rx.recv_timeout(sleep_for) {
         Ok(id) => {
             let _ = manager.mark_ready(id);
@@ -256,6 +258,7 @@ impl<C: Clock> GaugeWorkManager<C> {
         }
 
         let now = self.clock.now();
+        // Wake at the earliest active deadline; use a bounded fallback when no gauges are runnable.
         self.runtimes
             .iter()
             .filter(|runtime| runtime.status == GaugeStatus::Active)
@@ -271,6 +274,7 @@ impl<C: Clock> GaugeWorkManager<C> {
         let now = self.clock.now();
         let mut runnable = BTreeSet::new();
 
+        // Pop all due heap entries, ignoring stale generations and dead gauges.
         while let Some(Reverse((deadline, idx, generation))) = self.deadline_heap.peek().copied() {
             if deadline > now {
                 break;
@@ -286,6 +290,7 @@ impl<C: Clock> GaugeWorkManager<C> {
             let _ = runnable.insert(idx);
         }
 
+        // Merge explicit ready notifications; set+queue guarantees each gauge runs at most once/cycle.
         while let Some(idx) = self.ready_queue.pop_front() {
             self.ready_set.remove(&idx);
             if self.runtimes[idx].status == GaugeStatus::Active {
@@ -312,6 +317,7 @@ impl<C: Clock> GaugeWorkManager<C> {
             if elapsed > self.max_run {
                 runtime.strike_count = runtime.strike_count.saturating_add(1);
                 if runtime.strike_count >= self.max_run_strikes {
+                    // Emit one final model (turtle icon) and permanently unschedule this gauge.
                     runtime.status = GaugeStatus::Dead;
                     updates.push(dead_gauge_model(runtime.gauge.id()));
                     continue;
@@ -324,6 +330,7 @@ impl<C: Clock> GaugeWorkManager<C> {
                 updates.push(model);
             }
 
+            // Reinsert with a bumped generation so older heap entries for this gauge are ignored.
             runtime.next_deadline = runtime.gauge.next_deadline();
             runtime.generation = runtime.generation.wrapping_add(1);
             self.deadline_heap
@@ -358,6 +365,7 @@ impl<C: Clock> GaugeWorkManager<C> {
     }
 
     fn enqueue_ready_index(&mut self, idx: usize) -> bool {
+        // Keep FIFO order for ready work while deduplicating by index.
         if self.ready_set.insert(idx) {
             self.ready_queue.push_back(idx);
             true
