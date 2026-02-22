@@ -69,6 +69,27 @@ fn iterate(mainloop: &mut Mainloop) -> Option<()> {
     }
 }
 
+fn operation_in_flight(state: pulse::operation::State) -> bool {
+    state == pulse::operation::State::Running
+}
+
+fn wait_for_operation<C: ?Sized>(
+    mainloop: &mut Mainloop,
+    context: &Context,
+    operation: &pulse::operation::Operation<C>,
+) -> Option<()> {
+    while operation_in_flight(operation.get_state()) {
+        iterate(mainloop)?;
+        if matches!(
+            context.get_state(),
+            ContextState::Failed | ContextState::Terminated
+        ) {
+            return None;
+        }
+    }
+    Some(())
+}
+
 fn wait_for_context_ready(mainloop: &mut Mainloop, context: &Context) -> Option<()> {
     loop {
         match context.get_state() {
@@ -257,20 +278,26 @@ fn device_label_for_sink(entries: Option<&[SinkMenuEntry]>, sink: &str) -> Strin
     sink.split(" - ").last().unwrap_or(sink).to_string()
 }
 
-fn apply_output_command(command: SoundCommand, mainloop: &mut Mainloop, context: &mut Context) {
+fn apply_output_command(
+    command: SoundCommand,
+    mainloop: &mut Mainloop,
+    context: &mut Context,
+) -> Option<()> {
     match command {
         SoundCommand::SetDefaultSink(name) => {
-            let _ = context.set_default_sink(&name, |_| {});
+            let operation = context.set_default_sink(&name, |_| {});
+            wait_for_operation(mainloop, context, &operation)?;
         }
         SoundCommand::ToggleMute => {
             if let Some(sink) = default_sink_name(mainloop, context)
                 && let Some(status) = read_sink_status(mainloop, context, &sink)
             {
-                context.introspect().set_sink_mute_by_name(
+                let operation = context.introspect().set_sink_mute_by_name(
                     &sink,
                     !status.muted,
                     None::<Box<dyn FnMut(bool)>>,
                 );
+                wait_for_operation(mainloop, context, &operation)?;
             }
         }
         SoundCommand::AdjustVolume(delta) => {
@@ -281,14 +308,16 @@ fn apply_output_command(command: SoundCommand, mainloop: &mut Mainloop, context:
                 let new_percent = status.percent.saturating_add_signed(delta).clamp(0, 99);
                 let mut volumes = ChannelVolumes::default();
                 volumes.set(status.channels, volume_from_percent(new_percent));
-                context.introspect().set_sink_volume_by_name(
+                let operation = context.introspect().set_sink_volume_by_name(
                     &sink,
                     &volumes,
                     None::<Box<dyn FnMut(bool)>>,
                 );
+                wait_for_operation(mainloop, context, &operation)?;
             }
         }
     }
+    Some(())
 }
 
 struct AudioOutSnapshot {
@@ -325,11 +354,7 @@ fn snapshot_audio_out(commands: Vec<SoundCommand>) -> AudioOutSnapshot {
     }
 
     for command in commands {
-        apply_output_command(command, &mut mainloop, &mut context);
-    }
-
-    for _ in 0..4 {
-        if iterate(&mut mainloop).is_none() {
+        if apply_output_command(command, &mut mainloop, &mut context).is_none() {
             return AudioOutSnapshot::disconnected();
         }
     }

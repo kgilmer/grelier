@@ -69,6 +69,27 @@ fn iterate(mainloop: &mut Mainloop) -> Option<()> {
     }
 }
 
+fn operation_in_flight(state: pulse::operation::State) -> bool {
+    state == pulse::operation::State::Running
+}
+
+fn wait_for_operation<C: ?Sized>(
+    mainloop: &mut Mainloop,
+    context: &Context,
+    operation: &pulse::operation::Operation<C>,
+) -> Option<()> {
+    while operation_in_flight(operation.get_state()) {
+        iterate(mainloop)?;
+        if matches!(
+            context.get_state(),
+            ContextState::Failed | ContextState::Terminated
+        ) {
+            return None;
+        }
+    }
+    Some(())
+}
+
 fn wait_for_context_ready(mainloop: &mut Mainloop, context: &Context) -> Option<()> {
     loop {
         match context.get_state() {
@@ -263,20 +284,26 @@ fn device_label_for_source(entries: Option<&[SourceMenuEntry]>, source: &str) ->
     source.split(" - ").last().unwrap_or(source).to_string()
 }
 
-fn apply_input_command(command: InputCommand, mainloop: &mut Mainloop, context: &mut Context) {
+fn apply_input_command(
+    command: InputCommand,
+    mainloop: &mut Mainloop,
+    context: &mut Context,
+) -> Option<()> {
     match command {
         InputCommand::SetDefaultSource(name) => {
-            let _ = context.set_default_source(&name, |_| {});
+            let operation = context.set_default_source(&name, |_| {});
+            wait_for_operation(mainloop, context, &operation)?;
         }
         InputCommand::ToggleMute => {
             if let Some(source) = default_source_name(mainloop, context)
                 && let Some(status) = read_source_status(mainloop, context, &source)
             {
-                context.introspect().set_source_mute_by_name(
+                let operation = context.introspect().set_source_mute_by_name(
                     &source,
                     !status.muted,
                     None::<Box<dyn FnMut(bool)>>,
                 );
+                wait_for_operation(mainloop, context, &operation)?;
             }
         }
         InputCommand::AdjustVolume(delta) => {
@@ -287,14 +314,16 @@ fn apply_input_command(command: InputCommand, mainloop: &mut Mainloop, context: 
                 let new_percent = status.percent.saturating_add_signed(delta).clamp(0, 99);
                 let mut volumes = ChannelVolumes::default();
                 volumes.set(status.channels, volume_from_percent(new_percent));
-                context.introspect().set_source_volume_by_name(
+                let operation = context.introspect().set_source_volume_by_name(
                     &source,
                     &volumes,
                     None::<Box<dyn FnMut(bool)>>,
                 );
+                wait_for_operation(mainloop, context, &operation)?;
             }
         }
     }
+    Some(())
 }
 
 struct AudioInSnapshot {
@@ -331,11 +360,7 @@ fn snapshot_audio_in(commands: Vec<InputCommand>) -> AudioInSnapshot {
     }
 
     for command in commands {
-        apply_input_command(command, &mut mainloop, &mut context);
-    }
-
-    for _ in 0..4 {
-        if iterate(&mut mainloop).is_none() {
+        if apply_input_command(command, &mut mainloop, &mut context).is_none() {
             return AudioInSnapshot::disconnected();
         }
     }
@@ -584,5 +609,12 @@ mod tests {
             start.elapsed(),
             IDLE_WAIT
         );
+    }
+
+    #[test]
+    fn operation_state_only_waits_for_running() {
+        assert!(operation_in_flight(pulse::operation::State::Running));
+        assert!(!operation_in_flight(pulse::operation::State::Done));
+        assert!(!operation_in_flight(pulse::operation::State::Cancelled));
     }
 }
