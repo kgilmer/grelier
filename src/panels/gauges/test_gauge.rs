@@ -1,16 +1,16 @@
 // Test gauge that shows a fixed icon with a cycling quantity value.
-use iced::futures::StreamExt;
 use iced::mouse;
 use std::sync::Mutex;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use crate::dialog::info::InfoDialog;
 use crate::icon::{icon_quantity, svg_asset};
 use crate::panels::gauges::gauge::{
     ActionSelectAction, GaugeActionDialog, GaugeActionItem, GaugeClick, GaugeClickAction,
-    GaugeDisplay, GaugeValue, GaugeValueAttention, fixed_interval,
+    GaugeDisplay, GaugeModel, GaugeValue, GaugeValueAttention,
 };
-use crate::panels::gauges::gauge_registry::{GaugeSpec, GaugeStream};
+use crate::panels::gauges::gauge::{Gauge, GaugeReadyNotify};
+use crate::panels::gauges::gauge_registry::GaugeSpec;
 use crate::settings::SettingSpec;
 use std::sync::Arc;
 
@@ -94,19 +94,8 @@ impl QuantityState {
     }
 }
 
-/// Emits a steady icon with a cycling quantity value and updates attention on clicks.
-fn test_gauge_stream() -> impl iced::futures::Stream<Item = crate::panels::gauges::gauge::GaugeModel>
-{
-    let state = Arc::new(Mutex::new(QuantityState::new()));
-    let info_dialog = InfoDialog {
-        title: "Test Gauge Info".to_string(),
-        lines: vec![
-            "Lorem ipsum dolor sit amet, consectetur adipiscing elit.".to_string(),
-            "Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua.".to_string(),
-            "Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat.".to_string(),
-        ],
-    };
-    let action_dialog = GaugeActionDialog {
+fn action_dialog() -> GaugeActionDialog {
+    GaugeActionDialog {
         title: "Test Actions".to_string(),
         items: vec![
             GaugeActionItem {
@@ -125,44 +114,81 @@ fn test_gauge_stream() -> impl iced::futures::Stream<Item = crate::panels::gauge
         on_select: Some(Arc::new(|item: String| {
             println!("{item}");
         }) as ActionSelectAction),
-    };
-    let on_click: GaugeClickAction = {
-        let state = Arc::clone(&state);
-        Arc::new(move |click: GaugeClick| {
-            let _attention = if let Ok(mut state) = state.lock() {
-                if let crate::panels::gauges::gauge::GaugeInput::Button(mouse::Button::Left) =
-                    click.input
-                {
-                    state.cycle_attention();
-                }
-                state.attention
-            } else {
-                GaugeValueAttention::Nominal
-            };
-        })
-    };
+    }
+}
 
-    fixed_interval(
-        "test_gauge",
-        Some(svg_asset("option-checked.svg")),
-        || Duration::from_secs(1),
-        {
-            let state = Arc::clone(&state);
-            move || {
-                let mut state = state.lock().ok()?;
-                Some(state.next())
+fn info_dialog() -> InfoDialog {
+    InfoDialog {
+        title: "Test Gauge Info".to_string(),
+        lines: vec![
+            "Lorem ipsum dolor sit amet, consectetur adipiscing elit.".to_string(),
+            "Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua.".to_string(),
+            "Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat.".to_string(),
+        ],
+    }
+}
+
+struct ManagedTestGauge {
+    state: Arc<Mutex<QuantityState>>,
+    action_dialog: GaugeActionDialog,
+    info_dialog: InfoDialog,
+    ready_notify: Option<GaugeReadyNotify>,
+    next_deadline: Instant,
+}
+
+impl Gauge for ManagedTestGauge {
+    fn id(&self) -> &'static str {
+        "test_gauge"
+    }
+
+    fn bind_ready_notify(&mut self, notify: GaugeReadyNotify) {
+        self.ready_notify = Some(notify);
+    }
+
+    fn next_deadline(&self) -> Instant {
+        self.next_deadline
+    }
+
+    fn run_once(&mut self, now: Instant) -> Option<GaugeModel> {
+        let display = self
+            .state
+            .lock()
+            .ok()
+            .map(|mut state| state.next())
+            .unwrap_or(GaugeDisplay::Error);
+        let state = Arc::clone(&self.state);
+        let ready_notify = self.ready_notify.clone();
+        let on_click: GaugeClickAction = Arc::new(move |click: GaugeClick| {
+            if let Ok(mut state) = state.lock()
+                && let crate::panels::gauges::gauge::GaugeInput::Button(mouse::Button::Left) =
+                    click.input
+            {
+                state.cycle_attention();
+                if let Some(ready_notify) = &ready_notify {
+                    ready_notify("test_gauge");
+                }
             }
-        },
-        Some(on_click),
-    )
-    .map({
-        let info_dialog = info_dialog.clone();
-        let action_dialog = action_dialog.clone();
-        move |mut model| {
-            model.info = Some(info_dialog.clone());
-            model.action_dialog = Some(action_dialog.clone());
-            model
-        }
+        });
+        self.next_deadline = now + Duration::from_secs(1);
+        Some(GaugeModel {
+            id: "test_gauge",
+            icon: Some(svg_asset("option-checked.svg")),
+            display,
+            on_click: Some(on_click),
+            menu: None,
+            action_dialog: Some(self.action_dialog.clone()),
+            info: Some(self.info_dialog.clone()),
+        })
+    }
+}
+
+pub fn create_gauge(now: Instant) -> Box<dyn Gauge> {
+    Box::new(ManagedTestGauge {
+        state: Arc::new(Mutex::new(QuantityState::new())),
+        action_dialog: action_dialog(),
+        info_dialog: info_dialog(),
+        ready_notify: None,
+        next_deadline: now,
     })
 }
 
@@ -171,17 +197,13 @@ pub fn settings() -> &'static [SettingSpec] {
     SETTINGS
 }
 
-fn stream() -> GaugeStream {
-    Box::new(test_gauge_stream())
-}
-
 inventory::submit! {
     GaugeSpec {
         id: "test_gauge",
         description: "Test gauge emitting canned values for development.",
         default_enabled: false,
         settings,
-        stream,
+        create: create_gauge,
         validate: None,
     }
 }
@@ -189,7 +211,6 @@ inventory::submit! {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use iced::futures::executor::block_on;
     use std::sync::Once;
 
     use crate::settings_storage::SettingsStorage;
@@ -241,10 +262,11 @@ mod tests {
     }
 
     #[test]
-    fn info_dialog_attached_to_stream() {
+    fn info_dialog_attached_to_model() {
         init_settings_once();
-        let mut stream = test_gauge_stream();
-        let first = block_on(stream.next()).expect("gauge model");
+        let now = Instant::now();
+        let mut gauge = create_gauge(now);
+        let first = gauge.run_once(now).expect("gauge model");
         let info = first.info.expect("info dialog should be set");
 
         assert_eq!(info.title, "Test Gauge Info");

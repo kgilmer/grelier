@@ -28,6 +28,7 @@ use crate::bar::{
 };
 use crate::panels::gauges::gauge::{GaugeClick, GaugeInput, GaugeModel};
 use crate::panels::gauges::gauge_registry;
+use crate::panels::gauges::gauge_work_manager;
 use elbey_cache::Cache;
 use log::{error, info, warn};
 use std::io::Write;
@@ -411,18 +412,14 @@ fn main() -> Result<(), iced_layershell::Error> {
 }
 
 fn app_subscription(_state: &BarState, gauges: &[String]) -> Subscription<Message> {
-    let mut subs = vec![
+    let subs = vec![
         sway_workspace::workspace_subscription(),
         event::listen().map(Message::IcedEvent),
         window::open_events().map(Message::WindowOpened),
         window::events().map(|(id, event)| Message::WindowEvent(id, event)),
         window::close_events().map(Message::WindowClosed),
+        gauge_work_manager::subscription(gauges),
     ];
-    for gauge in gauges {
-        if let Some(spec) = gauge_registry::find(gauge) {
-            subs.push(gauge_registry::subscription_for(spec));
-        }
-    }
     Subscription::batch(subs)
 }
 
@@ -500,9 +497,8 @@ fn update(state: &mut BarState, message: Message) -> Task<Message> {
                 return state.close_dialogs();
             }
         }
-        Message::Gauge(gauge) => {
-            refresh_info_dialogs(&mut state.dialog_windows, &gauge);
-            update_gauge(&mut state.gauges, gauge);
+        Message::GaugeBatch(batch) => {
+            apply_gauge_batch(&mut state.gauges, &mut state.dialog_windows, batch);
         }
         Message::GaugeClicked { id, input } => {
             // If any dialog is open, any click just dismisses it.
@@ -887,6 +883,17 @@ fn update_gauge(gauges: &mut Vec<GaugeModel>, new: GaugeModel) {
         *existing = new;
     } else {
         gauges.push(new);
+    }
+}
+
+fn apply_gauge_batch(
+    gauges: &mut Vec<GaugeModel>,
+    dialog_windows: &mut std::collections::HashMap<window::Id, GaugeDialogWindow>,
+    batch: Vec<GaugeModel>,
+) {
+    for gauge in batch {
+        refresh_info_dialogs(dialog_windows, &gauge);
+        update_gauge(gauges, gauge);
     }
 }
 

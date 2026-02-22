@@ -40,7 +40,7 @@ pub enum Message {
         app_id: String,
     },
     BackgroundClicked,
-    Gauge(GaugeModel),
+    GaugeBatch(Vec<GaugeModel>),
     GaugeClicked {
         id: String,
         input: GaugeInput,

@@ -1,11 +1,12 @@
 // Battery gauge driven by udev power_supply events and snapshots.
 use crate::dialog::info::InfoDialog;
 use crate::icon::{icon_quantity, svg_asset};
+use crate::panels::gauges::gauge::{Gauge, GaugeReadyNotify};
 use crate::panels::gauges::gauge::{
     GaugeDisplay, GaugeMenu, GaugeMenuItem, GaugeModel, GaugeValue, GaugeValueAttention,
-    MenuSelectAction, event_stream,
+    MenuSelectAction,
 };
-use crate::panels::gauges::gauge_registry::{GaugeSpec, GaugeStream};
+use crate::panels::gauges::gauge_registry::GaugeSpec;
 use crate::settings;
 use crate::settings::SettingSpec;
 use battery::State as BatteryState;
@@ -14,8 +15,7 @@ use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::sync::mpsc;
 use std::sync::{Arc, Mutex};
-use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use zbus::blocking::{Connection, Proxy};
 use zbus::zvariant::OwnedValue;
 
@@ -39,139 +39,6 @@ enum BatteryCommand {
 struct PowerProfilesSnapshot {
     profiles: Vec<String>,
     active: String,
-}
-
-/// Stream battery information via udev power_supply events.
-fn battery_stream() -> impl iced::futures::Stream<Item = GaugeModel> {
-    let (command_tx, command_rx) = mpsc::channel::<BatteryCommand>();
-    let menu_select: MenuSelectAction = {
-        let command_tx = command_tx.clone();
-        Arc::new(move |profile: String| {
-            let _ = command_tx.send(BatteryCommand::SetPowerProfile(profile));
-        })
-    };
-
-    thread::spawn(move || {
-        while let Ok(command) = command_rx.recv() {
-            match command {
-                BatteryCommand::SetPowerProfile(profile) => {
-                    if !set_active_power_profile(&profile) {
-                        log::error!("battery gauge: failed to set power profile to '{profile}'");
-                    }
-                }
-            }
-        }
-    });
-
-    event_stream("battery", None, move |mut sender| {
-        let warning_percent = settings::settings().get_parsed_or(
-            "grelier.gauge.battery.warning_percent",
-            DEFAULT_WARNING_PERCENT,
-        );
-        let danger_percent = settings::settings().get_parsed_or(
-            "grelier.gauge.battery.danger_percent",
-            DEFAULT_DANGER_PERCENT,
-        );
-        let manager = battery::Manager::new().ok();
-        let refresh_interval_secs = settings::settings().get_parsed_or(
-            "grelier.gauge.battery.refresh_interval_secs",
-            DEFAULT_REFRESH_INTERVAL_SECS,
-        );
-        let info_state = Arc::new(Mutex::new(InfoDialog {
-            title: "Battery".to_string(),
-            lines: vec![
-                "Total: Unknown".to_string(),
-                "Current: Unknown".to_string(),
-                "ETA: Unknown".to_string(),
-                "Discharge rate: Unknown".to_string(),
-            ],
-        }));
-        // Send current state so the UI shows something before the first event.
-        send_snapshot(
-            &mut sender,
-            warning_percent,
-            danger_percent,
-            &info_state,
-            manager.as_ref(),
-            Some(menu_select.clone()),
-        );
-
-        // Try to open a udev monitor; if it fails, just exit the worker.
-        let monitor = match udev::MonitorBuilder::new()
-            .and_then(|m| m.match_subsystem("power_supply"))
-            .and_then(|m| m.listen())
-        {
-            Ok(m) => m,
-            Err(err) => {
-                log::error!("battery gauge: failed to start udev monitor: {err}");
-                return;
-            }
-        };
-
-        let mut poll_sender = sender.clone();
-        let poll_info_state = Arc::clone(&info_state);
-        let poll_menu_select = menu_select.clone();
-        thread::spawn(move || {
-            loop {
-                thread::sleep(Duration::from_secs(refresh_interval_secs));
-                if let Some(model) = snapshot_model(
-                    warning_percent,
-                    danger_percent,
-                    &poll_info_state,
-                    None,
-                    Some(&poll_menu_select),
-                ) {
-                    let _ = poll_sender.try_send(model);
-                }
-            }
-        });
-
-        for event in monitor.iter() {
-            let dev = event.device();
-            if is_mains(&dev) {
-                let online = mains_online(&dev);
-                let status = property_str(&dev, "POWER_SUPPLY_STATUS");
-                log::error!(
-                    "battery gauge: power_supply event mains online={online:?} status={status:?}"
-                );
-            } else if is_battery(&dev) {
-                let status = property_str(&dev, "POWER_SUPPLY_STATUS");
-                let capacity = property_str(&dev, "POWER_SUPPLY_CAPACITY")
-                    .or_else(|| property_str(&dev, "CAPACITY"));
-                log::error!(
-                    "battery gauge: power_supply event battery status={status:?} capacity={capacity:?}"
-                );
-            }
-            if let Some(model) = snapshot_model(
-                warning_percent,
-                danger_percent,
-                &info_state,
-                manager.as_ref(),
-                Some(&menu_select),
-            ) {
-                let _ = sender.try_send(model);
-            }
-        }
-    })
-}
-
-fn send_snapshot(
-    sender: &mut iced::futures::channel::mpsc::Sender<GaugeModel>,
-    warning_percent: u8,
-    danger_percent: u8,
-    info_state: &Arc<Mutex<InfoDialog>>,
-    manager: Option<&battery::Manager>,
-    menu_select: Option<MenuSelectAction>,
-) {
-    if let Some(model) = snapshot_model(
-        warning_percent,
-        danger_percent,
-        info_state,
-        manager,
-        menu_select.as_ref(),
-    ) {
-        let _ = sender.try_send(model);
-    }
 }
 
 fn is_battery(dev: &udev::Device) -> bool {
@@ -789,6 +656,94 @@ fn title_case_profile(profile: &str) -> String {
     out
 }
 
+struct ManagedBatteryGauge {
+    warning_percent: u8,
+    danger_percent: u8,
+    refresh_interval: Duration,
+    command_tx: mpsc::Sender<BatteryCommand>,
+    command_rx: mpsc::Receiver<BatteryCommand>,
+    ready_notify: Option<GaugeReadyNotify>,
+    next_deadline: Instant,
+}
+
+impl Gauge for ManagedBatteryGauge {
+    fn id(&self) -> &'static str {
+        "battery"
+    }
+
+    fn bind_ready_notify(&mut self, notify: GaugeReadyNotify) {
+        self.ready_notify = Some(notify);
+    }
+
+    fn next_deadline(&self) -> Instant {
+        self.next_deadline
+    }
+
+    fn run_once(&mut self, now: Instant) -> Option<GaugeModel> {
+        while let Ok(command) = self.command_rx.try_recv() {
+            let BatteryCommand::SetPowerProfile(profile) = command;
+            if !set_active_power_profile(&profile) {
+                log::error!("battery gauge: failed to set power profile to '{profile}'");
+            }
+        }
+
+        let command_tx = self.command_tx.clone();
+        let ready_notify = self.ready_notify.clone();
+        let menu_select: MenuSelectAction = Arc::new(move |profile: String| {
+            let _ = command_tx.send(BatteryCommand::SetPowerProfile(profile));
+            if let Some(ready_notify) = &ready_notify {
+                ready_notify("battery");
+            }
+        });
+
+        let info_state = Arc::new(Mutex::new(InfoDialog {
+            title: "Battery".to_string(),
+            lines: vec![
+                "Total: Unknown".to_string(),
+                "Current: Unknown".to_string(),
+                "ETA: Unknown".to_string(),
+                "Discharge rate: Unknown".to_string(),
+            ],
+        }));
+        let manager = battery::Manager::new().ok();
+        self.next_deadline = now + self.refresh_interval;
+
+        snapshot_model(
+            self.warning_percent,
+            self.danger_percent,
+            &info_state,
+            manager.as_ref(),
+            Some(&menu_select),
+        )
+    }
+}
+
+pub fn create_gauge(now: Instant) -> Box<dyn Gauge> {
+    let warning_percent = settings::settings().get_parsed_or(
+        "grelier.gauge.battery.warning_percent",
+        DEFAULT_WARNING_PERCENT,
+    );
+    let danger_percent = settings::settings().get_parsed_or(
+        "grelier.gauge.battery.danger_percent",
+        DEFAULT_DANGER_PERCENT,
+    );
+    let refresh_interval_secs = settings::settings().get_parsed_or(
+        "grelier.gauge.battery.refresh_interval_secs",
+        DEFAULT_REFRESH_INTERVAL_SECS,
+    );
+    let (command_tx, command_rx) = mpsc::channel::<BatteryCommand>();
+
+    Box::new(ManagedBatteryGauge {
+        warning_percent,
+        danger_percent,
+        refresh_interval: Duration::from_secs(refresh_interval_secs),
+        command_tx,
+        command_rx,
+        ready_notify: None,
+        next_deadline: now,
+    })
+}
+
 pub fn settings() -> &'static [SettingSpec] {
     const SETTINGS: &[SettingSpec] = &[
         SettingSpec {
@@ -807,17 +762,13 @@ pub fn settings() -> &'static [SettingSpec] {
     SETTINGS
 }
 
-fn stream() -> GaugeStream {
-    Box::new(battery_stream())
-}
-
 inventory::submit! {
     GaugeSpec {
         id: "battery",
         description: "Battery gauge reporting percent charge and charging status.",
         default_enabled: false,
         settings,
-        stream,
+        create: create_gauge,
         validate: None,
     }
 }

@@ -2,19 +2,17 @@
 // Consumes Settings: grelier.gauge.clock.hourformat, grelier.gauge.clock.showseconds, grelier.gauge.clock.show_text.
 use chrono::Local;
 use chrono::Timelike;
-use iced::futures::channel::mpsc;
 use iced::mouse;
 use iced::widget::svg;
 use std::f32::consts::PI;
-use std::sync::mpsc as sync_mpsc;
 use std::sync::{Arc, Mutex};
-use std::thread;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
+use crate::panels::gauges::gauge::{Gauge, GaugeReadyNotify};
 use crate::panels::gauges::gauge::{
     GaugeClick, GaugeClickAction, GaugeDisplay, GaugeModel, GaugeValue, GaugeValueAttention,
 };
-use crate::panels::gauges::gauge_registry::{GaugeSpec, GaugeStream};
+use crate::panels::gauges::gauge_registry::GaugeSpec;
 use crate::settings;
 use crate::settings::SettingSpec;
 
@@ -138,95 +136,120 @@ fn duration_until_window_boundary(window_secs: u64) -> Duration {
 }
 
 /// Stream of the current wall-clock hour/minute, formatted on two lines.
-fn seconds_stream() -> impl iced::futures::Stream<Item = crate::panels::gauges::gauge::GaugeModel> {
-    let show_seconds = settings::settings().get_bool_or("grelier.gauge.clock.showseconds", false);
-    let show_text = settings::settings().get_bool_or("grelier.gauge.clock.show_text", true);
-    let format_state = Arc::new(Mutex::new(hour_format_from_setting()));
-    let icon_state: Arc<Mutex<Option<ClockIconState>>> = Arc::new(Mutex::new(None));
-    let (mut sender, receiver) = mpsc::channel(1);
-    let (trigger_tx, trigger_rx) = sync_mpsc::channel::<()>();
+struct ManagedClockGauge {
+    show_seconds: bool,
+    show_text: bool,
+    format_state: Arc<Mutex<HourFormat>>,
+    icon_state: Option<ClockIconState>,
+    ready_notify: Option<GaugeReadyNotify>,
+    next_deadline: Instant,
+}
 
-    let on_click: GaugeClickAction = {
-        let format_state = Arc::clone(&format_state);
-        let trigger_tx = trigger_tx.clone();
-        Arc::new(move |click: GaugeClick| {
+impl Gauge for ManagedClockGauge {
+    fn id(&self) -> &'static str {
+        "clock"
+    }
+
+    fn bind_ready_notify(&mut self, notify: GaugeReadyNotify) {
+        self.ready_notify = Some(notify);
+    }
+
+    fn next_deadline(&self) -> Instant {
+        self.next_deadline
+    }
+
+    fn run_once(&mut self, now: Instant) -> Option<GaugeModel> {
+        let local_now = Local::now();
+        let minute_key = local_now.hour() * 60 + local_now.minute();
+        let icon = if self
+            .icon_state
+            .as_ref()
+            .map(|cached| cached.minute_key != minute_key)
+            .unwrap_or(true)
+        {
+            let icon = clock_icon_for_time(local_now.hour(), local_now.minute());
+            self.icon_state = Some(ClockIconState {
+                minute_key,
+                handle: icon.clone(),
+            });
+            icon
+        } else {
+            self.icon_state
+                .as_ref()
+                .map(|cached| cached.handle.clone())
+                .unwrap_or_else(|| clock_icon_for_time(local_now.hour(), local_now.minute()))
+        };
+
+        let display = if self.show_text {
+            let hour_format = self
+                .format_state
+                .lock()
+                .map(|format| format.format_str())
+                .unwrap_or("%H");
+            let time_text = if self.show_seconds {
+                format!(
+                    "{}\n{}\n{}",
+                    local_now.format(hour_format),
+                    local_now.format("%M"),
+                    local_now.format("%S")
+                )
+            } else {
+                format!(
+                    "{}\n{}",
+                    local_now.format(hour_format),
+                    local_now.format("%M")
+                )
+            };
+            GaugeDisplay::Value {
+                value: GaugeValue::Text(time_text),
+                attention: GaugeValueAttention::Nominal,
+            }
+        } else {
+            GaugeDisplay::Empty
+        };
+
+        let format_state = Arc::clone(&self.format_state);
+        let ready_notify = self.ready_notify.clone();
+        let on_click: GaugeClickAction = Arc::new(move |click: GaugeClick| {
             if let crate::panels::gauges::gauge::GaugeInput::Button(button) = click.input
                 && let mouse::Button::Right = button
                 && let Ok(mut format) = format_state.lock()
             {
                 *format = format.toggle();
-                let _ = trigger_tx.send(());
+                if let Some(ready_notify) = &ready_notify {
+                    ready_notify("clock");
+                }
             }
+        });
+
+        let interval = if self.show_text && self.show_seconds {
+            1
+        } else {
+            60
+        };
+        self.next_deadline = now + duration_until_window_boundary(interval);
+
+        Some(GaugeModel {
+            id: "clock",
+            icon: Some(icon),
+            display,
+            on_click: Some(on_click),
+            menu: None,
+            action_dialog: None,
+            info: None,
         })
-    };
+    }
+}
 
-    thread::spawn(move || {
-        let _trigger_tx = trigger_tx;
-        loop {
-            let now = Local::now();
-            let minute_key = now.hour() * 60 + now.minute();
-            let icon = if let Ok(mut state) = icon_state.lock() {
-                if state
-                    .as_ref()
-                    .map(|cached| cached.minute_key != minute_key)
-                    .unwrap_or(true)
-                {
-                    *state = Some(ClockIconState {
-                        minute_key,
-                        handle: clock_icon_for_time(now.hour(), now.minute()),
-                    });
-                }
-                state
-                    .as_ref()
-                    .map(|cached| cached.handle.clone())
-                    .unwrap_or_else(|| clock_icon_for_time(now.hour(), now.minute()))
-            } else {
-                clock_icon_for_time(now.hour(), now.minute())
-            };
-
-            let display = if show_text {
-                let format_state = Arc::clone(&format_state);
-                let hour_format = format_state
-                    .lock()
-                    .map(|format| format.format_str())
-                    .unwrap_or("%H");
-                let time_text = if show_seconds {
-                    format!(
-                        "{}\n{}\n{}",
-                        now.format(hour_format),
-                        now.format("%M"),
-                        now.format("%S")
-                    )
-                } else {
-                    format!("{}\n{}", now.format(hour_format), now.format("%M"))
-                };
-                GaugeDisplay::Value {
-                    value: GaugeValue::Text(time_text),
-                    attention: GaugeValueAttention::Nominal,
-                }
-            } else {
-                GaugeDisplay::Empty
-            };
-
-            let _ = sender.try_send(GaugeModel {
-                id: "clock",
-                icon: Some(icon),
-                display,
-                on_click: Some(on_click.clone()),
-                menu: None,
-                action_dialog: None,
-                info: None,
-            });
-
-            let interval = if show_text && show_seconds { 1 } else { 60 };
-            match trigger_rx.recv_timeout(duration_until_window_boundary(interval)) {
-                Ok(_) | Err(sync_mpsc::RecvTimeoutError::Timeout) => continue,
-                Err(sync_mpsc::RecvTimeoutError::Disconnected) => break,
-            }
-        }
-    });
-
-    receiver
+pub fn create_gauge(now: Instant) -> Box<dyn Gauge> {
+    Box::new(ManagedClockGauge {
+        show_seconds: settings::settings().get_bool_or("grelier.gauge.clock.showseconds", false),
+        show_text: settings::settings().get_bool_or("grelier.gauge.clock.show_text", true),
+        format_state: Arc::new(Mutex::new(hour_format_from_setting())),
+        icon_state: None,
+        ready_notify: None,
+        next_deadline: now,
+    })
 }
 
 pub fn settings() -> &'static [SettingSpec] {
@@ -247,17 +270,13 @@ pub fn settings() -> &'static [SettingSpec] {
     SETTINGS
 }
 
-fn stream() -> GaugeStream {
-    Box::new(seconds_stream())
-}
-
 inventory::submit! {
     GaugeSpec {
         id: "clock",
         description: "Clock gauge showing the local time.",
         default_enabled: true,
         settings,
-        stream,
+        create: create_gauge,
         validate: None,
     }
 }

@@ -2,11 +2,12 @@
 // Consumes Settings: grelier.gauge.wifi.*.
 use crate::dialog::info::InfoDialog;
 use crate::icon::{icon_quantity, svg_asset};
+use crate::panels::gauges::gauge::{Gauge, GaugeReadyNotify};
 use crate::panels::gauges::gauge::{
     GaugeDisplay, GaugeMenu, GaugeMenuItem, GaugeModel, GaugeValue, GaugeValueAttention,
-    MenuSelectAction, event_stream,
+    MenuSelectAction,
 };
-use crate::panels::gauges::gauge_registry::{GaugeSpec, GaugeStream};
+use crate::panels::gauges::gauge_registry::GaugeSpec;
 use crate::settings;
 use crate::settings::SettingSpec;
 use std::collections::{HashMap, HashSet};
@@ -15,8 +16,7 @@ use std::os::unix::net::UnixDatagram;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::mpsc;
-use std::thread;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use zbus::blocking::{Connection, Proxy};
 use zbus::zvariant::{OwnedObjectPath, OwnedValue};
 
@@ -544,66 +544,100 @@ fn wifi_gauge(snapshot: WifiSnapshot, menu: Option<GaugeMenu>) -> GaugeModel {
     }
 }
 
-fn wifi_stream() -> impl iced::futures::Stream<Item = GaugeModel> {
-    let (command_tx, command_rx) = mpsc::channel::<WifiCommand>();
-    let menu_select: MenuSelectAction = {
-        let command_tx = command_tx.clone();
-        Arc::new(move |connection_path: String| {
-            let _ = command_tx.send(WifiCommand::Connect(connection_path));
-        })
-    };
+struct ManagedWifiGauge {
+    quality_max: f32,
+    poll_interval: Duration,
+    command_tx: mpsc::Sender<WifiCommand>,
+    command_rx: mpsc::Receiver<WifiCommand>,
+    ready_notify: Option<GaugeReadyNotify>,
+    next_deadline: Instant,
+}
 
-    event_stream("wifi", None, move |mut sender| {
-        let mut quality_max = settings::settings()
-            .get_parsed_or("grelier.gauge.wifi.quality_max", DEFAULT_QUALITY_MAX);
-        if quality_max <= 0.0 {
-            quality_max = DEFAULT_QUALITY_MAX;
-        }
-        let poll_interval_secs = settings::settings().get_parsed_or(
-            "grelier.gauge.wifi.poll_interval_secs",
-            DEFAULT_POLL_INTERVAL_SECS,
-        );
-        let poll_interval = Duration::from_secs(poll_interval_secs);
-        loop {
-            let snapshot = wifi_snapshot(quality_max);
-            let nm_connection = Connection::system().ok();
+impl Gauge for ManagedWifiGauge {
+    fn id(&self) -> &'static str {
+        "wifi"
+    }
 
-            while let Ok(command) = command_rx.try_recv() {
-                if let Some(connection) = nm_connection.as_ref() {
-                    let WifiCommand::Connect(connection_path) = command;
-                    if let Some(iface) = snapshot.iface.as_deref()
-                        && let Some(device_path) = nm_device_path(connection, iface)
-                    {
-                        let _ = activate_connection(connection, &connection_path, &device_path);
-                    }
+    fn bind_ready_notify(&mut self, notify: GaugeReadyNotify) {
+        self.ready_notify = Some(notify);
+    }
+
+    fn next_deadline(&self) -> Instant {
+        self.next_deadline
+    }
+
+    fn run_once(&mut self, now: Instant) -> Option<GaugeModel> {
+        let snapshot = wifi_snapshot(self.quality_max);
+        let nm_connection = Connection::system().ok();
+
+        while let Ok(command) = self.command_rx.try_recv() {
+            if let Some(connection) = nm_connection.as_ref() {
+                let WifiCommand::Connect(connection_path) = command;
+                if let Some(iface) = snapshot.iface.as_deref()
+                    && let Some(device_path) = nm_device_path(connection, iface)
+                {
+                    let _ = activate_connection(connection, &connection_path, &device_path);
                 }
             }
-
-            let menu = if let Some(connection) = nm_connection.as_ref()
-                && let Some(iface) = snapshot.iface.as_deref()
-                && let Some(device_path) = nm_device_path(connection, iface)
-            {
-                let available = available_ssids(connection, &device_path);
-                let entries = wifi_connection_entries(connection, Some(&available));
-                let active_connection = active_connection_path(connection, &device_path)
-                    .and_then(|path| active_settings_connection_path(connection, &path));
-                let items = wifi_menu_items(
-                    &entries,
-                    active_connection.as_ref(),
-                    snapshot.ssid.as_deref(),
-                );
-                Some(GaugeMenu {
-                    title: "Wi-Fi Networks".to_string(),
-                    items,
-                    on_select: Some(menu_select.clone()),
-                })
-            } else {
-                None
-            };
-
-            let _ = sender.try_send(wifi_gauge(snapshot, menu));
-            thread::sleep(poll_interval);
         }
+
+        let menu_select: MenuSelectAction = {
+            let command_tx = self.command_tx.clone();
+            let ready_notify = self.ready_notify.clone();
+            Arc::new(move |connection_path: String| {
+                let _ = command_tx.send(WifiCommand::Connect(connection_path));
+                if let Some(ready_notify) = &ready_notify {
+                    ready_notify("wifi");
+                }
+            })
+        };
+
+        let menu = if let Some(connection) = nm_connection.as_ref()
+            && let Some(iface) = snapshot.iface.as_deref()
+            && let Some(device_path) = nm_device_path(connection, iface)
+        {
+            let available = available_ssids(connection, &device_path);
+            let entries = wifi_connection_entries(connection, Some(&available));
+            let active_connection = active_connection_path(connection, &device_path)
+                .and_then(|path| active_settings_connection_path(connection, &path));
+            let items = wifi_menu_items(
+                &entries,
+                active_connection.as_ref(),
+                snapshot.ssid.as_deref(),
+            );
+            Some(GaugeMenu {
+                title: "Wi-Fi Networks".to_string(),
+                items,
+                on_select: Some(menu_select),
+            })
+        } else {
+            None
+        };
+
+        self.next_deadline = now + self.poll_interval;
+        Some(wifi_gauge(snapshot, menu))
+    }
+}
+
+pub fn create_gauge(now: Instant) -> Box<dyn Gauge> {
+    let mut quality_max =
+        settings::settings().get_parsed_or("grelier.gauge.wifi.quality_max", DEFAULT_QUALITY_MAX);
+    if quality_max <= 0.0 {
+        quality_max = DEFAULT_QUALITY_MAX;
+    }
+    let poll_interval_secs = settings::settings().get_parsed_or(
+        "grelier.gauge.wifi.poll_interval_secs",
+        DEFAULT_POLL_INTERVAL_SECS,
+    );
+    let (command_tx, command_rx) = mpsc::channel::<WifiCommand>();
+
+    Box::new(ManagedWifiGauge {
+        quality_max,
+        poll_interval: Duration::from_secs(poll_interval_secs),
+        command_tx,
+        command_rx,
+        ready_notify: None,
+        next_deadline: now,
     })
 }
 
@@ -621,17 +655,13 @@ pub fn settings() -> &'static [SettingSpec] {
     SETTINGS
 }
 
-fn stream() -> GaugeStream {
-    Box::new(wifi_stream())
-}
-
 inventory::submit! {
     GaugeSpec {
         id: "wifi",
         description: "Wi-Fi signal gauge showing percent link quality and current SSID.",
         default_enabled: false,
         settings,
-        stream,
+        create: create_gauge,
         validate: None,
     }
 }

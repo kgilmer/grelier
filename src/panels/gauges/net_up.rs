@@ -2,16 +2,16 @@
 // Consumes Settings: grelier.gauge.net.* (via net_common).
 use crate::dialog::info::InfoDialog;
 use crate::icon::{icon_quantity, svg_asset};
-use crate::panels::gauges::gauge::{GaugeDisplay, GaugeValue, GaugeValueAttention, fixed_interval};
-use crate::panels::gauges::gauge_registry::{GaugeSpec, GaugeStream};
+use crate::panels::gauges::gauge::Gauge;
+use crate::panels::gauges::gauge::{GaugeDisplay, GaugeModel, GaugeValue, GaugeValueAttention};
+use crate::panels::gauges::gauge_registry::GaugeSpec;
 use crate::panels::gauges::net_common::{
     NetIntervalState, SlidingWindow, format_rate_per_sec, net_interval_config_from_settings,
     shared_net_sampler,
 };
 use crate::settings::SettingSpec;
-use iced::futures::StreamExt;
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::time::Instant;
 
 const RATE_WINDOW_SAMPLES: usize = 60;
 
@@ -37,73 +37,63 @@ fn map_rate(rate: Option<f64>, window: &mut SlidingWindow) -> (GaugeDisplay, f64
     }
 }
 
-fn net_up_stream() -> impl iced::futures::Stream<Item = crate::panels::gauges::gauge::GaugeModel> {
-    let sampler = shared_net_sampler();
-    let interval_state = Arc::new(Mutex::new(NetIntervalState::new(
-        net_interval_config_from_settings(),
-    )));
-    let rate_window = Arc::new(Mutex::new(SlidingWindow::new(RATE_WINDOW_SAMPLES)));
-    let info_state = Arc::new(Mutex::new(InfoDialog {
-        title: "Net Up".to_string(),
-        lines: vec!["No active interface".to_string(), "0 KB/s".to_string()],
-    }));
+struct ManagedNetUpGauge {
+    sampler: Arc<Mutex<crate::panels::gauges::net_common::NetSampler>>,
+    interval_state: NetIntervalState,
+    rate_window: SlidingWindow,
+    next_deadline: Instant,
+}
 
-    fixed_interval(
-        "net_up",
-        Some(svg_asset("upload.svg")),
-        {
-            let state = Arc::clone(&interval_state);
-            move || {
-                state
-                    .lock()
-                    .map(|s| s.interval())
-                    .unwrap_or(Duration::from_secs(1))
-            }
-        },
-        {
-            let sampler = Arc::clone(&sampler);
-            let state = Arc::clone(&interval_state);
-            let window = Arc::clone(&rate_window);
-            let info_state = Arc::clone(&info_state);
-            move || {
-                let (rate, iface) = sampler
-                    .lock()
-                    .ok()
-                    .map(|mut s| {
-                        let rates = s.rates();
-                        let iface = s.cached_interface();
-                        (rates, iface)
-                    })
-                    .unwrap_or((None, None));
-                let rate = rate.map(|r| r.upload_bytes_per_sec);
+impl Gauge for ManagedNetUpGauge {
+    fn id(&self) -> &'static str {
+        "net_up"
+    }
 
-                let (display, bytes_per_sec) = match window.lock() {
-                    Ok(mut window) => map_rate(rate, &mut window),
-                    Err(_) => map_rate(rate, &mut SlidingWindow::new(RATE_WINDOW_SAMPLES)),
-                };
+    fn next_deadline(&self) -> Instant {
+        self.next_deadline
+    }
 
-                if let Ok(mut info) = info_state.lock() {
-                    let iface_line = iface.unwrap_or_else(|| "No active interface".to_string());
-                    info.lines = vec![iface_line, format_rate_per_sec(bytes_per_sec)];
-                }
+    fn run_once(&mut self, now: Instant) -> Option<GaugeModel> {
+        let (rate, iface) = self
+            .sampler
+            .lock()
+            .ok()
+            .map(|mut sampler| {
+                let rates = sampler.rates();
+                let iface = sampler.cached_interface();
+                (rates, iface)
+            })
+            .unwrap_or((None, None));
+        let rate = rate.map(|rates| rates.upload_bytes_per_sec);
+        let (display, bytes_per_sec) = map_rate(rate, &mut self.rate_window);
 
-                if let Ok(mut state) = state.lock() {
-                    state.update(bytes_per_sec);
-                }
+        self.interval_state.update(bytes_per_sec);
+        self.next_deadline = now + self.interval_state.interval();
 
-                Some(display)
-            }
-        },
-        None,
-    )
-    .map({
-        let info_state = Arc::clone(&info_state);
-        move |mut model| {
-            if let Ok(info) = info_state.lock() {
-                model.info = Some(info.clone());
-            }
-            model
-        }
+        Some(GaugeModel {
+            id: "net_up",
+            icon: Some(svg_asset("upload.svg")),
+            display,
+            on_click: None,
+            menu: None,
+            action_dialog: None,
+            info: Some(InfoDialog {
+                title: "Net Up".to_string(),
+                lines: vec![
+                    iface.unwrap_or_else(|| "No active interface".to_string()),
+                    format_rate_per_sec(bytes_per_sec),
+                ],
+            }),
+        })
+    }
+}
+
+pub fn create_gauge(now: Instant) -> Box<dyn Gauge> {
+    Box::new(ManagedNetUpGauge {
+        sampler: shared_net_sampler(),
+        interval_state: NetIntervalState::new(net_interval_config_from_settings()),
+        rate_window: SlidingWindow::new(RATE_WINDOW_SAMPLES),
+        next_deadline: now,
     })
 }
 
@@ -153,17 +143,13 @@ pub fn settings() -> &'static [SettingSpec] {
     SETTINGS
 }
 
-fn stream() -> GaugeStream {
-    Box::new(net_up_stream())
-}
-
 inventory::submit! {
     GaugeSpec {
         id: "net_up",
         description: "Network upload rate gauge displaying a relative icon.",
         default_enabled: false,
         settings,
-        stream,
+        create: create_gauge,
         validate: None,
     }
 }

@@ -2,20 +2,19 @@
 // Consumes Settings: grelier.gauge.brightness.step_percent, grelier.gauge.brightness.refresh_interval_secs.
 use crate::dialog::info::InfoDialog;
 use crate::icon::{icon_quantity, svg_asset};
+use crate::panels::gauges::gauge::{Gauge, GaugeReadyNotify};
 use crate::panels::gauges::gauge::{
     GaugeClick, GaugeClickAction, GaugeDisplay, GaugeInput, GaugeValue, GaugeValueAttention,
-    event_stream,
 };
-use crate::panels::gauges::gauge_registry::{GaugeSpec, GaugeStream};
+use crate::panels::gauges::gauge_registry::GaugeSpec;
 use crate::settings;
 use crate::settings::SettingSpec;
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use std::sync::Mutex;
-use std::sync::mpsc::{self, RecvTimeoutError};
-use std::time::Duration;
+use std::sync::mpsc::{self};
+use std::time::{Duration, Instant};
 
 const DEFAULT_STEP_PERCENT: i8 = 5;
 const DEFAULT_REFRESH_INTERVAL_SECS: u64 = 2;
@@ -119,9 +118,103 @@ enum BrightnessCommand {
     Adjust(i8),
 }
 
-fn brightness_stream() -> impl iced::futures::Stream<Item = crate::panels::gauges::gauge::GaugeModel>
-{
-    let (command_tx, command_rx) = mpsc::channel::<BrightnessCommand>();
+struct ManagedBrightnessGauge {
+    backlight: Option<Backlight>,
+    step_percent: i8,
+    refresh_interval: Duration,
+    command_tx: mpsc::Sender<BrightnessCommand>,
+    command_rx: mpsc::Receiver<BrightnessCommand>,
+    ready_notify: Option<GaugeReadyNotify>,
+    next_deadline: Instant,
+}
+
+impl Gauge for ManagedBrightnessGauge {
+    fn id(&self) -> &'static str {
+        "brightness"
+    }
+
+    fn bind_ready_notify(&mut self, notify: GaugeReadyNotify) {
+        self.ready_notify = Some(notify);
+    }
+
+    fn next_deadline(&self) -> Instant {
+        self.next_deadline
+    }
+
+    fn run_once(&mut self, now: Instant) -> Option<crate::panels::gauges::gauge::GaugeModel> {
+        while let Ok(BrightnessCommand::Adjust(delta)) = self.command_rx.try_recv() {
+            if self.backlight.is_none() {
+                self.backlight = Backlight::discover();
+            }
+            if let Some(ref ctl) = self.backlight
+                && let Err(err) = ctl.adjust_percent(delta)
+            {
+                log::error!("brightness gauge: failed to adjust brightness: {err}");
+                self.backlight = None;
+            }
+        }
+
+        if self.backlight.is_none() {
+            self.backlight = Backlight::discover();
+        }
+
+        let percent = if let Some(ref ctl) = self.backlight {
+            match ctl.percent() {
+                Ok(percent) => Some(percent),
+                Err(err) => {
+                    log::error!("brightness gauge: failed to read brightness: {err}");
+                    self.backlight = None;
+                    None
+                }
+            }
+        } else {
+            None
+        };
+
+        let device_name = self.backlight.as_ref().map(|ctl| ctl.name.clone());
+        let step_percent = self.step_percent;
+        let command_tx = self.command_tx.clone();
+        let ready_notify = self.ready_notify.clone();
+        let on_click: GaugeClickAction = Arc::new(move |click: GaugeClick| match click.input {
+            GaugeInput::ScrollUp => {
+                let _ = command_tx.send(BrightnessCommand::Adjust(step_percent));
+                if let Some(ready_notify) = &ready_notify {
+                    ready_notify("brightness");
+                }
+            }
+            GaugeInput::ScrollDown => {
+                let _ = command_tx.send(BrightnessCommand::Adjust(-step_percent));
+                if let Some(ready_notify) = &ready_notify {
+                    ready_notify("brightness");
+                }
+            }
+            _ => {}
+        });
+
+        self.next_deadline = now + self.refresh_interval;
+
+        Some(crate::panels::gauges::gauge::GaugeModel {
+            id: "brightness",
+            icon: Some(svg_asset("brightness.svg")),
+            display: brightness_value(percent),
+            on_click: Some(on_click),
+            menu: None,
+            action_dialog: None,
+            info: Some(InfoDialog {
+                title: "Brightness".to_string(),
+                lines: vec![
+                    device_name.unwrap_or_else(|| "No backlight device".to_string()),
+                    match percent {
+                        Some(value) => format!("Brightness: {value}%"),
+                        None => "Brightness: N/A".to_string(),
+                    },
+                ],
+            }),
+        })
+    }
+}
+
+pub fn create_gauge(now: Instant) -> Box<dyn Gauge> {
     let mut step_percent = settings::settings().get_parsed_or(
         "grelier.gauge.brightness.step_percent",
         DEFAULT_STEP_PERCENT,
@@ -133,133 +226,16 @@ fn brightness_stream() -> impl iced::futures::Stream<Item = crate::panels::gauge
         "grelier.gauge.brightness.refresh_interval_secs",
         DEFAULT_REFRESH_INTERVAL_SECS,
     );
-
-    let on_click: GaugeClickAction = {
-        let command_tx = command_tx.clone();
-        Arc::new(move |click: GaugeClick| match click.input {
-            GaugeInput::ScrollUp => {
-                let _ = command_tx.send(BrightnessCommand::Adjust(step_percent));
-            }
-            GaugeInput::ScrollDown => {
-                let _ = command_tx.send(BrightnessCommand::Adjust(-step_percent));
-            }
-            _ => {}
-        })
-    };
-    let info_state = Arc::new(Mutex::new(InfoDialog {
-        title: "Brightness".to_string(),
-        lines: vec![
-            "No backlight device".to_string(),
-            "Brightness: N/A".to_string(),
-        ],
-    }));
-
-    event_stream(
-        "brightness",
-        Some(svg_asset("brightness.svg")),
-        move |mut sender| {
-            let mut backlight = Backlight::discover();
-
-            let info_state = Arc::clone(&info_state);
-            let mut send_state = |percent: Option<u8>,
-                                  _attention: GaugeValueAttention,
-                                  device_name: Option<String>| {
-                let display = brightness_value(percent);
-                let info = if let Ok(mut info) = info_state.lock() {
-                    let device_line =
-                        device_name.unwrap_or_else(|| "No backlight device".to_string());
-                    let brightness_line = match percent {
-                        Some(value) => format!("Brightness: {value}%"),
-                        None => "Brightness: N/A".to_string(),
-                    };
-                    info.lines = vec![device_line, brightness_line];
-                    Some(info.clone())
-                } else {
-                    None
-                };
-
-                let _ = sender.try_send(crate::panels::gauges::gauge::GaugeModel {
-                    id: "brightness",
-                    icon: Some(svg_asset("brightness.svg")),
-                    display,
-                    on_click: Some(on_click.clone()),
-                    menu: None,
-                    action_dialog: None,
-                    info,
-                });
-            };
-
-            let mut percent = None;
-            if let Some(ref ctl) = backlight {
-                match ctl.percent() {
-                    Ok(p) => percent = Some(p),
-                    Err(err) => {
-                        log::error!("brightness gauge: failed to read brightness: {err}");
-                        backlight = None;
-                    }
-                }
-            }
-
-            let attention = if percent.is_some() {
-                GaugeValueAttention::Nominal
-            } else {
-                GaugeValueAttention::Danger
-            };
-
-            let device_name = backlight.as_ref().map(|ctl| ctl.name.clone());
-            send_state(percent, attention, device_name);
-
-            loop {
-                let needs_refresh =
-                    match command_rx.recv_timeout(Duration::from_secs(refresh_interval_secs)) {
-                        Ok(BrightnessCommand::Adjust(delta)) => {
-                            if backlight.is_none() {
-                                backlight = Backlight::discover();
-                            }
-
-                            if let Some(ref ctl) = backlight
-                                && let Err(err) = ctl.adjust_percent(delta)
-                            {
-                                log::error!("brightness gauge: failed to adjust brightness: {err}");
-                                backlight = None;
-                            }
-                            true
-                        }
-                        Err(RecvTimeoutError::Timeout) => {
-                            if backlight.is_none() {
-                                backlight = Backlight::discover();
-                            }
-                            true
-                        }
-                        Err(RecvTimeoutError::Disconnected) => break,
-                    };
-
-                if needs_refresh {
-                    let percent = if let Some(ref ctl) = backlight {
-                        match ctl.percent() {
-                            Ok(p) => Some(p),
-                            Err(err) => {
-                                log::error!("brightness gauge: failed to read brightness: {err}");
-                                backlight = None;
-                                None
-                            }
-                        }
-                    } else {
-                        None
-                    };
-
-                    let attention = if percent.is_some() {
-                        GaugeValueAttention::Nominal
-                    } else {
-                        GaugeValueAttention::Danger
-                    };
-
-                    let device_name = backlight.as_ref().map(|ctl| ctl.name.clone());
-                    send_state(percent, attention, device_name);
-                }
-            }
-        },
-    )
+    let (command_tx, command_rx) = mpsc::channel::<BrightnessCommand>();
+    Box::new(ManagedBrightnessGauge {
+        backlight: None,
+        step_percent,
+        refresh_interval: Duration::from_secs(refresh_interval_secs),
+        command_tx,
+        command_rx,
+        ready_notify: None,
+        next_deadline: now,
+    })
 }
 
 pub fn settings() -> &'static [SettingSpec] {
@@ -276,17 +252,13 @@ pub fn settings() -> &'static [SettingSpec] {
     SETTINGS
 }
 
-fn stream() -> GaugeStream {
-    Box::new(brightness_stream())
-}
-
 inventory::submit! {
     GaugeSpec {
         id: "brightness",
         description: "Brightness gauge controlling backlight percent level.",
         default_enabled: false,
         settings,
-        stream,
+        create: create_gauge,
         validate: None,
     }
 }
