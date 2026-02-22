@@ -46,13 +46,13 @@ fn render_date_display(month_format: &str, day_format: &str) -> GaugeDisplay {
 }
 
 /// Stream of the current day (day-of-month, zero-padded) published once per day.
-struct ManagedDateGauge {
+struct DateGauge {
     month_format: String,
     day_format: String,
     next_deadline: Instant,
 }
 
-impl Gauge for ManagedDateGauge {
+impl Gauge for DateGauge {
     fn id(&self) -> &'static str {
         "date"
     }
@@ -80,7 +80,7 @@ pub fn create_gauge(now: Instant) -> Box<dyn Gauge> {
         settings::settings().get_or("grelier.gauge.date.month_format", DEFAULT_MONTH_FORMAT);
     let day_format =
         settings::settings().get_or("grelier.gauge.date.day_format", DEFAULT_DAY_FORMAT);
-    Box::new(ManagedDateGauge {
+    Box::new(DateGauge {
         month_format,
         day_format,
         next_deadline: now,

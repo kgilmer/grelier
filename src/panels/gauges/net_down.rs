@@ -37,14 +37,14 @@ fn map_rate(rate: Option<f64>, window: &mut SlidingWindow) -> (GaugeDisplay, f64
     }
 }
 
-struct ManagedNetDownGauge {
+struct NetDownGauge {
     sampler: Arc<Mutex<crate::panels::gauges::net_common::NetSampler>>,
     interval_state: NetIntervalState,
     rate_window: SlidingWindow,
     next_deadline: Instant,
 }
 
-impl Gauge for ManagedNetDownGauge {
+impl Gauge for NetDownGauge {
     fn id(&self) -> &'static str {
         "net_down"
     }
@@ -89,7 +89,7 @@ impl Gauge for ManagedNetDownGauge {
 }
 
 pub fn create_gauge(now: Instant) -> Box<dyn Gauge> {
-    Box::new(ManagedNetDownGauge {
+    Box::new(NetDownGauge {
         sampler: shared_net_sampler(),
         interval_state: NetIntervalState::new(net_interval_config_from_settings()),
         rate_window: SlidingWindow::new(RATE_WINDOW_SAMPLES),

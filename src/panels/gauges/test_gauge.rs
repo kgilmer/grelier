@@ -128,7 +128,7 @@ fn info_dialog() -> InfoDialog {
     }
 }
 
-struct ManagedTestGauge {
+struct TestGauge {
     state: Arc<Mutex<QuantityState>>,
     action_dialog: GaugeActionDialog,
     info_dialog: InfoDialog,
@@ -136,7 +136,7 @@ struct ManagedTestGauge {
     next_deadline: Instant,
 }
 
-impl Gauge for ManagedTestGauge {
+impl Gauge for TestGauge {
     fn id(&self) -> &'static str {
         "test_gauge"
     }
@@ -183,7 +183,7 @@ impl Gauge for ManagedTestGauge {
 }
 
 pub fn create_gauge(now: Instant) -> Box<dyn Gauge> {
-    Box::new(ManagedTestGauge {
+    Box::new(TestGauge {
         state: Arc::new(Mutex::new(QuantityState::new())),
         action_dialog: action_dialog(),
         info_dialog: info_dialog(),

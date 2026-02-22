@@ -184,14 +184,14 @@ impl RamState {
     }
 }
 
-struct ManagedRamGauge {
+struct RamGauge {
     state: RamState,
     warning_threshold: f32,
     danger_threshold: f32,
     next_deadline: Instant,
 }
 
-impl Gauge for ManagedRamGauge {
+impl Gauge for RamGauge {
     fn id(&self) -> &'static str {
         "ram"
     }
@@ -305,7 +305,7 @@ pub fn create_gauge(now: Instant) -> Box<dyn Gauge> {
         DEFAULT_SLOW_INTERVAL_SECS,
     );
 
-    Box::new(ManagedRamGauge {
+    Box::new(RamGauge {
         state: RamState {
             fast_interval: false,
             below_threshold_streak: 0,

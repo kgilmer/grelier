@@ -25,7 +25,7 @@ use std::time::{Duration, Instant};
 #[cfg(test)]
 const IDLE_WAIT: Duration = Duration::from_millis(25);
 const DEFAULT_STEP_PERCENT: i8 = 5;
-const MANAGED_POLL_INTERVAL: Duration = Duration::from_millis(100);
+const POLL_INTERVAL: Duration = Duration::from_millis(100);
 
 fn format_level(percent: Option<u8>) -> GaugeDisplay {
     match percent {
@@ -354,7 +354,7 @@ fn snapshot_audio_out(commands: Vec<SoundCommand>) -> AudioOutSnapshot {
     }
 }
 
-struct ManagedAudioOutGauge {
+struct AudioOutGauge {
     step_percent: i8,
     command_tx: mpsc::Sender<SoundCommand>,
     command_rx: mpsc::Receiver<SoundCommand>,
@@ -363,7 +363,7 @@ struct ManagedAudioOutGauge {
     next_deadline: Instant,
 }
 
-impl Gauge for ManagedAudioOutGauge {
+impl Gauge for AudioOutGauge {
     fn id(&self) -> &'static str {
         "audio_out"
     }
@@ -436,7 +436,7 @@ impl Gauge for ManagedAudioOutGauge {
                 }
             })
             .unwrap_or_else(|| svg_asset("speaker.svg"));
-        self.next_deadline = now + MANAGED_POLL_INTERVAL;
+        self.next_deadline = now + POLL_INTERVAL;
 
         Some(crate::panels::gauges::gauge::GaugeModel {
             id: "audio_out",
@@ -476,7 +476,7 @@ pub fn create_gauge(now: Instant) -> Box<dyn Gauge> {
         step_percent = DEFAULT_STEP_PERCENT;
     }
     let (command_tx, command_rx) = mpsc::channel::<SoundCommand>();
-    Box::new(ManagedAudioOutGauge {
+    Box::new(AudioOutGauge {
         step_percent,
         command_tx,
         command_rx,

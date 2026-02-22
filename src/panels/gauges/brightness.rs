@@ -118,7 +118,7 @@ enum BrightnessCommand {
     Adjust(i8),
 }
 
-struct ManagedBrightnessGauge {
+struct BrightnessGauge {
     backlight: Option<Backlight>,
     step_percent: i8,
     refresh_interval: Duration,
@@ -128,7 +128,7 @@ struct ManagedBrightnessGauge {
     next_deadline: Instant,
 }
 
-impl Gauge for ManagedBrightnessGauge {
+impl Gauge for BrightnessGauge {
     fn id(&self) -> &'static str {
         "brightness"
     }
@@ -227,7 +227,7 @@ pub fn create_gauge(now: Instant) -> Box<dyn Gauge> {
         DEFAULT_REFRESH_INTERVAL_SECS,
     );
     let (command_tx, command_rx) = mpsc::channel::<BrightnessCommand>();
-    Box::new(ManagedBrightnessGauge {
+    Box::new(BrightnessGauge {
         backlight: None,
         step_percent,
         refresh_interval: Duration::from_secs(refresh_interval_secs),

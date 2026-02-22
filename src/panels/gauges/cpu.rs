@@ -144,13 +144,13 @@ fn cpu_value(
     }
 }
 
-struct ManagedCpuGauge {
+struct CpuGauge {
     state: CpuState,
     cpu_model: String,
     next_deadline: Instant,
 }
 
-impl Gauge for ManagedCpuGauge {
+impl Gauge for CpuGauge {
     fn id(&self) -> &'static str {
         "cpu"
     }
@@ -235,7 +235,7 @@ pub fn create_gauge(now: Instant) -> Box<dyn Gauge> {
         DEFAULT_SLOW_INTERVAL_SECS,
     );
 
-    Box::new(ManagedCpuGauge {
+    Box::new(CpuGauge {
         state: CpuState {
             previous: None,
             fast_interval: false,

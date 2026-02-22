@@ -136,7 +136,7 @@ fn duration_until_window_boundary(window_secs: u64) -> Duration {
 }
 
 /// Stream of the current wall-clock hour/minute, formatted on two lines.
-struct ManagedClockGauge {
+struct ClockGauge {
     show_seconds: bool,
     show_text: bool,
     format_state: Arc<Mutex<HourFormat>>,
@@ -145,7 +145,7 @@ struct ManagedClockGauge {
     next_deadline: Instant,
 }
 
-impl Gauge for ManagedClockGauge {
+impl Gauge for ClockGauge {
     fn id(&self) -> &'static str {
         "clock"
     }
@@ -242,7 +242,7 @@ impl Gauge for ManagedClockGauge {
 }
 
 pub fn create_gauge(now: Instant) -> Box<dyn Gauge> {
-    Box::new(ManagedClockGauge {
+    Box::new(ClockGauge {
         show_seconds: settings::settings().get_bool_or("grelier.gauge.clock.showseconds", false),
         show_text: settings::settings().get_bool_or("grelier.gauge.clock.show_text", true),
         format_state: Arc::new(Mutex::new(hour_format_from_setting())),

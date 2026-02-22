@@ -544,7 +544,7 @@ fn wifi_gauge(snapshot: WifiSnapshot, menu: Option<GaugeMenu>) -> GaugeModel {
     }
 }
 
-struct ManagedWifiGauge {
+struct WifiGauge {
     quality_max: f32,
     poll_interval: Duration,
     command_tx: mpsc::Sender<WifiCommand>,
@@ -553,7 +553,7 @@ struct ManagedWifiGauge {
     next_deadline: Instant,
 }
 
-impl Gauge for ManagedWifiGauge {
+impl Gauge for WifiGauge {
     fn id(&self) -> &'static str {
         "wifi"
     }
@@ -631,7 +631,7 @@ pub fn create_gauge(now: Instant) -> Box<dyn Gauge> {
     );
     let (command_tx, command_rx) = mpsc::channel::<WifiCommand>();
 
-    Box::new(ManagedWifiGauge {
+    Box::new(WifiGauge {
         quality_max,
         poll_interval: Duration::from_secs(poll_interval_secs),
         command_tx,

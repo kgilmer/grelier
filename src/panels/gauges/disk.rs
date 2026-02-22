@@ -159,7 +159,7 @@ fn disk_value(
     }
 }
 
-struct ManagedDiskGauge {
+struct DiskGauge {
     path: String,
     warning_threshold: f32,
     danger_threshold: f32,
@@ -167,7 +167,7 @@ struct ManagedDiskGauge {
     next_deadline: Instant,
 }
 
-impl Gauge for ManagedDiskGauge {
+impl Gauge for DiskGauge {
     fn id(&self) -> &'static str {
         "disk"
     }
@@ -230,7 +230,7 @@ pub fn create_gauge(now: Instant) -> Box<dyn Gauge> {
         DEFAULT_DANGER_THRESHOLD,
     );
 
-    Box::new(ManagedDiskGauge {
+    Box::new(DiskGauge {
         path,
         warning_threshold,
         danger_threshold,

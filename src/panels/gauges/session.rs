@@ -112,12 +112,12 @@ fn session_action_dialog() -> GaugeActionDialog {
     }
 }
 
-struct ManagedSessionGauge {
+struct SessionGauge {
     action_dialog: GaugeActionDialog,
     next_deadline: Instant,
 }
 
-impl Gauge for ManagedSessionGauge {
+impl Gauge for SessionGauge {
     fn id(&self) -> &'static str {
         "session"
     }
@@ -147,7 +147,7 @@ impl Gauge for ManagedSessionGauge {
 }
 
 pub fn create_gauge(now: Instant) -> Box<dyn Gauge> {
-    Box::new(ManagedSessionGauge {
+    Box::new(SessionGauge {
         action_dialog: session_action_dialog(),
         next_deadline: now,
     })

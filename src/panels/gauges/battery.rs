@@ -656,7 +656,7 @@ fn title_case_profile(profile: &str) -> String {
     out
 }
 
-struct ManagedBatteryGauge {
+struct BatteryGauge {
     warning_percent: u8,
     danger_percent: u8,
     refresh_interval: Duration,
@@ -666,7 +666,7 @@ struct ManagedBatteryGauge {
     next_deadline: Instant,
 }
 
-impl Gauge for ManagedBatteryGauge {
+impl Gauge for BatteryGauge {
     fn id(&self) -> &'static str {
         "battery"
     }
@@ -733,7 +733,7 @@ pub fn create_gauge(now: Instant) -> Box<dyn Gauge> {
     );
     let (command_tx, command_rx) = mpsc::channel::<BatteryCommand>();
 
-    Box::new(ManagedBatteryGauge {
+    Box::new(BatteryGauge {
         warning_percent,
         danger_percent,
         refresh_interval: Duration::from_secs(refresh_interval_secs),
