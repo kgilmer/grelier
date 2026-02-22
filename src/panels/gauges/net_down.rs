@@ -72,7 +72,7 @@ impl Gauge for NetDownGauge {
 
         Some(GaugeModel {
             id: "net_down",
-            icon: Some(svg_asset("download.svg")),
+            icon: svg_asset("download.svg"),
             display,
             on_click: None,
             menu: None,

@@ -561,7 +561,7 @@ fn wifi_gauge(snapshot: WifiSnapshot, menu: Option<GaugeMenu>) -> GaugeModel {
 
     GaugeModel {
         id: "wifi",
-        icon: Some(svg_asset(icon)),
+        icon: svg_asset(icon),
         display: match snapshot.state {
             WifiState::NoDevice => GaugeDisplay::Error,
             _ => GaugeDisplay::Value {

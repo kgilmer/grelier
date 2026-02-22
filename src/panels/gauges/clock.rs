@@ -231,7 +231,7 @@ impl Gauge for ClockGauge {
 
         Some(GaugeModel {
             id: "clock",
-            icon: Some(icon),
+            icon,
             display,
             on_click: Some(on_click),
             menu: None,

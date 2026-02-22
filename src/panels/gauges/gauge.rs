@@ -73,12 +73,19 @@ pub struct GaugeActionDialog {
 /// Full render/update model for a single gauge instance.
 #[derive(Clone)]
 pub struct GaugeModel {
+    /// Stable gauge id used for routing, replacement, and click dispatch.
     pub id: &'static str,
-    pub icon: Option<svg::Handle>,
+    /// Icon rendered at the top of the gauge.
+    pub icon: svg::Handle,
+    /// Value/error content shown in the gauge value area.
     pub display: GaugeDisplay,
+    /// Optional pointer-input callback for click/scroll interactions.
     pub on_click: Option<GaugeClickAction>,
+    /// Optional context menu shown on right-click.
     pub menu: Option<GaugeMenu>,
+    /// Optional action dialog shown on right-click when configured.
     pub action_dialog: Option<GaugeActionDialog>,
+    /// Optional info dialog content shown for this gauge.
     pub info: Option<InfoDialog>,
 }
 

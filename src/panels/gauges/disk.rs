@@ -202,7 +202,7 @@ impl Gauge for DiskGauge {
 
         Some(GaugeModel {
             id: "disk",
-            icon: Some(svg_asset("disk.svg")),
+            icon: svg_asset("disk.svg"),
             display,
             on_click: None,
             menu: None,

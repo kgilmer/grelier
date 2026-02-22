@@ -378,7 +378,7 @@ impl<C: Clock> GaugeWorkManager<C> {
 fn dead_gauge_model(id: &'static str) -> GaugeModel {
     GaugeModel {
         id,
-        icon: Some(svg_asset("turtle.svg")),
+        icon: svg_asset("turtle.svg"),
         display: GaugeDisplay::Empty,
         on_click: None,
         menu: None,
@@ -436,7 +436,7 @@ mod tests {
             if self.emit_model {
                 Some(GaugeModel {
                     id: self.id,
-                    icon: None,
+                    icon: svg_asset("ratio-0.svg"),
                     display: GaugeDisplay::Empty,
                     on_click: None,
                     menu: None,
@@ -588,7 +588,7 @@ mod tests {
             .expect("dead transition should emit turtle model");
         assert_eq!(dead_batch.len(), 1);
         assert_eq!(dead_batch[0].id, "slow");
-        assert_eq!(dead_batch[0].icon, Some(svg_asset("turtle.svg")));
+        assert_eq!(dead_batch[0].icon, svg_asset("turtle.svg"));
         assert!(matches!(dead_batch[0].display, GaugeDisplay::Empty));
         let second = manager.snapshot();
         assert_eq!(runtime(&second, "slow").status, GaugeStatus::Dead);

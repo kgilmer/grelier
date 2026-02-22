@@ -195,7 +195,7 @@ impl Gauge for BrightnessGauge {
 
         Some(crate::panels::gauges::gauge::GaugeModel {
             id: "brightness",
-            icon: Some(svg_asset("brightness.svg")),
+            icon: svg_asset("brightness.svg"),
             display: brightness_value(percent),
             on_click: Some(on_click),
             menu: None,

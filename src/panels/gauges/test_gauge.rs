@@ -172,7 +172,7 @@ impl Gauge for TestGauge {
         self.next_deadline = now + Duration::from_secs(1);
         Some(GaugeModel {
             id: "test_gauge",
-            icon: Some(svg_asset("option-checked.svg")),
+            icon: svg_asset("option-checked.svg"),
             display,
             on_click: Some(on_click),
             menu: None,

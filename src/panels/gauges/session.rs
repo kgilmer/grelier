@@ -130,7 +130,7 @@ impl Gauge for SessionGauge {
         self.next_deadline = now + Duration::from_secs(DEFAULT_REFRESH_INTERVAL_SECS);
         Some(GaugeModel {
             id: "session",
-            icon: Some(svg_asset("shutdown.svg")),
+            icon: svg_asset("shutdown.svg"),
             display: GaugeDisplay::Empty,
             on_click: None,
             menu: None,

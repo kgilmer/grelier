@@ -465,7 +465,7 @@ impl Gauge for AudioOutGauge {
 
         Some(crate::panels::gauges::gauge::GaugeModel {
             id: "audio_out",
-            icon: Some(icon),
+            icon,
             display: format_level(status.map(|status| status.percent)),
             on_click: Some(on_click),
             menu: if snapshot.connected {

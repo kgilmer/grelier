@@ -932,6 +932,10 @@ mod tests {
         (SettingsStorage::new(path.clone()), path)
     }
 
+    fn test_icon() -> iced::widget::svg::Handle {
+        crate::icon::svg_asset("ratio-0.svg")
+    }
+
     #[test]
     fn command_line_overrides_apply_before_settings_persist() {
         let (storage, path) = temp_storage_path("overrides_before_save");
@@ -965,7 +969,7 @@ mod tests {
         let mut gauges = Vec::new();
         let g1 = GaugeModel {
             id: "clock",
-            icon: None,
+            icon: test_icon(),
             display: GaugeDisplay::Value {
                 value: GaugeValue::Text("12\n00".to_string()),
                 attention: GaugeValueAttention::Nominal,
@@ -977,7 +981,7 @@ mod tests {
         };
         let g2 = GaugeModel {
             id: "clock",
-            icon: None,
+            icon: test_icon(),
             display: GaugeDisplay::Value {
                 value: GaugeValue::Text("12\n01".to_string()),
                 attention: GaugeValueAttention::Nominal,
@@ -998,7 +1002,7 @@ mod tests {
 
         let g3 = GaugeModel {
             id: "date",
-            icon: None,
+            icon: test_icon(),
             display: GaugeDisplay::Value {
                 value: GaugeValue::Text("01\n01".to_string()),
                 attention: GaugeValueAttention::Nominal,
@@ -1032,7 +1036,7 @@ mod tests {
         let clicked = Arc::new(AtomicBool::new(false));
         state.gauges.push(GaugeModel {
             id: "audio_out",
-            icon: None,
+            icon: test_icon(),
             display: GaugeDisplay::Empty,
             on_click: Some(Arc::new({
                 let clicked = clicked.clone();
@@ -1087,7 +1091,7 @@ mod tests {
         );
         state.gauges.push(GaugeModel {
             id: "audio_out",
-            icon: None,
+            icon: test_icon(),
             display: GaugeDisplay::Empty,
             on_click: None,
             menu: None,
@@ -1156,7 +1160,7 @@ mod tests {
         };
         state.gauges.push(GaugeModel {
             id: "audio_out",
-            icon: None,
+            icon: test_icon(),
             display: GaugeDisplay::Empty,
             on_click: None,
             menu: Some(GaugeMenu {

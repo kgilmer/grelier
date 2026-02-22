@@ -200,7 +200,7 @@ impl Gauge for CpuGauge {
 
         Some(GaugeModel {
             id: "cpu",
-            icon: Some(svg_asset("microchip.svg")),
+            icon: svg_asset("microchip.svg"),
             display,
             on_click: None,
             menu: None,

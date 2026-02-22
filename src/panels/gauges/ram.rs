@@ -248,7 +248,7 @@ impl Gauge for RamGauge {
 
         Some(GaugeModel {
             id: "ram",
-            icon: Some(svg_asset("ram.svg")),
+            icon: svg_asset("ram.svg"),
             display: ram_value(
                 utilization,
                 free_ratio,

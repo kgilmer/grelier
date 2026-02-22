@@ -65,7 +65,7 @@ impl Gauge for DateGauge {
         self.next_deadline = now + day_rollover_delay();
         Some(GaugeModel {
             id: "date",
-            icon: Some(svg_asset("calendar-alt.svg")),
+            icon: svg_asset("calendar-alt.svg"),
             display: render_date_display(&self.month_format, &self.day_format),
             on_click: None,
             menu: None,

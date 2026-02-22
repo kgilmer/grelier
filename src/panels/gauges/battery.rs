@@ -116,10 +116,7 @@ fn snapshot_model(
             ac_online = ac_online_from_status(status.as_deref());
         }
         if let Some(display) = battery_value(&dev, warning_percent, danger_percent) {
-            let icon = Some(svg_asset(power_icon_for_status(
-                status.as_deref(),
-                ac_online,
-            )));
+            let icon = svg_asset(power_icon_for_status(status.as_deref(), ac_online));
             let menu = menu_select.and_then(|select| power_profile_menu(select.clone()));
             return Some(GaugeModel {
                 id: "battery",
@@ -148,7 +145,7 @@ fn snapshot_model(
     let menu = menu_select.and_then(|select| power_profile_menu(select.clone()));
     Some(GaugeModel {
         id: "battery",
-        icon: Some(svg_asset("power.svg")),
+        icon: svg_asset("power.svg"),
         display: GaugeDisplay::Error,
         on_click: None,
         menu,

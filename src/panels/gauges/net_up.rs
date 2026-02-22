@@ -72,7 +72,7 @@ impl Gauge for NetUpGauge {
 
         Some(GaugeModel {
             id: "net_up",
-            icon: Some(svg_asset("upload.svg")),
+            icon: svg_asset("upload.svg"),
             display,
             on_click: None,
             menu: None,
