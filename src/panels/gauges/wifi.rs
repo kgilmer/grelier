@@ -23,8 +23,10 @@ use zbus::zvariant::{OwnedObjectPath, OwnedValue};
 const SYS_NET: &str = "/sys/class/net";
 const PROC_NET_WIRELESS: &str = "/proc/net/wireless";
 const WPA_CTRL_DIRS: [&str; 2] = ["/run/wpa_supplicant", "/var/run/wpa_supplicant"];
+const WPA_CTRL_READ_TIMEOUT: Duration = Duration::from_millis(30);
 const DEFAULT_QUALITY_MAX: f32 = 70.0;
 const DEFAULT_POLL_INTERVAL_SECS: u64 = 3;
+const MENU_REFRESH_INTERVAL_SECS: u64 = 15;
 const NM_SERVICE: &str = "org.freedesktop.NetworkManager";
 const NM_PATH: &str = "/org/freedesktop/NetworkManager";
 const NM_SETTINGS_PATH: &str = "/org/freedesktop/NetworkManager/Settings";
@@ -116,6 +118,10 @@ fn read_link_quality_at(proc_net_wireless: &Path, iface: &str) -> Option<f32> {
 }
 
 fn read_ssid(iface: &str) -> Option<String> {
+    if let Some(ssid) = read_ssid_network_manager(iface) {
+        return Some(ssid);
+    }
+
     for dir in WPA_CTRL_DIRS {
         let path = Path::new(dir).join(iface);
         if !path.exists() {
@@ -125,7 +131,7 @@ fn read_ssid(iface: &str) -> Option<String> {
             return Some(ssid);
         }
     }
-    read_ssid_network_manager(iface)
+    None
 }
 
 fn read_ssid_network_manager(iface: &str) -> Option<String> {
@@ -152,9 +158,7 @@ fn read_ssid_wpa_ctrl(path: &Path) -> Option<String> {
     let temp_path = temp_socket_path()?;
     let _temp_guard = TempSocketGuard::new(&temp_path);
     let socket = UnixDatagram::bind(&temp_path).ok()?;
-    socket
-        .set_read_timeout(Some(Duration::from_millis(250)))
-        .ok()?;
+    socket.set_read_timeout(Some(WPA_CTRL_READ_TIMEOUT)).ok()?;
     socket.send_to(b"STATUS", path).ok()?;
     let mut buf = [0u8; 4096];
     let size = socket.recv(&mut buf).ok()?;
@@ -367,6 +371,34 @@ fn wifi_menu_items(
     items
 }
 
+fn refresh_wifi_menu_items(connection: &Connection, snapshot: &WifiSnapshot) -> Vec<GaugeMenuItem> {
+    let Some(iface) = snapshot.iface.as_deref() else {
+        return Vec::new();
+    };
+    let Some(device_path) = nm_device_path(connection, iface) else {
+        return Vec::new();
+    };
+
+    let available = available_ssids(connection, &device_path);
+    let entries = wifi_connection_entries(connection, Some(&available));
+    let active_connection = active_connection_path(connection, &device_path)
+        .and_then(|path| active_settings_connection_path(connection, &path));
+    wifi_menu_items(
+        &entries,
+        active_connection.as_ref(),
+        snapshot.ssid.as_deref(),
+    )
+}
+
+fn should_refresh_menu(
+    now: Instant,
+    menu_refresh_deadline: Instant,
+    cached_iface: Option<&str>,
+    current_iface: Option<&str>,
+) -> bool {
+    now >= menu_refresh_deadline || cached_iface != current_iface
+}
+
 fn activate_connection(
     connection: &Connection,
     connection_path: &str,
@@ -547,9 +579,13 @@ fn wifi_gauge(snapshot: WifiSnapshot, menu: Option<GaugeMenu>) -> GaugeModel {
 struct WifiGauge {
     quality_max: f32,
     poll_interval: Duration,
+    menu_refresh_interval: Duration,
     command_tx: mpsc::Sender<WifiCommand>,
     command_rx: mpsc::Receiver<WifiCommand>,
     ready_notify: Option<GaugeReadyNotify>,
+    cached_menu_items: Vec<GaugeMenuItem>,
+    cached_menu_iface: Option<String>,
+    menu_refresh_deadline: Instant,
     next_deadline: Instant,
 }
 
@@ -569,15 +605,19 @@ impl Gauge for WifiGauge {
     fn run_once(&mut self, now: Instant) -> Option<GaugeModel> {
         let snapshot = wifi_snapshot(self.quality_max);
         let nm_connection = Connection::system().ok();
+        let device_path = nm_connection.as_ref().and_then(|connection| {
+            snapshot
+                .iface
+                .as_deref()
+                .and_then(|iface| nm_device_path(connection, iface))
+        });
 
         while let Ok(command) = self.command_rx.try_recv() {
-            if let Some(connection) = nm_connection.as_ref() {
+            if let (Some(connection), Some(device_path)) =
+                (nm_connection.as_ref(), device_path.as_ref())
+            {
                 let WifiCommand::Connect(connection_path) = command;
-                if let Some(iface) = snapshot.iface.as_deref()
-                    && let Some(device_path) = nm_device_path(connection, iface)
-                {
-                    let _ = activate_connection(connection, &connection_path, &device_path);
-                }
+                let _ = activate_connection(connection, &connection_path, device_path);
             }
         }
 
@@ -592,25 +632,31 @@ impl Gauge for WifiGauge {
             })
         };
 
-        let menu = if let Some(connection) = nm_connection.as_ref()
-            && let Some(iface) = snapshot.iface.as_deref()
-            && let Some(device_path) = nm_device_path(connection, iface)
-        {
-            let available = available_ssids(connection, &device_path);
-            let entries = wifi_connection_entries(connection, Some(&available));
-            let active_connection = active_connection_path(connection, &device_path)
-                .and_then(|path| active_settings_connection_path(connection, &path));
-            let items = wifi_menu_items(
-                &entries,
-                active_connection.as_ref(),
-                snapshot.ssid.as_deref(),
-            );
+        let current_iface = snapshot.iface.as_deref();
+        if should_refresh_menu(
+            now,
+            self.menu_refresh_deadline,
+            self.cached_menu_iface.as_deref(),
+            current_iface,
+        ) {
+            self.cached_menu_items = nm_connection
+                .as_ref()
+                .map(|connection| refresh_wifi_menu_items(connection, &snapshot))
+                .unwrap_or_default();
+            self.cached_menu_iface = current_iface.map(ToString::to_string);
+            self.menu_refresh_deadline = now + self.menu_refresh_interval;
+        }
+
+        let menu = if nm_connection.is_some() && snapshot.iface.is_some() {
             Some(GaugeMenu {
                 title: "Wi-Fi Networks".to_string(),
-                items,
+                items: self.cached_menu_items.clone(),
                 on_select: Some(menu_select),
             })
         } else {
+            self.cached_menu_items.clear();
+            self.cached_menu_iface = None;
+            self.menu_refresh_deadline = now + self.menu_refresh_interval;
             None
         };
 
@@ -634,9 +680,13 @@ pub fn create_gauge(now: Instant) -> Box<dyn Gauge> {
     Box::new(WifiGauge {
         quality_max,
         poll_interval: Duration::from_secs(poll_interval_secs),
+        menu_refresh_interval: Duration::from_secs(MENU_REFRESH_INTERVAL_SECS),
         command_tx,
         command_rx,
         ready_notify: None,
+        cached_menu_items: Vec::new(),
+        cached_menu_iface: None,
+        menu_refresh_deadline: now,
         next_deadline: now,
     })
 }
@@ -766,5 +816,25 @@ mod tests {
         assert_eq!(snapshot.strength, 0.0);
 
         let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn menu_refresh_policy_runs_on_deadline_or_iface_change() {
+        let now = Instant::now();
+        let future = now + Duration::from_secs(5);
+
+        assert!(should_refresh_menu(now, now, Some("wlan0"), Some("wlan0")));
+        assert!(should_refresh_menu(
+            now,
+            future,
+            Some("wlan0"),
+            Some("wlan1")
+        ));
+        assert!(!should_refresh_menu(
+            now,
+            future,
+            Some("wlan0"),
+            Some("wlan0")
+        ));
     }
 }
