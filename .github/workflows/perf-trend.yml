@@ -1,0 +1,57 @@
+name: Perf Trend
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: perf-trend-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+
+jobs:
+  trend:
+    name: Benchmark trend
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Load perf config
+        id: perf
+        run: |
+          set -a
+          source .github/perf.env
+          set +a
+          echo "benches=${PERF_BENCHES}" >> "$GITHUB_OUTPUT"
+          echo "threshold=${PERF_ALERT_THRESHOLD}" >> "$GITHUB_OUTPUT"
+          echo "data_dir=${PERF_DATA_DIR}" >> "$GITHUB_OUTPUT"
+
+      - name: Install system dependencies
+        uses: ./.github/actions/install-system-deps
+        with:
+          packages: libxkbcommon-dev libwayland-dev libudev-dev libpulse-dev
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Configure cache
+        uses: Swatinem/rust-cache@v2
+
+      - name: Run benchmarks
+        run: cargo bench ${{ steps.perf.outputs.benches }} -- --output-format bencher | tee benchmark-output.txt
+
+      - name: Store benchmark result
+        uses: benchmark-action/github-action-benchmark@v1
+        with:
+          tool: cargo
+          output-file-path: benchmark-output.txt
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          auto-push: true
+          gh-pages-branch: gh-pages
+          benchmark-data-dir-path: ${{ steps.perf.outputs.data_dir }}
+          max-items-in-chart: 100
+          summary-always: true

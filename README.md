@@ -231,3 +231,42 @@ cargo build --release
 ./target/release/grelier &
 cat ~/.config/grelier/Settings-<version>.xresources
 ```
+
+## Performance Benchmarking
+
+The repo includes Criterion benchmarks for two long-running cost centers:
+
+- `perf_main_loop`: main-loop dispatch/update overhead for an explicit, representative mix of `GaugeBatch`, workspace updates, and cursor events.
+- `perf_gauges`: periodic/background gauge scheduler and worker cost using synthetic gauges through `GaugeWorkManager`.
+
+### Local usage
+
+Run all perf benches:
+
+```bash
+cargo bench --bench perf_main_loop --bench perf_gauges
+```
+
+Compile-only validation (used in fast local/CI checks):
+
+```bash
+cargo bench --no-run --bench perf_main_loop --bench perf_gauges
+```
+
+### CI trend tracking and regression gating
+
+- Trend history is written to the `gh-pages` branch by `.github/workflows/perf-trend.yml` using `benchmark-action/github-action-benchmark`.
+- PR regression checks run in `.github/workflows/perf-gate.yml` and fail the check when benchmark regressions exceed the configured threshold.
+- `.github/workflows/perf-gate.yml` also includes a non-blocking regression canary self-test: it reruns the same benches with `GRELIER_PERF_REGRESSION_CANARY=1` (intentionally slower) and expects the regression gate step to fail.
+- Perf CI configuration is centralized in `.github/perf.env`:
+  - `PERF_BENCHES`: explicit benchmark selection
+  - `PERF_ALERT_THRESHOLD`: regression threshold
+  - `PERF_DATA_DIR`: history location on `gh-pages`
+
+### Bootstrap first baseline
+
+1. Merge this branch into `main`.
+2. Run the `Perf Trend` workflow on `main` (or wait for the next push to `main`).
+3. Confirm benchmark history files exist on `gh-pages` under the configured `PERF_DATA_DIR`.
+
+After that baseline exists, `Perf Gate` can compare PR runs against stored history and block regressions automatically.

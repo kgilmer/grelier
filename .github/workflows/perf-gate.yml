@@ -1,0 +1,117 @@
+name: Perf Gate
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: perf-gate-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  regression-check:
+    name: Regression check
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Load perf config
+        id: perf
+        run: |
+          set -a
+          source .github/perf.env
+          set +a
+          echo "benches=${PERF_BENCHES}" >> "$GITHUB_OUTPUT"
+          echo "threshold=${PERF_ALERT_THRESHOLD}" >> "$GITHUB_OUTPUT"
+          echo "data_dir=${PERF_DATA_DIR}" >> "$GITHUB_OUTPUT"
+
+      - name: Install system dependencies
+        uses: ./.github/actions/install-system-deps
+        with:
+          packages: libxkbcommon-dev libwayland-dev libudev-dev libpulse-dev
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Configure cache
+        uses: Swatinem/rust-cache@v2
+
+      - name: Run benchmarks
+        run: cargo bench ${{ steps.perf.outputs.benches }} -- --output-format bencher | tee benchmark-output.txt
+
+      - name: Check regressions
+        uses: benchmark-action/github-action-benchmark@v1
+        with:
+          tool: cargo
+          output-file-path: benchmark-output.txt
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          gh-pages-branch: gh-pages
+          benchmark-data-dir-path: ${{ steps.perf.outputs.data_dir }}
+          auto-push: false
+          alert-threshold: ${{ steps.perf.outputs.threshold }}
+          comment-on-alert: true
+          fail-on-alert: true
+          summary-always: true
+
+  regression-selftest:
+    name: Regression gate self-test (non-blocking)
+    runs-on: ubuntu-24.04
+    continue-on-error: true
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Load perf config
+        id: perf
+        run: |
+          set -a
+          source .github/perf.env
+          set +a
+          echo "benches=${PERF_BENCHES}" >> "$GITHUB_OUTPUT"
+          echo "threshold=${PERF_ALERT_THRESHOLD}" >> "$GITHUB_OUTPUT"
+          echo "data_dir=${PERF_DATA_DIR}" >> "$GITHUB_OUTPUT"
+
+      - name: Install system dependencies
+        uses: ./.github/actions/install-system-deps
+        with:
+          packages: libxkbcommon-dev libwayland-dev libudev-dev libpulse-dev
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Configure cache
+        uses: Swatinem/rust-cache@v2
+
+      - name: Run canary benchmarks (intentionally regressed)
+        env:
+          GRELIER_PERF_REGRESSION_CANARY: "1"
+        run: cargo bench ${{ steps.perf.outputs.benches }} -- --output-format bencher | tee benchmark-output-canary.txt
+
+      - name: Canary regression check (expected failure)
+        id: canary_gate
+        continue-on-error: true
+        uses: benchmark-action/github-action-benchmark@v1
+        with:
+          tool: cargo
+          output-file-path: benchmark-output-canary.txt
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          gh-pages-branch: gh-pages
+          benchmark-data-dir-path: ${{ steps.perf.outputs.data_dir }}
+          auto-push: false
+          alert-threshold: ${{ steps.perf.outputs.threshold }}
+          comment-on-alert: false
+          fail-on-alert: true
+          summary-always: true
+
+      - name: Verify canary behavior
+        run: |
+          if [ "${{ steps.canary_gate.outcome }}" = "failure" ]; then
+            echo "Regression canary behaved as expected: perf gate detected a regression."
+          else
+            echo "::warning::Regression canary did not trip the gate; inspect benchmark baseline/threshold."
+          fi
