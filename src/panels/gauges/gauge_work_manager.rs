@@ -1,7 +1,10 @@
 // Gauge work-manager runtime and subscription adapter.
 use crate::bar::Message;
 use crate::icon::svg_asset;
-use crate::panels::gauges::gauge::{Gauge, GaugeDisplay, GaugeModel, GaugeReadyNotify};
+use crate::panels::gauges::gauge::{
+    Gauge, GaugeDisplay, GaugeEventSource, GaugeModel, GaugeReadyNotify, GaugeRegistrar, GaugeWake,
+    RunOutcome,
+};
 use crate::panels::gauges::gauge_registry;
 use crate::settings;
 use iced::Subscription;
@@ -55,6 +58,7 @@ fn gauge_batch_stream_by_ids(ids: &Arc<[String]>) -> GaugeBatchMessageStream {
             SystemClock,
             Duration::from_millis(max_run_ms),
             max_run_strikes,
+            ready_notify.clone(),
             gauges,
         );
 
@@ -182,6 +186,17 @@ struct GaugeRuntime {
     run_count: u64,
 }
 
+#[derive(Default)]
+struct RegistrationCollector {
+    event_sources: Vec<Box<dyn GaugeEventSource>>,
+}
+
+impl GaugeRegistrar for RegistrationCollector {
+    fn add_event_source(&mut self, source: Box<dyn GaugeEventSource>) {
+        self.event_sources.push(source);
+    }
+}
+
 /// Deterministic scheduler used by runtime and unit tests.
 ///
 /// The manager runs gauges sequentially, enforces a per-run timeout policy,
@@ -195,6 +210,7 @@ pub struct GaugeWorkManager<C: Clock> {
     deadline_heap: BinaryHeap<Reverse<(Instant, usize, u64)>>,
     ready_queue: VecDeque<usize>,
     ready_set: BTreeSet<usize>,
+    last_emitted_models: HashMap<&'static str, GaugeModel>,
 }
 
 impl<C: Clock> GaugeWorkManager<C> {
@@ -205,13 +221,21 @@ impl<C: Clock> GaugeWorkManager<C> {
         clock: C,
         max_run: Duration,
         max_run_strikes: u8,
+        ready_notify: GaugeReadyNotify,
         gauges: Vec<Box<dyn Gauge>>,
     ) -> Self {
         let mut runtimes = Vec::new();
         let mut id_to_index = HashMap::new();
         let mut deadline_heap = BinaryHeap::new();
 
-        for (idx, gauge) in gauges.into_iter().enumerate() {
+        for (idx, mut gauge) in gauges.into_iter().enumerate() {
+            let mut registration = RegistrationCollector::default();
+            gauge.register(&mut registration);
+            for event_source in registration.event_sources {
+                let notify = ready_notify.clone();
+                thread::spawn(move || event_source.run(notify));
+            }
+
             let id = gauge.id();
             let next_deadline = gauge.next_deadline();
             let runtime = GaugeRuntime {
@@ -236,6 +260,7 @@ impl<C: Clock> GaugeWorkManager<C> {
             deadline_heap,
             ready_queue: VecDeque::new(),
             ready_set: BTreeSet::new(),
+            last_emitted_models: HashMap::new(),
         }
     }
 
@@ -252,19 +277,26 @@ impl<C: Clock> GaugeWorkManager<C> {
     /// Delay until the scheduler should wake up again.
     ///
     /// Returns zero when at least one gauge is already ready to run.
-    pub fn next_wakeup_delay(&self) -> Duration {
+    pub fn next_wakeup_delay(&mut self) -> Duration {
         if !self.ready_queue.is_empty() {
             return Duration::ZERO;
         }
 
         let now = self.clock.now();
-        // Wake at the earliest active deadline; use a bounded fallback when no gauges are runnable.
-        self.runtimes
-            .iter()
-            .filter(|runtime| runtime.status == GaugeStatus::Active)
-            .map(|runtime| runtime.next_deadline.saturating_duration_since(now))
-            .min()
-            .unwrap_or_else(|| Duration::from_millis(250))
+        // Use the heap head to avoid scanning every gauge on each loop iteration.
+        while let Some(Reverse((deadline, idx, generation))) = self.deadline_heap.peek().copied() {
+            let runtime = &self.runtimes[idx];
+            if runtime.status == GaugeStatus::Dead
+                || runtime.generation != generation
+                || runtime.next_deadline != deadline
+            {
+                let _ = self.deadline_heap.pop();
+                continue;
+            }
+            return deadline.saturating_duration_since(now);
+        }
+
+        Duration::from_millis(250)
     }
 
     /// Run one scheduling cycle and return the emitted gauge update batch.
@@ -273,6 +305,7 @@ impl<C: Clock> GaugeWorkManager<C> {
     pub fn step_once(&mut self) -> Option<Vec<GaugeModel>> {
         let now = self.clock.now();
         let mut runnable = BTreeSet::new();
+        let mut external_wake = BTreeSet::new();
 
         // Pop all due heap entries, ignoring stale generations and dead gauges.
         while let Some(Reverse((deadline, idx, generation))) = self.deadline_heap.peek().copied() {
@@ -295,6 +328,7 @@ impl<C: Clock> GaugeWorkManager<C> {
             self.ready_set.remove(&idx);
             if self.runtimes[idx].status == GaugeStatus::Active {
                 let _ = runnable.insert(idx);
+                let _ = external_wake.insert(idx);
             }
         }
 
@@ -310,7 +344,12 @@ impl<C: Clock> GaugeWorkManager<C> {
             }
 
             let started = self.clock.now();
-            let maybe_model = runtime.gauge.run_once(now);
+            let wake = if external_wake.contains(&idx) {
+                GaugeWake::ExternalEvent
+            } else {
+                GaugeWake::Timer
+            };
+            let run_outcome = runtime.gauge.run(wake, now);
             let elapsed = self.clock.now().saturating_duration_since(started);
             runtime.run_count = runtime.run_count.saturating_add(1);
 
@@ -326,8 +365,20 @@ impl<C: Clock> GaugeWorkManager<C> {
                 runtime.strike_count = 0;
             }
 
-            if let Some(model) = maybe_model {
-                updates.push(model);
+            match run_outcome {
+                RunOutcome::NoChange => {}
+                RunOutcome::ModelChanged(model) => {
+                    let model = *model;
+                    let should_emit = self
+                        .last_emitted_models
+                        .get(model.id)
+                        .map(|previous| !models_visually_equal(previous, &model))
+                        .unwrap_or(true);
+                    if should_emit {
+                        self.last_emitted_models.insert(model.id, model.clone());
+                        updates.push(model);
+                    }
+                }
             }
 
             // Reinsert with a bumped generation so older heap entries for this gauge are ignored.
@@ -384,6 +435,100 @@ fn dead_gauge_model(id: &'static str) -> GaugeModel {
         menu: None,
         action_dialog: None,
         info: None,
+    }
+}
+
+fn models_visually_equal(a: &GaugeModel, b: &GaugeModel) -> bool {
+    if a.id != b.id || a.icon != b.icon || !display_equal(&a.display, &b.display) {
+        return false;
+    }
+    if !menu_equal(a.menu.as_ref(), b.menu.as_ref()) {
+        return false;
+    }
+    if !action_dialog_equal(a.action_dialog.as_ref(), b.action_dialog.as_ref()) {
+        return false;
+    }
+    info_equal(a.info.as_ref(), b.info.as_ref())
+}
+
+fn display_equal(a: &GaugeDisplay, b: &GaugeDisplay) -> bool {
+    match (a, b) {
+        (
+            GaugeDisplay::Value {
+                value: av,
+                attention: aa,
+            },
+            GaugeDisplay::Value {
+                value: bv,
+                attention: ba,
+            },
+        ) => aa == ba && value_equal(av, bv),
+        (GaugeDisplay::Empty, GaugeDisplay::Empty) => true,
+        (GaugeDisplay::Error, GaugeDisplay::Error) => true,
+        _ => false,
+    }
+}
+
+fn value_equal(
+    a: &crate::panels::gauges::gauge::GaugeValue,
+    b: &crate::panels::gauges::gauge::GaugeValue,
+) -> bool {
+    match (a, b) {
+        (
+            crate::panels::gauges::gauge::GaugeValue::Text(at),
+            crate::panels::gauges::gauge::GaugeValue::Text(bt),
+        ) => at == bt,
+        (
+            crate::panels::gauges::gauge::GaugeValue::Svg(ai),
+            crate::panels::gauges::gauge::GaugeValue::Svg(bi),
+        ) => ai == bi,
+        _ => false,
+    }
+}
+
+fn menu_equal(
+    a: Option<&crate::panels::gauges::gauge::GaugeMenu>,
+    b: Option<&crate::panels::gauges::gauge::GaugeMenu>,
+) -> bool {
+    match (a, b) {
+        (None, None) => true,
+        (Some(a), Some(b)) => {
+            a.title == b.title
+                && a.items.len() == b.items.len()
+                && a.items.iter().zip(&b.items).all(|(ai, bi)| {
+                    ai.id == bi.id && ai.label == bi.label && ai.selected == bi.selected
+                })
+        }
+        _ => false,
+    }
+}
+
+fn action_dialog_equal(
+    a: Option<&crate::panels::gauges::gauge::GaugeActionDialog>,
+    b: Option<&crate::panels::gauges::gauge::GaugeActionDialog>,
+) -> bool {
+    match (a, b) {
+        (None, None) => true,
+        (Some(a), Some(b)) => {
+            a.title == b.title
+                && a.items.len() == b.items.len()
+                && a.items
+                    .iter()
+                    .zip(&b.items)
+                    .all(|(ai, bi)| ai.id == bi.id && ai.icon == bi.icon)
+        }
+        _ => false,
+    }
+}
+
+fn info_equal(
+    a: Option<&crate::dialog::info::InfoDialog>,
+    b: Option<&crate::dialog::info::InfoDialog>,
+) -> bool {
+    match (a, b) {
+        (None, None) => true,
+        (Some(a), Some(b)) => a.title == b.title && a.lines == b.lines,
+        _ => false,
     }
 }
 
@@ -457,6 +602,10 @@ mod tests {
             .unwrap()
     }
 
+    fn noop_notify() -> GaugeReadyNotify {
+        Arc::new(|_| {})
+    }
+
     #[test]
     fn due_only_execution_runs_only_due_gauges() {
         let start = Instant::now();
@@ -466,6 +615,7 @@ mod tests {
             manager_clock,
             Duration::from_millis(40),
             3,
+            noop_notify(),
             vec![
                 Box::new(TestGauge::new(
                     "g1",
@@ -510,6 +660,7 @@ mod tests {
             manager_clock,
             Duration::from_millis(40),
             3,
+            noop_notify(),
             vec![Box::new(TestGauge::new(
                 "ready",
                 clock.clone(),
@@ -540,6 +691,7 @@ mod tests {
             manager_clock,
             Duration::from_millis(40),
             3,
+            noop_notify(),
             vec![Box::new(TestGauge::new(
                 "dup",
                 clock.clone(),
@@ -559,6 +711,35 @@ mod tests {
     }
 
     #[test]
+    fn unchanged_models_are_not_re_emitted() {
+        let start = Instant::now();
+        let clock = FakeClock::new(start);
+        let manager_clock = clock.clone();
+        let mut manager = GaugeWorkManager::new(
+            manager_clock,
+            Duration::from_millis(40),
+            3,
+            noop_notify(),
+            vec![Box::new(TestGauge::new(
+                "same",
+                clock,
+                start + Duration::from_secs(60),
+                Duration::from_secs(60),
+                Duration::ZERO,
+                true,
+            ))],
+        );
+
+        assert!(manager.mark_ready("same"));
+        let first = manager.step_once();
+        assert!(first.is_some());
+
+        assert!(manager.mark_ready("same"));
+        let second = manager.step_once();
+        assert!(second.is_none());
+    }
+
+    #[test]
     fn timeout_strikes_transition_gauge_to_dead() {
         let start = Instant::now();
         let clock = FakeClock::new(start);
@@ -567,6 +748,7 @@ mod tests {
             manager_clock,
             Duration::from_millis(40),
             2,
+            noop_notify(),
             vec![Box::new(TestGauge::new(
                 "slow",
                 clock.clone(),

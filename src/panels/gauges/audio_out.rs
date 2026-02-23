@@ -2,7 +2,7 @@
 // Consumes Settings: grelier.gauge.audio_out.step_percent.
 use crate::dialog::info::InfoDialog;
 use crate::icon::{icon_quantity, svg_asset};
-use crate::panels::gauges::gauge::{Gauge, GaugeReadyNotify};
+use crate::panels::gauges::gauge::{Gauge, GaugeEventSource, GaugeReadyNotify, GaugeRegistrar};
 use crate::panels::gauges::gauge::{
     GaugeClick, GaugeClickAction, GaugeDisplay, GaugeMenu, GaugeMenuItem, GaugeValue,
     GaugeValueAttention, MenuSelectAction,
@@ -12,6 +12,7 @@ use crate::settings;
 use crate::settings::SettingSpec;
 use libpulse_binding as pulse;
 use pulse::callbacks::ListResult;
+use pulse::context::subscribe::{Facility, InterestMaskSet};
 use pulse::context::{Context, FlagSet, State as ContextState};
 use pulse::def;
 use pulse::mainloop::standard::{IterateResult, Mainloop};
@@ -24,8 +25,10 @@ use std::time::{Duration, Instant};
 
 #[cfg(test)]
 const IDLE_WAIT: Duration = Duration::from_millis(25);
+#[cfg(not(test))]
+const IDLE_WAIT: Duration = Duration::from_millis(100);
 const DEFAULT_STEP_PERCENT: i8 = 5;
-const POLL_INTERVAL: Duration = Duration::from_millis(100);
+const IDLE_RUN_INTERVAL_SECS: u64 = 300;
 
 fn format_level(percent: Option<u8>) -> GaugeDisplay {
     match percent {
@@ -49,6 +52,33 @@ struct SinkStatus {
     percent: u8,
     muted: bool,
     channels: u8,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct AudioOutSignature {
+    percent: Option<u8>,
+    muted: Option<bool>,
+    connected: bool,
+    device_label: Option<String>,
+    menu: Vec<(String, bool)>,
+}
+
+fn signature_for_snapshot(
+    status: Option<SinkStatus>,
+    connected: bool,
+    device_label: Option<&str>,
+    menu_items: &[GaugeMenuItem],
+) -> AudioOutSignature {
+    AudioOutSignature {
+        percent: status.map(|s| s.percent),
+        muted: status.map(|s| s.muted),
+        connected,
+        device_label: device_label.map(ToString::to_string),
+        menu: menu_items
+            .iter()
+            .map(|item| (item.id.clone(), item.selected))
+            .collect(),
+    }
 }
 
 #[derive(Clone)]
@@ -179,7 +209,6 @@ fn volume_from_percent(percent: u8) -> Volume {
     Volume(raw)
 }
 
-#[cfg(test)]
 fn recv_with_idle_wait(
     receiver: &mpsc::Receiver<SoundCommand>,
 ) -> Result<SoundCommand, mpsc::RecvTimeoutError> {
@@ -338,38 +367,18 @@ impl AudioOutSnapshot {
     }
 }
 
-fn snapshot_audio_out(commands: Vec<SoundCommand>) -> AudioOutSnapshot {
-    let mut mainloop = match Mainloop::new() {
-        Some(mainloop) => mainloop,
-        None => return AudioOutSnapshot::disconnected(),
-    };
-    let mut context = match Context::new(&mainloop, "grelier-audio-out") {
-        Some(context) => context,
-        None => return AudioOutSnapshot::disconnected(),
-    };
-    if context.connect(None, FlagSet::NOFLAGS, None).is_err()
-        || wait_for_context_ready(&mut mainloop, &context).is_none()
-    {
-        return AudioOutSnapshot::disconnected();
-    }
-
-    for command in commands {
-        if apply_output_command(command, &mut mainloop, &mut context).is_none() {
-            return AudioOutSnapshot::disconnected();
-        }
-    }
-
-    let sink = default_sink_name(&mut mainloop, &context);
-    let entries = collect_sinks(&mut mainloop, &context);
+fn snapshot_audio_out_from_context(mainloop: &mut Mainloop, context: &Context) -> AudioOutSnapshot {
+    let sink = default_sink_name(mainloop, context);
+    let sink_entries = collect_sinks(mainloop, context);
     let status = sink
         .as_deref()
-        .and_then(|name| read_sink_status(&mut mainloop, &context, name));
-    let menu_items = entries
+        .and_then(|name| read_sink_status(mainloop, context, name));
+    let menu_items = sink_entries
         .as_ref()
         .map(|entries| sinks_to_menu_items(entries, sink.as_deref()));
     let device_label = sink
         .as_deref()
-        .map(|name| device_label_for_sink(entries.as_deref(), name));
+        .map(|name| device_label_for_sink(sink_entries.as_deref(), name));
 
     AudioOutSnapshot {
         status,
@@ -379,12 +388,109 @@ fn snapshot_audio_out(commands: Vec<SoundCommand>) -> AudioOutSnapshot {
     }
 }
 
+fn run_audio_out_worker(
+    command_rx: mpsc::Receiver<SoundCommand>,
+    snapshot_tx: mpsc::Sender<AudioOutSnapshot>,
+    ready_notify: GaugeReadyNotify,
+) {
+    let mut mainloop = match Mainloop::new() {
+        Some(mainloop) => mainloop,
+        None => {
+            let _ = snapshot_tx.send(AudioOutSnapshot::disconnected());
+            ready_notify("audio_out");
+            return;
+        }
+    };
+    let mut context = match Context::new(&mainloop, "grelier-audio-out") {
+        Some(context) => context,
+        None => {
+            let _ = snapshot_tx.send(AudioOutSnapshot::disconnected());
+            ready_notify("audio_out");
+            return;
+        }
+    };
+    if context.connect(None, FlagSet::NOFLAGS, None).is_err()
+        || wait_for_context_ready(&mut mainloop, &context).is_none()
+    {
+        let _ = snapshot_tx.send(AudioOutSnapshot::disconnected());
+        ready_notify("audio_out");
+        return;
+    }
+
+    let refresh_needed = Rc::new(Cell::new(true));
+    context.set_subscribe_callback(Some(Box::new({
+        let refresh_needed = Rc::clone(&refresh_needed);
+        move |facility, _operation, _index| {
+            if matches!(facility, Some(Facility::Sink) | Some(Facility::Server)) {
+                refresh_needed.set(true);
+            }
+        }
+    })));
+    context.subscribe(InterestMaskSet::SINK | InterestMaskSet::SERVER, |_| {});
+
+    loop {
+        while let Ok(command) = command_rx.try_recv() {
+            if apply_output_command(command, &mut mainloop, &mut context).is_none() {
+                let _ = snapshot_tx.send(AudioOutSnapshot::disconnected());
+                ready_notify("audio_out");
+                return;
+            }
+            refresh_needed.set(true);
+        }
+
+        if refresh_needed.replace(false) {
+            let snapshot = snapshot_audio_out_from_context(&mut mainloop, &context);
+            let _ = snapshot_tx.send(snapshot);
+            ready_notify("audio_out");
+        }
+
+        if matches!(
+            context.get_state(),
+            ContextState::Failed | ContextState::Terminated
+        ) {
+            let _ = snapshot_tx.send(AudioOutSnapshot::disconnected());
+            ready_notify("audio_out");
+            return;
+        }
+
+        if iterate(&mut mainloop).is_none() {
+            let _ = snapshot_tx.send(AudioOutSnapshot::disconnected());
+            ready_notify("audio_out");
+            return;
+        }
+
+        match recv_with_idle_wait(&command_rx) {
+            Ok(command) => {
+                if apply_output_command(command, &mut mainloop, &mut context).is_none() {
+                    let _ = snapshot_tx.send(AudioOutSnapshot::disconnected());
+                    ready_notify("audio_out");
+                    return;
+                }
+                refresh_needed.set(true);
+            }
+            Err(mpsc::RecvTimeoutError::Timeout) => {}
+            Err(mpsc::RecvTimeoutError::Disconnected) => return,
+        }
+    }
+}
+
+struct AudioOutEventSource {
+    command_rx: mpsc::Receiver<SoundCommand>,
+    snapshot_tx: mpsc::Sender<AudioOutSnapshot>,
+}
+
+impl GaugeEventSource for AudioOutEventSource {
+    fn run(self: Box<Self>, notify: GaugeReadyNotify) {
+        run_audio_out_worker(self.command_rx, self.snapshot_tx, notify);
+    }
+}
+
 struct AudioOutGauge {
     step_percent: i8,
     command_tx: mpsc::Sender<SoundCommand>,
-    command_rx: mpsc::Receiver<SoundCommand>,
-    ready_notify: Option<GaugeReadyNotify>,
-    last_menu_items: Option<Vec<GaugeMenuItem>>,
+    snapshot_rx: mpsc::Receiver<AudioOutSnapshot>,
+    event_source: Option<AudioOutEventSource>,
+    last_signature: Option<AudioOutSignature>,
     next_deadline: Instant,
 }
 
@@ -393,8 +499,10 @@ impl Gauge for AudioOutGauge {
         "audio_out"
     }
 
-    fn bind_ready_notify(&mut self, notify: GaugeReadyNotify) {
-        self.ready_notify = Some(notify);
+    fn register(&mut self, registrar: &mut dyn GaugeRegistrar) {
+        if let Some(event_source) = self.event_source.take() {
+            registrar.add_event_source(Box::new(event_source));
+        }
     }
 
     fn next_deadline(&self) -> Instant {
@@ -402,56 +510,54 @@ impl Gauge for AudioOutGauge {
     }
 
     fn run_once(&mut self, now: Instant) -> Option<crate::panels::gauges::gauge::GaugeModel> {
-        let mut commands = Vec::new();
-        while let Ok(command) = self.command_rx.try_recv() {
-            commands.push(command);
+        let mut latest_snapshot = None;
+        while let Ok(snapshot) = self.snapshot_rx.try_recv() {
+            latest_snapshot = Some(snapshot);
         }
+        let Some(snapshot) = latest_snapshot else {
+            self.next_deadline = now + Duration::from_secs(IDLE_RUN_INTERVAL_SECS);
+            return None;
+        };
+        let menu_snapshot = snapshot.menu_items.clone().unwrap_or_default();
 
-        let snapshot = snapshot_audio_out(commands);
-        if let Some(items) = snapshot.menu_items.clone() {
-            self.last_menu_items = Some(items);
+        let status = snapshot.status;
+        let device_label = snapshot
+            .device_label
+            .clone()
+            .unwrap_or_else(|| "No output device".to_string());
+        let signature = signature_for_snapshot(
+            status,
+            snapshot.connected,
+            Some(&device_label),
+            &menu_snapshot,
+        );
+        if self.last_signature.as_ref() == Some(&signature) {
+            self.next_deadline = now + Duration::from_secs(IDLE_RUN_INTERVAL_SECS);
+            return None;
         }
-        let menu_snapshot = snapshot
-            .menu_items
-            .or_else(|| self.last_menu_items.clone())
-            .unwrap_or_default();
+        self.last_signature = Some(signature);
 
         let step_percent = self.step_percent;
-        let ready_notify = self.ready_notify.clone();
         let command_tx = self.command_tx.clone();
         let on_click: GaugeClickAction = Arc::new(move |click: GaugeClick| match click.input {
             crate::panels::gauges::gauge::GaugeInput::Button(iced::mouse::Button::Middle) => {
                 let _ = command_tx.send(SoundCommand::ToggleMute);
-                if let Some(ready_notify) = &ready_notify {
-                    ready_notify("audio_out");
-                }
             }
             crate::panels::gauges::gauge::GaugeInput::ScrollUp => {
                 let _ = command_tx.send(SoundCommand::AdjustVolume(step_percent));
-                if let Some(ready_notify) = &ready_notify {
-                    ready_notify("audio_out");
-                }
             }
             crate::panels::gauges::gauge::GaugeInput::ScrollDown => {
                 let _ = command_tx.send(SoundCommand::AdjustVolume(-step_percent));
-                if let Some(ready_notify) = &ready_notify {
-                    ready_notify("audio_out");
-                }
             }
             _ => {}
         });
         let menu_select: MenuSelectAction = {
             let command_tx = self.command_tx.clone();
-            let ready_notify = self.ready_notify.clone();
             Arc::new(move |sink: String| {
                 let _ = command_tx.send(SoundCommand::SetDefaultSink(sink));
-                if let Some(ready_notify) = &ready_notify {
-                    ready_notify("audio_out");
-                }
             })
         };
 
-        let status = snapshot.status;
         let icon = status
             .map(|status| {
                 if status.muted {
@@ -461,7 +567,7 @@ impl Gauge for AudioOutGauge {
                 }
             })
             .unwrap_or_else(|| svg_asset("speaker.svg"));
-        self.next_deadline = now + POLL_INTERVAL;
+        self.next_deadline = now + Duration::from_secs(IDLE_RUN_INTERVAL_SECS);
 
         Some(crate::panels::gauges::gauge::GaugeModel {
             id: "audio_out",
@@ -481,9 +587,7 @@ impl Gauge for AudioOutGauge {
             info: Some(InfoDialog {
                 title: "Audio Out".to_string(),
                 lines: vec![
-                    snapshot
-                        .device_label
-                        .unwrap_or_else(|| "No output device".to_string()),
+                    device_label,
                     match status {
                         Some(status) => format!("Level: {}%", status.percent),
                         None => "Level: N/A".to_string(),
@@ -501,12 +605,17 @@ pub fn create_gauge(now: Instant) -> Box<dyn Gauge> {
         step_percent = DEFAULT_STEP_PERCENT;
     }
     let (command_tx, command_rx) = mpsc::channel::<SoundCommand>();
+    let (snapshot_tx, snapshot_rx) = mpsc::channel::<AudioOutSnapshot>();
+
     Box::new(AudioOutGauge {
         step_percent,
         command_tx,
-        command_rx,
-        ready_notify: None,
-        last_menu_items: None,
+        snapshot_rx,
+        event_source: Some(AudioOutEventSource {
+            command_rx,
+            snapshot_tx,
+        }),
+        last_signature: None,
         next_deadline: now,
     })
 }
@@ -603,5 +712,24 @@ mod tests {
             start.elapsed(),
             IDLE_WAIT
         );
+    }
+
+    #[test]
+    fn signature_tracks_visible_state_fields() {
+        let items = vec![GaugeMenuItem {
+            id: "sink-a".to_string(),
+            label: "Sink A".to_string(),
+            selected: true,
+        }];
+        let status = Some(SinkStatus {
+            percent: 55,
+            muted: false,
+            channels: 2,
+        });
+        let a = signature_for_snapshot(status, true, Some("Speakers"), &items);
+        let b = signature_for_snapshot(status, true, Some("Speakers"), &items);
+        let c = signature_for_snapshot(status, true, Some("Headset"), &items);
+        assert_eq!(a, b);
+        assert_ne!(a, c);
     }
 }

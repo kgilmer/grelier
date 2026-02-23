@@ -146,6 +146,32 @@ pub type GaugeClickAction = Arc<dyn Fn(GaugeClick) + Send + Sync>;
 /// when they want `run_once` invoked before the next deadline.
 pub type GaugeReadyNotify = Arc<dyn Fn(&'static str) + Send + Sync>;
 
+/// Why the scheduler is invoking `Gauge::run`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum GaugeWake {
+    /// Gauge timer deadline elapsed.
+    Timer,
+    /// Gauge was explicitly marked ready by an external event source or local command.
+    ExternalEvent,
+}
+
+/// Result from one gauge execution.
+#[derive(Clone)]
+pub enum RunOutcome {
+    NoChange,
+    ModelChanged(Box<GaugeModel>),
+}
+
+/// Source of external gauge events owned by the work manager.
+pub trait GaugeEventSource: Send + 'static {
+    fn run(self: Box<Self>, notify: GaugeReadyNotify);
+}
+
+/// Registration interface for manager-owned scheduling/event wiring.
+pub trait GaugeRegistrar {
+    fn add_event_source(&mut self, source: Box<dyn GaugeEventSource>);
+}
+
 /// Runtime contract implemented by every gauge.
 ///
 /// A gauge is a stateful worker that decides when it wants to run next and can emit
@@ -160,6 +186,11 @@ pub trait Gauge: Send + 'static {
     /// should store the callback and trigger it after queuing local commands.
     fn bind_ready_notify(&mut self, _notify: GaugeReadyNotify) {}
 
+    /// Register optional event sources or scheduling hints.
+    ///
+    /// The work manager owns and runs registered event sources.
+    fn register(&mut self, _registrar: &mut dyn GaugeRegistrar) {}
+
     /// Next time this gauge should be run by the scheduler.
     ///
     /// The scheduler will not run the gauge before this deadline unless it is explicitly
@@ -171,4 +202,14 @@ pub trait Gauge: Send + 'static {
     /// Return `Some(GaugeModel)` when the UI should be updated, or `None` to keep the
     /// previously rendered model.
     fn run_once(&mut self, now: Instant) -> Option<GaugeModel>;
+
+    /// Execute one unit of gauge work for the given wake reason.
+    ///
+    /// Default implementation delegates to `run_once` for backwards compatibility.
+    fn run(&mut self, _wake: GaugeWake, now: Instant) -> RunOutcome {
+        match self.run_once(now) {
+            Some(model) => RunOutcome::ModelChanged(Box::new(model)),
+            None => RunOutcome::NoChange,
+        }
+    }
 }

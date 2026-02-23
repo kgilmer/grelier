@@ -1,7 +1,7 @@
 // Battery gauge driven by udev power_supply events and snapshots.
 use crate::dialog::info::InfoDialog;
 use crate::icon::{icon_quantity, svg_asset};
-use crate::panels::gauges::gauge::{Gauge, GaugeReadyNotify};
+use crate::panels::gauges::gauge::{Gauge, GaugeEventSource, GaugeReadyNotify, GaugeRegistrar};
 use crate::panels::gauges::gauge::{
     GaugeDisplay, GaugeMenu, GaugeMenuItem, GaugeModel, GaugeValue, GaugeValueAttention,
     MenuSelectAction,
@@ -23,7 +23,7 @@ const DEFAULT_WARNING_PERCENT: u8 = 49;
 const DEFAULT_DANGER_PERCENT: u8 = 19;
 const VALUE_ICON_SUCCESS_THRESHOLD: u8 = 50;
 const VALUE_ICON_WARNING_THRESHOLD: u8 = 10;
-const DEFAULT_REFRESH_INTERVAL_SECS: u64 = 5;
+const IDLE_RUN_INTERVAL_SECS: u64 = 300;
 const PPD_SERVICE: &str = "net.hadess.PowerProfiles";
 const PPD_PATH: &str = "/net/hadess/PowerProfiles";
 const PPD_IFACE: &str = "net.hadess.PowerProfiles";
@@ -39,6 +39,27 @@ enum BatteryCommand {
 struct PowerProfilesSnapshot {
     profiles: Vec<String>,
     active: String,
+}
+
+struct BatteryEventSource;
+
+impl GaugeEventSource for BatteryEventSource {
+    fn run(self: Box<Self>, notify: GaugeReadyNotify) {
+        let monitor = match udev::MonitorBuilder::new()
+            .and_then(|builder| builder.match_subsystem("power_supply"))
+            .and_then(|builder| builder.listen())
+        {
+            Ok(monitor) => monitor,
+            Err(err) => {
+                log::error!("battery gauge: failed to start udev monitor: {err}");
+                return;
+            }
+        };
+
+        for _event in monitor.iter() {
+            notify("battery");
+        }
+    }
 }
 
 fn is_battery(dev: &udev::Device) -> bool {
@@ -656,10 +677,11 @@ fn title_case_profile(profile: &str) -> String {
 struct BatteryGauge {
     warning_percent: u8,
     danger_percent: u8,
-    refresh_interval: Duration,
     command_tx: mpsc::Sender<BatteryCommand>,
     command_rx: mpsc::Receiver<BatteryCommand>,
     ready_notify: Option<GaugeReadyNotify>,
+    event_source: Option<BatteryEventSource>,
+    info_state: Arc<Mutex<InfoDialog>>,
     next_deadline: Instant,
 }
 
@@ -670,6 +692,12 @@ impl Gauge for BatteryGauge {
 
     fn bind_ready_notify(&mut self, notify: GaugeReadyNotify) {
         self.ready_notify = Some(notify);
+    }
+
+    fn register(&mut self, registrar: &mut dyn GaugeRegistrar) {
+        if let Some(event_source) = self.event_source.take() {
+            registrar.add_event_source(Box::new(event_source));
+        }
     }
 
     fn next_deadline(&self) -> Instant {
@@ -693,22 +721,13 @@ impl Gauge for BatteryGauge {
             }
         });
 
-        let info_state = Arc::new(Mutex::new(InfoDialog {
-            title: "Battery".to_string(),
-            lines: vec![
-                "Total: Unknown".to_string(),
-                "Current: Unknown".to_string(),
-                "ETA: Unknown".to_string(),
-                "Discharge rate: Unknown".to_string(),
-            ],
-        }));
         let manager = battery::Manager::new().ok();
-        self.next_deadline = now + self.refresh_interval;
+        self.next_deadline = now + Duration::from_secs(IDLE_RUN_INTERVAL_SECS);
 
         snapshot_model(
             self.warning_percent,
             self.danger_percent,
-            &info_state,
+            &self.info_state,
             manager.as_ref(),
             Some(&menu_select),
         )
@@ -724,19 +743,24 @@ pub fn create_gauge(now: Instant) -> Box<dyn Gauge> {
         "grelier.gauge.battery.danger_percent",
         DEFAULT_DANGER_PERCENT,
     );
-    let refresh_interval_secs = settings::settings().get_parsed_or(
-        "grelier.gauge.battery.refresh_interval_secs",
-        DEFAULT_REFRESH_INTERVAL_SECS,
-    );
     let (command_tx, command_rx) = mpsc::channel::<BatteryCommand>();
 
     Box::new(BatteryGauge {
         warning_percent,
         danger_percent,
-        refresh_interval: Duration::from_secs(refresh_interval_secs),
         command_tx,
         command_rx,
         ready_notify: None,
+        event_source: Some(BatteryEventSource),
+        info_state: Arc::new(Mutex::new(InfoDialog {
+            title: "Battery".to_string(),
+            lines: vec![
+                "Total: Unknown".to_string(),
+                "Current: Unknown".to_string(),
+                "ETA: Unknown".to_string(),
+                "Discharge rate: Unknown".to_string(),
+            ],
+        })),
         next_deadline: now,
     })
 }
@@ -750,10 +774,6 @@ pub fn settings() -> &'static [SettingSpec] {
         SettingSpec {
             key: "grelier.gauge.battery.danger_percent",
             default: "19",
-        },
-        SettingSpec {
-            key: "grelier.gauge.battery.refresh_interval_secs",
-            default: "5",
         },
     ];
     SETTINGS
