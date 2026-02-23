@@ -18,6 +18,7 @@ use pulse::def;
 use pulse::mainloop::standard::{IterateResult, Mainloop};
 use pulse::volume::{ChannelVolumes, Volume};
 use std::cell::{Cell, RefCell};
+use std::collections::HashMap;
 use std::rc::Rc;
 use std::sync::Arc;
 use std::sync::mpsc;
@@ -26,9 +27,10 @@ use std::time::{Duration, Instant};
 #[cfg(test)]
 const IDLE_WAIT: Duration = Duration::from_millis(25);
 #[cfg(not(test))]
-const IDLE_WAIT: Duration = Duration::from_millis(100);
+const IDLE_WAIT: Duration = Duration::from_millis(250);
 const DEFAULT_STEP_PERCENT: i8 = 5;
 const IDLE_RUN_INTERVAL_SECS: u64 = 300;
+const MENU_REFRESH_INTERVAL_SECS: u64 = 15;
 
 fn format_level(percent: Option<u8>) -> GaugeDisplay {
     match percent {
@@ -307,6 +309,13 @@ fn device_label_for_sink(entries: Option<&[SinkMenuEntry]>, sink: &str) -> Strin
     sink.split(" - ").last().unwrap_or(sink).to_string()
 }
 
+struct AudioOutMenuCache {
+    menu_items: Option<Vec<GaugeMenuItem>>,
+    sink_labels: HashMap<String, String>,
+    default_sink: Option<String>,
+    next_refresh_deadline: Instant,
+}
+
 fn apply_output_command(
     command: SoundCommand,
     mainloop: &mut Mainloop,
@@ -367,22 +376,45 @@ impl AudioOutSnapshot {
     }
 }
 
-fn snapshot_audio_out_from_context(mainloop: &mut Mainloop, context: &Context) -> AudioOutSnapshot {
+fn snapshot_audio_out_from_context(
+    mainloop: &mut Mainloop,
+    context: &Context,
+    now: Instant,
+    menu_cache: &mut AudioOutMenuCache,
+) -> AudioOutSnapshot {
     let sink = default_sink_name(mainloop, context);
-    let sink_entries = collect_sinks(mainloop, context);
+    let should_refresh_menu = menu_cache.menu_items.is_none()
+        || menu_cache.default_sink != sink
+        || now >= menu_cache.next_refresh_deadline;
+    if should_refresh_menu && let Some(sink_entries) = collect_sinks(mainloop, context) {
+        menu_cache.menu_items = Some(sinks_to_menu_items(&sink_entries, sink.as_deref()));
+        menu_cache.sink_labels = sink_entries
+            .iter()
+            .map(|entry| {
+                let label = entry
+                    .description
+                    .clone()
+                    .unwrap_or_else(|| device_label_for_sink(None, &entry.name));
+                (entry.name.clone(), label)
+            })
+            .collect();
+        menu_cache.default_sink = sink.clone();
+        menu_cache.next_refresh_deadline = now + Duration::from_secs(MENU_REFRESH_INTERVAL_SECS);
+    }
     let status = sink
         .as_deref()
         .and_then(|name| read_sink_status(mainloop, context, name));
-    let menu_items = sink_entries
-        .as_ref()
-        .map(|entries| sinks_to_menu_items(entries, sink.as_deref()));
-    let device_label = sink
-        .as_deref()
-        .map(|name| device_label_for_sink(sink_entries.as_deref(), name));
+    let device_label = sink.as_deref().map(|name| {
+        menu_cache
+            .sink_labels
+            .get(name)
+            .cloned()
+            .unwrap_or_else(|| device_label_for_sink(None, name))
+    });
 
     AudioOutSnapshot {
         status,
-        menu_items,
+        menu_items: menu_cache.menu_items.clone(),
         device_label,
         connected: true,
     }
@@ -427,6 +459,13 @@ fn run_audio_out_worker(
         }
     })));
     context.subscribe(InterestMaskSet::SINK | InterestMaskSet::SERVER, |_| {});
+    let mut menu_cache = AudioOutMenuCache {
+        menu_items: None,
+        sink_labels: HashMap::new(),
+        default_sink: None,
+        next_refresh_deadline: Instant::now(),
+    };
+    let mut last_signature: Option<AudioOutSignature> = None;
 
     loop {
         while let Ok(command) = command_rx.try_recv() {
@@ -439,9 +478,24 @@ fn run_audio_out_worker(
         }
 
         if refresh_needed.replace(false) {
-            let snapshot = snapshot_audio_out_from_context(&mut mainloop, &context);
-            let _ = snapshot_tx.send(snapshot);
-            ready_notify("audio_out");
+            let snapshot = snapshot_audio_out_from_context(
+                &mut mainloop,
+                &context,
+                Instant::now(),
+                &mut menu_cache,
+            );
+            let empty_menu = Vec::new();
+            let signature = signature_for_snapshot(
+                snapshot.status,
+                snapshot.connected,
+                snapshot.device_label.as_deref(),
+                snapshot.menu_items.as_deref().unwrap_or(&empty_menu),
+            );
+            if last_signature.as_ref() != Some(&signature) {
+                last_signature = Some(signature);
+                let _ = snapshot_tx.send(snapshot);
+                ready_notify("audio_out");
+            }
         }
 
         if matches!(

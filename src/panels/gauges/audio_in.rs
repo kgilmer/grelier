@@ -18,6 +18,7 @@ use pulse::def;
 use pulse::mainloop::standard::{IterateResult, Mainloop};
 use pulse::volume::{ChannelVolumes, Volume};
 use std::cell::{Cell, RefCell};
+use std::collections::HashMap;
 use std::rc::Rc;
 use std::sync::Arc;
 use std::sync::mpsc;
@@ -26,9 +27,10 @@ use std::time::{Duration, Instant};
 #[cfg(test)]
 const IDLE_WAIT: Duration = Duration::from_millis(25);
 #[cfg(not(test))]
-const IDLE_WAIT: Duration = Duration::from_millis(100);
+const IDLE_WAIT: Duration = Duration::from_millis(250);
 const DEFAULT_STEP_PERCENT: i8 = 5;
 const IDLE_RUN_INTERVAL_SECS: u64 = 300;
+const MENU_REFRESH_INTERVAL_SECS: u64 = 15;
 
 fn format_level(percent: Option<u8>) -> GaugeDisplay {
     match percent {
@@ -313,6 +315,13 @@ fn device_label_for_source(entries: Option<&[SourceMenuEntry]>, source: &str) ->
     source.split(" - ").last().unwrap_or(source).to_string()
 }
 
+struct AudioInMenuCache {
+    menu_items: Option<Vec<GaugeMenuItem>>,
+    source_labels: HashMap<String, String>,
+    default_source: Option<String>,
+    next_refresh_deadline: Instant,
+}
+
 fn apply_input_command(
     command: InputCommand,
     mainloop: &mut Mainloop,
@@ -373,22 +382,45 @@ impl AudioInSnapshot {
     }
 }
 
-fn snapshot_audio_in_from_context(mainloop: &mut Mainloop, context: &Context) -> AudioInSnapshot {
+fn snapshot_audio_in_from_context(
+    mainloop: &mut Mainloop,
+    context: &Context,
+    now: Instant,
+    menu_cache: &mut AudioInMenuCache,
+) -> AudioInSnapshot {
     let source = default_source_name(mainloop, context);
-    let source_entries = collect_sources(mainloop, context);
+    let should_refresh_menu = menu_cache.menu_items.is_none()
+        || menu_cache.default_source != source
+        || now >= menu_cache.next_refresh_deadline;
+    if should_refresh_menu && let Some(source_entries) = collect_sources(mainloop, context) {
+        menu_cache.menu_items = Some(sources_to_menu_items(&source_entries, source.as_deref()));
+        menu_cache.source_labels = source_entries
+            .iter()
+            .map(|entry| {
+                let label = entry
+                    .description
+                    .clone()
+                    .unwrap_or_else(|| device_label_for_source(None, &entry.name));
+                (entry.name.clone(), label)
+            })
+            .collect();
+        menu_cache.default_source = source.clone();
+        menu_cache.next_refresh_deadline = now + Duration::from_secs(MENU_REFRESH_INTERVAL_SECS);
+    }
     let status = source
         .as_deref()
         .and_then(|name| read_source_status(mainloop, context, name));
-    let menu_items = source_entries
-        .as_ref()
-        .map(|entries| sources_to_menu_items(entries, source.as_deref()));
-    let device_label = source
-        .as_deref()
-        .map(|name| device_label_for_source(source_entries.as_deref(), name));
+    let device_label = source.as_deref().map(|name| {
+        menu_cache
+            .source_labels
+            .get(name)
+            .cloned()
+            .unwrap_or_else(|| device_label_for_source(None, name))
+    });
 
     AudioInSnapshot {
         status,
-        menu_items,
+        menu_items: menu_cache.menu_items.clone(),
         device_label,
         connected: true,
     }
@@ -433,6 +465,13 @@ fn run_audio_in_worker(
         }
     })));
     context.subscribe(InterestMaskSet::SOURCE | InterestMaskSet::SERVER, |_| {});
+    let mut menu_cache = AudioInMenuCache {
+        menu_items: None,
+        source_labels: HashMap::new(),
+        default_source: None,
+        next_refresh_deadline: Instant::now(),
+    };
+    let mut last_signature: Option<AudioInSignature> = None;
 
     loop {
         while let Ok(command) = command_rx.try_recv() {
@@ -445,9 +484,24 @@ fn run_audio_in_worker(
         }
 
         if refresh_needed.replace(false) {
-            let snapshot = snapshot_audio_in_from_context(&mut mainloop, &context);
-            let _ = snapshot_tx.send(snapshot);
-            ready_notify("audio_in");
+            let snapshot = snapshot_audio_in_from_context(
+                &mut mainloop,
+                &context,
+                Instant::now(),
+                &mut menu_cache,
+            );
+            let empty_menu = Vec::new();
+            let signature = signature_for_snapshot(
+                snapshot.status,
+                snapshot.connected,
+                snapshot.device_label.as_deref(),
+                snapshot.menu_items.as_deref().unwrap_or(&empty_menu),
+            );
+            if last_signature.as_ref() != Some(&signature) {
+                last_signature = Some(signature);
+                let _ = snapshot_tx.send(snapshot);
+                ready_notify("audio_in");
+            }
         }
 
         if matches!(
