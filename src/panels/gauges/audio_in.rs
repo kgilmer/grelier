@@ -389,6 +389,7 @@ fn snapshot_audio_in_from_context(
     menu_cache: &mut AudioInMenuCache,
 ) -> AudioInSnapshot {
     let source = default_source_name(mainloop, context);
+    // Rebuild source menu infrequently unless the default source changed.
     let should_refresh_menu = menu_cache.menu_items.is_none()
         || menu_cache.default_source != source
         || now >= menu_cache.next_refresh_deadline;
@@ -497,6 +498,7 @@ fn run_audio_in_worker(
                 snapshot.device_label.as_deref(),
                 snapshot.menu_items.as_deref().unwrap_or(&empty_menu),
             );
+            // Coalesce unchanged snapshots before waking the scheduler.
             if last_signature.as_ref() != Some(&signature) {
                 last_signature = Some(signature);
                 let _ = snapshot_tx.send(snapshot);

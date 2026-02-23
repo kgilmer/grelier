@@ -383,6 +383,7 @@ fn snapshot_audio_out_from_context(
     menu_cache: &mut AudioOutMenuCache,
 ) -> AudioOutSnapshot {
     let sink = default_sink_name(mainloop, context);
+    // Rebuild sink menu infrequently unless the default sink changed.
     let should_refresh_menu = menu_cache.menu_items.is_none()
         || menu_cache.default_sink != sink
         || now >= menu_cache.next_refresh_deadline;
@@ -491,6 +492,7 @@ fn run_audio_out_worker(
                 snapshot.device_label.as_deref(),
                 snapshot.menu_items.as_deref().unwrap_or(&empty_menu),
             );
+            // Coalesce unchanged snapshots before waking the scheduler.
             if last_signature.as_ref() != Some(&signature) {
                 last_signature = Some(signature);
                 let _ = snapshot_tx.send(snapshot);

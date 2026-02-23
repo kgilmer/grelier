@@ -210,6 +210,7 @@ pub struct GaugeWorkManager<C: Clock> {
     deadline_heap: BinaryHeap<Reverse<(Instant, usize, u64)>>,
     ready_queue: VecDeque<usize>,
     ready_set: BTreeSet<usize>,
+    // Last model emitted to UI per gauge id; used to suppress redundant updates.
     last_emitted_models: HashMap<&'static str, GaugeModel>,
 }
 
@@ -369,6 +370,7 @@ impl<C: Clock> GaugeWorkManager<C> {
                 RunOutcome::NoChange => {}
                 RunOutcome::ModelChanged(model) => {
                     let model = *model;
+                    // Avoid pushing unchanged renders to UI when a gauge emits equivalent state.
                     let should_emit = self
                         .last_emitted_models
                         .get(model.id)
