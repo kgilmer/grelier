@@ -547,12 +547,19 @@ impl GaugeEventSource for AudioInEventSource {
     }
 }
 
+/// Gauge that displays and controls microphone input volume and mute state.
 struct AudioInGauge {
+    /// Volume adjustment delta applied for each scroll/click step.
     step_percent: i8,
+    /// Channel used by UI actions to send input commands.
     command_tx: mpsc::Sender<InputCommand>,
+    /// Receives the latest audio-input snapshot from the event source.
     snapshot_rx: mpsc::Receiver<AudioInSnapshot>,
+    /// Deferred event source registration handle, consumed on `register`.
     event_source: Option<AudioInEventSource>,
+    /// Signature of the last emitted model to suppress duplicate updates.
     last_signature: Option<AudioInSignature>,
+    /// Scheduler deadline for the next run.
     next_deadline: Instant,
 }
 

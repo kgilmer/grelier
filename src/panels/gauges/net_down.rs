@@ -37,10 +37,15 @@ fn map_rate(rate: Option<f64>, window: &mut SlidingWindow) -> (GaugeDisplay, f64
     }
 }
 
+/// Gauge that displays recent download throughput.
 struct NetDownGauge {
+    /// Shared network sampler that provides interface rates.
     sampler: Arc<Mutex<crate::panels::gauges::net_common::NetSampler>>,
+    /// Adaptive interval controller based on recent throughput.
     interval_state: NetIntervalState,
+    /// Sliding window used to smooth and classify sampled rates.
     rate_window: SlidingWindow,
+    /// Scheduler deadline for the next run.
     next_deadline: Instant,
 }
 

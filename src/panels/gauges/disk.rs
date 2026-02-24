@@ -159,11 +159,17 @@ fn disk_value(
     }
 }
 
+/// Gauge that reports filesystem usage for a configured path.
 struct DiskGauge {
+    /// Filesystem path whose mount usage is sampled.
     path: String,
+    /// Utilization threshold where the gauge switches to warning attention.
     warning_threshold: f32,
+    /// Utilization threshold where the gauge switches to danger attention.
     danger_threshold: f32,
+    /// Poll cadence for filesystem usage sampling.
     poll_interval: Duration,
+    /// Scheduler deadline for the next run.
     next_deadline: Instant,
 }
 

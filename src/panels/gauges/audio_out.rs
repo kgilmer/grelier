@@ -541,12 +541,19 @@ impl GaugeEventSource for AudioOutEventSource {
     }
 }
 
+/// Gauge that displays and controls speaker output volume and mute state.
 struct AudioOutGauge {
+    /// Volume adjustment delta applied for each scroll/click step.
     step_percent: i8,
+    /// Channel used by UI actions to send output commands.
     command_tx: mpsc::Sender<SoundCommand>,
+    /// Receives the latest audio-output snapshot from the event source.
     snapshot_rx: mpsc::Receiver<AudioOutSnapshot>,
+    /// Deferred event source registration handle, consumed on `register`.
     event_source: Option<AudioOutEventSource>,
+    /// Signature of the last emitted model to suppress duplicate updates.
     last_signature: Option<AudioOutSignature>,
+    /// Scheduler deadline for the next run.
     next_deadline: Instant,
 }
 

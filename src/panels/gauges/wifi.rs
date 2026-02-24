@@ -576,16 +576,27 @@ fn wifi_gauge(snapshot: WifiSnapshot, menu: Option<GaugeMenu>) -> GaugeModel {
     }
 }
 
+/// Gauge that monitors Wi-Fi signal quality and provides network actions.
 struct WifiGauge {
+    /// Upper bound used to normalize signal quality into a percentage.
     quality_max: f32,
+    /// Poll cadence for Wi-Fi status sampling.
     poll_interval: Duration,
+    /// Refresh cadence for rebuilding available-network menu items.
     menu_refresh_interval: Duration,
+    /// Sender used by menu callbacks to enqueue connect requests.
     command_tx: mpsc::Sender<WifiCommand>,
+    /// Receiver drained on each run to apply queued connect requests.
     command_rx: mpsc::Receiver<WifiCommand>,
+    /// Notifier used to request an immediate scheduler wake-up after actions.
     ready_notify: Option<GaugeReadyNotify>,
+    /// Last computed menu items reused between menu refreshes.
     cached_menu_items: Vec<GaugeMenuItem>,
+    /// Interface associated with the cached menu items.
     cached_menu_iface: Option<String>,
+    /// Absolute deadline for refreshing cached menu data.
     menu_refresh_deadline: Instant,
+    /// Scheduler deadline for the next run.
     next_deadline: Instant,
 }
 

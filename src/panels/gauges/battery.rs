@@ -674,14 +674,23 @@ fn title_case_profile(profile: &str) -> String {
     out
 }
 
+/// Gauge that reports battery level, charge state, and power profile actions.
 struct BatteryGauge {
+    /// Utilization threshold where the gauge switches to warning attention.
     warning_percent: u8,
+    /// Utilization threshold where the gauge switches to danger attention.
     danger_percent: u8,
+    /// Sender used by menu callbacks to enqueue battery commands.
     command_tx: mpsc::Sender<BatteryCommand>,
+    /// Receiver drained on each run to apply queued battery commands.
     command_rx: mpsc::Receiver<BatteryCommand>,
+    /// Notifier used to request an immediate scheduler wake-up after actions.
     ready_notify: Option<GaugeReadyNotify>,
+    /// Deferred event source registration handle, consumed on `register`.
     event_source: Option<BatteryEventSource>,
+    /// Shared info dialog state updated by the battery event source.
     info_state: Arc<Mutex<InfoDialog>>,
+    /// Scheduler deadline for the next run.
     next_deadline: Instant,
 }
 

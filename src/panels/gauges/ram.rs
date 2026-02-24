@@ -184,10 +184,15 @@ impl RamState {
     }
 }
 
+/// Gauge that samples and displays system memory usage.
 struct RamGauge {
+    /// Rolling RAM sample state used for display smoothing and cadence.
     state: RamState,
+    /// Utilization threshold where the gauge switches to warning attention.
     warning_threshold: f32,
+    /// Utilization threshold where the gauge switches to danger attention.
     danger_threshold: f32,
+    /// Scheduler deadline for the next run.
     next_deadline: Instant,
 }
 

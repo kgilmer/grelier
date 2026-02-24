@@ -112,8 +112,11 @@ fn session_action_dialog() -> GaugeActionDialog {
     }
 }
 
+/// Gauge that exposes session-level actions such as logout and power controls.
 struct SessionGauge {
+    /// Prebuilt action dialog with session management actions.
     action_dialog: GaugeActionDialog,
+    /// Scheduler deadline for the next run.
     next_deadline: Instant,
 }
 

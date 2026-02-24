@@ -137,11 +137,17 @@ fn duration_until_window_boundary(window_secs: u64) -> Duration {
 
 /// Stream of the current wall-clock hour/minute, formatted on two lines.
 struct ClockGauge {
+    /// Whether to include seconds in the rendered time string.
     show_seconds: bool,
+    /// Whether to append textual AM/PM information in info lines.
     show_text: bool,
+    /// Shared 12h/24h format preference toggled by user input.
     format_state: Arc<Mutex<HourFormat>>,
+    /// Cached clock icon keyed by minute to avoid regenerating every tick.
     icon_state: Option<ClockIconState>,
+    /// Notifier used to request an immediate scheduler wake-up after toggles.
     ready_notify: Option<GaugeReadyNotify>,
+    /// Scheduler deadline for the next run.
     next_deadline: Instant,
 }
 

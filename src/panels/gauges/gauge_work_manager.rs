@@ -160,11 +160,17 @@ pub enum GaugeStatus {
 
 #[cfg(test)]
 #[derive(Debug, Clone)]
+/// Snapshot of a gauge runtime used by work-manager tests.
 pub struct GaugeRuntimeSnapshot {
+    /// Stable gauge identifier.
     pub id: &'static str,
+    /// Current lifecycle status for the gauge.
     pub status: GaugeStatus,
+    /// Next scheduled run time for the gauge.
     pub next_deadline: Instant,
+    /// Number of consecutive timeout strikes accrued.
     pub strike_count: u8,
+    /// Total number of times the gauge has been run.
     pub run_count: u64,
 }
 
@@ -177,12 +183,19 @@ pub struct ManagerSnapshot {
     pub runtimes: Vec<GaugeRuntimeSnapshot>,
 }
 
+/// Internal runtime state for a single managed gauge instance.
 struct GaugeRuntime {
+    /// Gauge implementation instance.
     gauge: Box<dyn Gauge>,
+    /// Current lifecycle status for scheduling decisions.
     status: GaugeStatus,
+    /// Next scheduled run time for the gauge.
     next_deadline: Instant,
+    /// Monotonic version used to invalidate stale heap entries.
     generation: u64,
+    /// Number of consecutive timeout strikes accrued.
     strike_count: u8,
+    /// Total number of times the gauge has been run.
     run_count: u64,
 }
 
@@ -539,12 +552,19 @@ mod tests {
     use super::*;
     use crate::panels::gauges::gauge::GaugeDisplay;
 
+    /// Minimal test gauge used to validate scheduler behavior.
     struct TestGauge {
+        /// Stable gauge identifier returned from `id()`.
         id: &'static str,
+        /// Test clock advanced to simulate long-running gauge work.
         clock: FakeClock,
+        /// Next scheduled run time returned by `next_deadline()`.
         next_deadline: Instant,
+        /// Interval added after each run to compute the next deadline.
         interval: Duration,
+        /// Simulated work duration consumed on each run.
         run_duration: Duration,
+        /// Whether `run_once` should emit a model update.
         emit_model: bool,
     }
 

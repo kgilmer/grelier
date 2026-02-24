@@ -118,13 +118,21 @@ enum BrightnessCommand {
     Adjust(i8),
 }
 
+/// Gauge that reads and adjusts display backlight brightness.
 struct BrightnessGauge {
+    /// Cached backlight controller; re-discovered when unavailable.
     backlight: Option<Backlight>,
+    /// Brightness adjustment delta applied for each scroll/click step.
     step_percent: i8,
+    /// Poll cadence for brightness reads and model refresh.
     refresh_interval: Duration,
+    /// Sender used by UI callbacks to enqueue brightness adjustments.
     command_tx: mpsc::Sender<BrightnessCommand>,
+    /// Receiver drained on each run to apply queued adjustments.
     command_rx: mpsc::Receiver<BrightnessCommand>,
+    /// Notifier used to request an immediate scheduler wake-up after actions.
     ready_notify: Option<GaugeReadyNotify>,
+    /// Scheduler deadline for the next run.
     next_deadline: Instant,
 }
 

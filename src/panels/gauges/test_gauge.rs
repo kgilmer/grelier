@@ -128,11 +128,17 @@ fn info_dialog() -> InfoDialog {
     }
 }
 
+/// Test-only gauge used to exercise quantity and dialog interactions.
 struct TestGauge {
+    /// Shared mutable quantity state advanced on each run/click.
     state: Arc<Mutex<QuantityState>>,
+    /// Fixed action dialog used by the test gauge.
     action_dialog: GaugeActionDialog,
+    /// Fixed info dialog used by the test gauge.
     info_dialog: InfoDialog,
+    /// Notifier used to request immediate reruns during interaction tests.
     ready_notify: Option<GaugeReadyNotify>,
+    /// Scheduler deadline for the next run.
     next_deadline: Instant,
 }
 

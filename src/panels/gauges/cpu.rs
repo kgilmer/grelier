@@ -94,15 +94,25 @@ fn attention_for(
     }
 }
 
+/// Internal sampling and pacing state for the CPU gauge.
 struct CpuState {
+    /// Previous `/proc/stat` aggregate sample used to compute utilization deltas.
     previous: Option<CpuTime>,
+    /// Whether the gauge is currently polling at the fast interval.
     fast_interval: bool,
+    /// Consecutive samples below `fast_threshold` while in fast mode.
     below_threshold_streak: u8,
+    /// Utilization threshold that triggers fast polling when exceeded.
     fast_threshold: f32,
+    /// Number of calm samples required before returning to slow polling.
     calm_ticks: u8,
+    /// Poll interval used while in fast mode.
     fast_interval_duration: Duration,
+    /// Poll interval used while in normal/slow mode.
     slow_interval_duration: Duration,
+    /// Utilization threshold where display attention becomes warning.
     warning_threshold: f32,
+    /// Utilization threshold where display attention becomes danger.
     danger_threshold: f32,
 }
 
@@ -144,9 +154,13 @@ fn cpu_value(
     }
 }
 
+/// Gauge that samples and displays overall CPU utilization.
 struct CpuGauge {
+    /// Rolling CPU sample state used to compute utilization and poll intervals.
     state: CpuState,
+    /// Human-readable CPU model shown in the info dialog.
     cpu_model: String,
+    /// Scheduler deadline for the next run.
     next_deadline: Instant,
 }
 

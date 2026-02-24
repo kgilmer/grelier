@@ -47,8 +47,11 @@ fn render_date_display(month_format: &str, day_format: &str) -> GaugeDisplay {
 
 /// Stream of the current day (day-of-month, zero-padded) published once per day.
 struct DateGauge {
+    /// `chrono` format string used for the month portion of the display.
     month_format: String,
+    /// `chrono` format string used for the day portion of the display.
     day_format: String,
+    /// Scheduler deadline for the next run.
     next_deadline: Instant,
 }
 
