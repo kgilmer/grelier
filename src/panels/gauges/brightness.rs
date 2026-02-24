@@ -183,7 +183,7 @@ impl Gauge for BrightnessGauge {
         let step_percent = self.step_percent;
         let command_tx = self.command_tx.clone();
         let ready_notify = self.ready_notify.clone();
-        let on_click: GaugeClickAction = Arc::new(move |click: GaugeClick| match click.input {
+        let on_scroll: GaugeClickAction = Arc::new(move |click: GaugeClick| match click.input {
             GaugeInput::ScrollUp => {
                 let _ = command_tx.send(BrightnessCommand::Adjust(step_percent));
                 if let Some(ready_notify) = &ready_notify {
@@ -205,10 +205,12 @@ impl Gauge for BrightnessGauge {
             id: "brightness",
             icon: svg_asset("brightness.svg"),
             display: brightness_value(percent),
-            on_click: Some(on_click),
-            menu: None,
-            action_dialog: None,
-            info: Some(InfoDialog {
+            on_left_click: None,
+            on_middle_click: None,
+            on_right_click: None,
+            on_scroll: Some(on_scroll),
+            right_click: None,
+            left_click_info: Some(InfoDialog {
                 title: "Brightness".to_string(),
                 lines: vec![
                     device_name.unwrap_or_else(|| "No backlight device".to_string()),

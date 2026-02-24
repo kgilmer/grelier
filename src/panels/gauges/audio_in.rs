@@ -4,7 +4,7 @@ use crate::dialog::info::InfoDialog;
 use crate::icon::{icon_quantity, svg_asset};
 use crate::panels::gauges::gauge::{Gauge, GaugeEventSource, GaugeReadyNotify, GaugeRegistrar};
 use crate::panels::gauges::gauge::{
-    GaugeClick, GaugeClickAction, GaugeDisplay, GaugeMenu, GaugeMenuItem, GaugeValue,
+    GaugeClick, GaugeClickAction, GaugeDisplay, GaugeMenu, GaugeMenuItem, GaugeRightClick, GaugeValue,
     GaugeValueAttention, MenuSelectAction,
 };
 use crate::panels::gauges::gauge_registry::GaugeSpec;
@@ -608,10 +608,7 @@ impl Gauge for AudioInGauge {
 
         let step_percent = self.step_percent;
         let command_tx = self.command_tx.clone();
-        let on_click: GaugeClickAction = Arc::new(move |click: GaugeClick| match click.input {
-            crate::panels::gauges::gauge::GaugeInput::Button(iced::mouse::Button::Middle) => {
-                let _ = command_tx.send(InputCommand::ToggleMute);
-            }
+        let on_scroll: GaugeClickAction = Arc::new(move |click: GaugeClick| match click.input {
             crate::panels::gauges::gauge::GaugeInput::ScrollUp => {
                 let _ = command_tx.send(InputCommand::AdjustVolume(step_percent));
             }
@@ -619,6 +616,10 @@ impl Gauge for AudioInGauge {
                 let _ = command_tx.send(InputCommand::AdjustVolume(-step_percent));
             }
             _ => {}
+        });
+        let command_tx = self.command_tx.clone();
+        let on_middle_click: GaugeClickAction = Arc::new(move |_| {
+            let _ = command_tx.send(InputCommand::ToggleMute);
         });
         let menu_select: MenuSelectAction = {
             let command_tx = self.command_tx.clone();
@@ -642,18 +643,20 @@ impl Gauge for AudioInGauge {
             id: "audio_in",
             icon,
             display: format_level(status.map(|status| status.percent)),
-            on_click: Some(on_click),
-            menu: if snapshot.connected {
-                Some(GaugeMenu {
+            on_left_click: None,
+            on_scroll: Some(on_scroll),
+            on_middle_click: Some(on_middle_click),
+            on_right_click: None,
+            right_click: if snapshot.connected {
+                Some(GaugeRightClick::Menu(GaugeMenu {
                     title: "Input Devices".to_string(),
                     items: menu_snapshot,
                     on_select: Some(menu_select),
-                })
+                }))
             } else {
                 None
             },
-            action_dialog: None,
-            info: Some(InfoDialog {
+            left_click_info: Some(InfoDialog {
                 title: "Audio In".to_string(),
                 lines: vec![
                     device_label,

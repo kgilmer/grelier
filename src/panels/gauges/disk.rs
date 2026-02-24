@@ -210,10 +210,12 @@ impl Gauge for DiskGauge {
             id: "disk",
             icon: svg_asset("disk.svg"),
             display,
-            on_click: None,
-            menu: None,
-            action_dialog: None,
-            info: Some(InfoDialog {
+            on_left_click: None,
+            on_middle_click: None,
+            on_right_click: None,
+            on_scroll: None,
+            right_click: None,
+            left_click_info: Some(InfoDialog {
                 title: "Disk".to_string(),
                 lines: vec![device, total_line, used_line],
             }),

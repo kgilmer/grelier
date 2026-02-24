@@ -4,6 +4,7 @@ use crate::icon::svg_asset;
 use crate::panels::gauges::gauge::Gauge;
 use crate::panels::gauges::gauge::{
     ActionSelectAction, GaugeActionDialog, GaugeActionItem, GaugeDisplay, GaugeModel,
+    GaugeRightClick,
 };
 use crate::panels::gauges::gauge_registry::GaugeSpec;
 use crate::settings::SettingSpec;
@@ -135,10 +136,12 @@ impl Gauge for SessionGauge {
             id: "session",
             icon: svg_asset("shutdown.svg"),
             display: GaugeDisplay::Empty,
-            on_click: None,
-            menu: None,
-            action_dialog: Some(self.action_dialog.clone()),
-            info: Some(InfoDialog {
+            on_left_click: None,
+            on_middle_click: None,
+            on_right_click: None,
+            on_scroll: None,
+            right_click: Some(GaugeRightClick::ActionDialog(self.action_dialog.clone())),
+            left_click_info: Some(InfoDialog {
                 title: "Session".to_string(),
                 lines: vec![match read_uptime_seconds() {
                     Some(seconds) => format!("Uptime: {}", format_uptime(seconds)),

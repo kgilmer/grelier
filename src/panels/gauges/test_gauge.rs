@@ -7,7 +7,7 @@ use crate::dialog::info::InfoDialog;
 use crate::icon::{icon_quantity, svg_asset};
 use crate::panels::gauges::gauge::{
     ActionSelectAction, GaugeActionDialog, GaugeActionItem, GaugeClick, GaugeClickAction,
-    GaugeDisplay, GaugeModel, GaugeValue, GaugeValueAttention,
+    GaugeDisplay, GaugeModel, GaugeRightClick, GaugeValue, GaugeValueAttention,
 };
 use crate::panels::gauges::gauge::{Gauge, GaugeReadyNotify};
 use crate::panels::gauges::gauge_registry::GaugeSpec;
@@ -164,7 +164,7 @@ impl Gauge for TestGauge {
             .unwrap_or(GaugeDisplay::Error);
         let state = Arc::clone(&self.state);
         let ready_notify = self.ready_notify.clone();
-        let on_click: GaugeClickAction = Arc::new(move |click: GaugeClick| {
+        let on_left_click: GaugeClickAction = Arc::new(move |click: GaugeClick| {
             if let Ok(mut state) = state.lock()
                 && let crate::panels::gauges::gauge::GaugeInput::Button(mouse::Button::Left) =
                     click.input
@@ -180,10 +180,12 @@ impl Gauge for TestGauge {
             id: "test_gauge",
             icon: svg_asset("option-checked.svg"),
             display,
-            on_click: Some(on_click),
-            menu: None,
-            action_dialog: Some(self.action_dialog.clone()),
-            info: Some(self.info_dialog.clone()),
+            on_left_click: Some(on_left_click),
+            on_middle_click: None,
+            on_right_click: None,
+            on_scroll: None,
+            right_click: Some(GaugeRightClick::ActionDialog(self.action_dialog.clone())),
+            left_click_info: Some(self.info_dialog.clone()),
         })
     }
 }
@@ -273,7 +275,9 @@ mod tests {
         let now = Instant::now();
         let mut gauge = create_gauge(now);
         let first = gauge.run_once(now).expect("gauge model");
-        let info = first.info.expect("info dialog should be set");
+        let info = first
+            .left_click_info
+            .expect("left-click info dialog should be set");
 
         assert_eq!(info.title, "Test Gauge Info");
         assert_eq!(info.lines.len(), 3);

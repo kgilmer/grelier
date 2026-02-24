@@ -2,7 +2,6 @@
 // Consumes Settings: grelier.gauge.clock.hourformat, grelier.gauge.clock.showseconds, grelier.gauge.clock.show_text.
 use chrono::Local;
 use chrono::Timelike;
-use iced::mouse;
 use iced::widget::svg;
 use std::f32::consts::PI;
 use std::sync::{Arc, Mutex};
@@ -216,11 +215,8 @@ impl Gauge for ClockGauge {
 
         let format_state = Arc::clone(&self.format_state);
         let ready_notify = self.ready_notify.clone();
-        let on_click: GaugeClickAction = Arc::new(move |click: GaugeClick| {
-            if let crate::panels::gauges::gauge::GaugeInput::Button(button) = click.input
-                && let mouse::Button::Right = button
-                && let Ok(mut format) = format_state.lock()
-            {
+        let on_right_click: GaugeClickAction = Arc::new(move |_click: GaugeClick| {
+            if let Ok(mut format) = format_state.lock() {
                 *format = format.toggle();
                 if let Some(ready_notify) = &ready_notify {
                     ready_notify("clock");
@@ -239,10 +235,12 @@ impl Gauge for ClockGauge {
             id: "clock",
             icon,
             display,
-            on_click: Some(on_click),
-            menu: None,
-            action_dialog: None,
-            info: None,
+            on_left_click: None,
+            on_middle_click: None,
+            on_right_click: Some(on_right_click),
+            on_scroll: None,
+            right_click: None,
+            left_click_info: None,
         })
     }
 }

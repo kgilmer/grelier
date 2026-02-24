@@ -446,10 +446,12 @@ fn dead_gauge_model(id: &'static str) -> GaugeModel {
         id,
         icon: svg_asset("turtle.svg"),
         display: GaugeDisplay::Empty,
-        on_click: None,
-        menu: None,
-        action_dialog: None,
-        info: None,
+        on_left_click: None,
+        on_middle_click: None,
+        on_right_click: None,
+        on_scroll: None,
+        right_click: None,
+        left_click_info: None,
     }
 }
 
@@ -457,13 +459,10 @@ fn models_visually_equal(a: &GaugeModel, b: &GaugeModel) -> bool {
     if a.id != b.id || a.icon != b.icon || !display_equal(&a.display, &b.display) {
         return false;
     }
-    if !menu_equal(a.menu.as_ref(), b.menu.as_ref()) {
+    if !right_click_equal(a.right_click.as_ref(), b.right_click.as_ref()) {
         return false;
     }
-    if !action_dialog_equal(a.action_dialog.as_ref(), b.action_dialog.as_ref()) {
-        return false;
-    }
-    info_equal(a.info.as_ref(), b.info.as_ref())
+    info_equal(a.left_click_info.as_ref(), b.left_click_info.as_ref())
 }
 
 fn display_equal(a: &GaugeDisplay, b: &GaugeDisplay) -> bool {
@@ -502,36 +501,43 @@ fn value_equal(
 }
 
 fn menu_equal(
-    a: Option<&crate::panels::gauges::gauge::GaugeMenu>,
-    b: Option<&crate::panels::gauges::gauge::GaugeMenu>,
+    a: &crate::panels::gauges::gauge::GaugeMenu,
+    b: &crate::panels::gauges::gauge::GaugeMenu,
 ) -> bool {
-    match (a, b) {
-        (None, None) => true,
-        (Some(a), Some(b)) => {
-            a.title == b.title
-                && a.items.len() == b.items.len()
-                && a.items.iter().zip(&b.items).all(|(ai, bi)| {
-                    ai.id == bi.id && ai.label == bi.label && ai.selected == bi.selected
-                })
-        }
-        _ => false,
-    }
+    a.title == b.title
+        && a.items.len() == b.items.len()
+        && a.items
+            .iter()
+            .zip(&b.items)
+            .all(|(ai, bi)| ai.id == bi.id && ai.label == bi.label && ai.selected == bi.selected)
 }
 
 fn action_dialog_equal(
-    a: Option<&crate::panels::gauges::gauge::GaugeActionDialog>,
-    b: Option<&crate::panels::gauges::gauge::GaugeActionDialog>,
+    a: &crate::panels::gauges::gauge::GaugeActionDialog,
+    b: &crate::panels::gauges::gauge::GaugeActionDialog,
+) -> bool {
+    a.title == b.title
+        && a.items.len() == b.items.len()
+        && a.items
+            .iter()
+            .zip(&b.items)
+            .all(|(ai, bi)| ai.id == bi.id && ai.icon == bi.icon)
+}
+
+fn right_click_equal(
+    a: Option<&crate::panels::gauges::gauge::GaugeRightClick>,
+    b: Option<&crate::panels::gauges::gauge::GaugeRightClick>,
 ) -> bool {
     match (a, b) {
         (None, None) => true,
-        (Some(a), Some(b)) => {
-            a.title == b.title
-                && a.items.len() == b.items.len()
-                && a.items
-                    .iter()
-                    .zip(&b.items)
-                    .all(|(ai, bi)| ai.id == bi.id && ai.icon == bi.icon)
-        }
+        (
+            Some(crate::panels::gauges::gauge::GaugeRightClick::Menu(a)),
+            Some(crate::panels::gauges::gauge::GaugeRightClick::Menu(b)),
+        ) => menu_equal(a, b),
+        (
+            Some(crate::panels::gauges::gauge::GaugeRightClick::ActionDialog(a)),
+            Some(crate::panels::gauges::gauge::GaugeRightClick::ActionDialog(b)),
+        ) => action_dialog_equal(a, b),
         _ => false,
     }
 }
@@ -605,10 +611,12 @@ mod tests {
                     id: self.id,
                     icon: svg_asset("ratio-0.svg"),
                     display: GaugeDisplay::Empty,
-                    on_click: None,
-                    menu: None,
-                    action_dialog: None,
-                    info: None,
+                    on_left_click: None,
+                    on_middle_click: None,
+                    on_right_click: None,
+                    on_scroll: None,
+                    right_click: None,
+                    left_click_info: None,
                 })
             } else {
                 None
