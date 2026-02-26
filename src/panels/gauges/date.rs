@@ -70,12 +70,10 @@ impl Gauge for DateGauge {
             id: "date",
             icon: svg_asset("calendar-alt.svg"),
             display: render_date_display(&self.month_format, &self.day_format),
-            on_left_click: None,
-            on_middle_click: None,
-            on_right_click: None,
-            on_scroll: None,
-            right_click: None,
-            left_click_info: None,
+            on_click: None,
+            menu: None,
+            action_dialog: None,
+            info: None,
         })
     }
 }

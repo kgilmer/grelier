@@ -3,7 +3,7 @@ use crate::dialog::info::InfoDialog;
 use crate::icon::{icon_quantity, svg_asset};
 use crate::panels::gauges::gauge::{Gauge, GaugeEventSource, GaugeReadyNotify, GaugeRegistrar};
 use crate::panels::gauges::gauge::{
-    GaugeDisplay, GaugeMenu, GaugeMenuItem, GaugeModel, GaugeRightClick, GaugeValue, GaugeValueAttention,
+    GaugeDisplay, GaugeMenu, GaugeMenuItem, GaugeModel, GaugeValue, GaugeValueAttention,
     MenuSelectAction,
 };
 use crate::panels::gauges::gauge_registry::GaugeSpec;
@@ -143,12 +143,10 @@ fn snapshot_model(
                 id: "battery",
                 icon,
                 display,
-                on_left_click: None,
-                on_middle_click: None,
-                on_right_click: None,
-                on_scroll: None,
-                right_click: menu.map(GaugeRightClick::Menu),
-                left_click_info: info_state.lock().ok().map(|info| info.clone()),
+                on_click: None,
+                menu,
+                action_dialog: None,
+                info: info_state.lock().ok().map(|info| info.clone()),
             });
         }
     }
@@ -170,12 +168,10 @@ fn snapshot_model(
         id: "battery",
         icon: svg_asset("power.svg"),
         display: GaugeDisplay::Error,
-        on_left_click: None,
-        on_middle_click: None,
-        on_right_click: None,
-        on_scroll: None,
-        right_click: menu.map(GaugeRightClick::Menu),
-        left_click_info: info_state.lock().ok().map(|info| info.clone()),
+        on_click: None,
+        menu,
+        action_dialog: None,
+        info: info_state.lock().ok().map(|info| info.clone()),
     })
 }
 

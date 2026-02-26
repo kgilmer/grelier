@@ -79,12 +79,10 @@ impl Gauge for NetDownGauge {
             id: "net_down",
             icon: svg_asset("download.svg"),
             display,
-            on_left_click: None,
-            on_middle_click: None,
-            on_right_click: None,
-            on_scroll: None,
-            right_click: None,
-            left_click_info: Some(InfoDialog {
+            on_click: None,
+            menu: None,
+            action_dialog: None,
+            info: Some(InfoDialog {
                 title: "Net Down".to_string(),
                 lines: vec![
                     iface.unwrap_or_else(|| "No active interface".to_string()),

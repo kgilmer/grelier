@@ -260,12 +260,10 @@ impl Gauge for RamGauge {
                 self.warning_threshold,
                 self.danger_threshold,
             ),
-            on_left_click: None,
-            on_middle_click: None,
-            on_right_click: None,
-            on_scroll: None,
-            right_click: None,
-            left_click_info: Some(InfoDialog {
+            on_click: None,
+            menu: None,
+            action_dialog: None,
+            info: Some(InfoDialog {
                 title: "RAM".to_string(),
                 lines,
             }),

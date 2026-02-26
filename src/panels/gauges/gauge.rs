@@ -70,15 +70,6 @@ pub struct GaugeActionDialog {
     pub on_select: Option<ActionSelectAction>,
 }
 
-/// Right-click interaction target for a gauge.
-#[derive(Clone)]
-pub enum GaugeRightClick {
-    /// Show a context menu.
-    Menu(GaugeMenu),
-    /// Show an icon-based action dialog.
-    ActionDialog(GaugeActionDialog),
-}
-
 /// Full render/update model for a single gauge instance.
 #[derive(Clone)]
 pub struct GaugeModel {
@@ -88,18 +79,14 @@ pub struct GaugeModel {
     pub icon: svg::Handle,
     /// Value/error content shown in the gauge value area.
     pub display: GaugeDisplay,
-    /// Optional callback invoked specifically for left-click button input.
-    pub on_left_click: Option<GaugeClickAction>,
-    /// Optional callback invoked specifically for middle-click button input.
-    pub on_middle_click: Option<GaugeClickAction>,
-    /// Optional callback invoked specifically for right-click button input.
-    pub on_right_click: Option<GaugeClickAction>,
-    /// Optional callback invoked for scroll wheel input.
-    pub on_scroll: Option<GaugeClickAction>,
-    /// Optional right-click target (menu or action dialog).
-    pub right_click: Option<GaugeRightClick>,
-    /// Optional info dialog content shown on left-click.
-    pub left_click_info: Option<InfoDialog>,
+    /// Optional pointer-input callback for click/scroll interactions.
+    pub on_click: Option<GaugeClickAction>,
+    /// Optional context menu shown on right-click.
+    pub menu: Option<GaugeMenu>,
+    /// Optional action dialog shown on right-click when configured.
+    pub action_dialog: Option<GaugeActionDialog>,
+    /// Optional info dialog content shown for this gauge.
+    pub info: Option<InfoDialog>,
 }
 
 impl fmt::Debug for GaugeModel {
@@ -109,19 +96,25 @@ impl fmt::Debug for GaugeModel {
             .field("icon", &self.icon)
             .field("display", &self.display)
             .field(
-                "right_click",
-                &match self.right_click.as_ref() {
-                    Some(GaugeRightClick::Menu(menu)) => format!("menu:{}", menu.title),
-                    Some(GaugeRightClick::ActionDialog(dialog)) => {
-                        format!("action:{}", dialog.title)
-                    }
-                    None => "<none>".to_string(),
-                },
+                "menu",
+                &self
+                    .menu
+                    .as_ref()
+                    .map(|menu| menu.title.as_str())
+                    .unwrap_or("<none>"),
             )
             .field(
-                "left_click_info",
+                "action_dialog",
                 &self
-                    .left_click_info
+                    .action_dialog
+                    .as_ref()
+                    .map(|dialog| dialog.title.as_str())
+                    .unwrap_or("<none>"),
+            )
+            .field(
+                "info",
+                &self
+                    .info
                     .as_ref()
                     .map(|dialog| dialog.title.as_str())
                     .unwrap_or("<none>"),

@@ -396,12 +396,10 @@ mod tests {
                 value: GaugeValue::Text(id.to_string()),
                 attention: GaugeValueAttention::Nominal,
             },
-            on_left_click: None,
-            on_middle_click: None,
-            on_right_click: None,
-            on_scroll: None,
-            right_click: None,
-            left_click_info: None,
+            on_click: None,
+            menu: None,
+            action_dialog: None,
+            info: None,
         }
     }
 
