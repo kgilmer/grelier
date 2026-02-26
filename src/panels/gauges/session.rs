@@ -3,7 +3,8 @@ use crate::dialog::info::InfoDialog;
 use crate::icon::svg_asset;
 use crate::panels::gauges::gauge::Gauge;
 use crate::panels::gauges::gauge::{
-    ActionSelectAction, GaugeActionDialog, GaugeActionItem, GaugeDisplay, GaugeModel,
+    ActionSelectAction, GaugeActionDialog, GaugeActionItem, GaugeDisplay, GaugeInteractionModel,
+    GaugeModel, GaugePointerInteraction,
 };
 use crate::panels::gauges::gauge_registry::GaugeSpec;
 use crate::settings::SettingSpec;
@@ -135,16 +136,23 @@ impl Gauge for SessionGauge {
             id: "session",
             icon: svg_asset("shutdown.svg"),
             display: GaugeDisplay::Empty,
-            on_click: None,
-            menu: None,
-            action_dialog: Some(self.action_dialog.clone()),
-            info: Some(InfoDialog {
-                title: "Session".to_string(),
-                lines: vec![match read_uptime_seconds() {
-                    Some(seconds) => format!("Uptime: {}", format_uptime(seconds)),
-                    None => "Uptime: Unknown".to_string(),
-                }],
-            }),
+            interactions: GaugeInteractionModel {
+                left_click: GaugePointerInteraction {
+                    info: Some(InfoDialog {
+                        title: "Session".to_string(),
+                        lines: vec![match read_uptime_seconds() {
+                            Some(seconds) => format!("Uptime: {}", format_uptime(seconds)),
+                            None => "Uptime: Unknown".to_string(),
+                        }],
+                    }),
+                    ..GaugePointerInteraction::default()
+                },
+                right_click: GaugePointerInteraction {
+                    action_dialog: Some(self.action_dialog.clone()),
+                    ..GaugePointerInteraction::default()
+                },
+                ..GaugeInteractionModel::default()
+            },
         })
     }
 }

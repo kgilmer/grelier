@@ -3,8 +3,8 @@ use crate::dialog::info::InfoDialog;
 use crate::icon::{icon_quantity, svg_asset};
 use crate::panels::gauges::gauge::{Gauge, GaugeEventSource, GaugeReadyNotify, GaugeRegistrar};
 use crate::panels::gauges::gauge::{
-    GaugeDisplay, GaugeMenu, GaugeMenuItem, GaugeModel, GaugeValue, GaugeValueAttention,
-    MenuSelectAction,
+    GaugeDisplay, GaugeInteractionModel, GaugeMenu, GaugeMenuItem, GaugeModel,
+    GaugePointerInteraction, GaugeValue, GaugeValueAttention, MenuSelectAction,
 };
 use crate::panels::gauges::gauge_registry::GaugeSpec;
 use crate::settings;
@@ -143,10 +143,17 @@ fn snapshot_model(
                 id: "battery",
                 icon,
                 display,
-                on_click: None,
-                menu,
-                action_dialog: None,
-                info: info_state.lock().ok().map(|info| info.clone()),
+                interactions: GaugeInteractionModel {
+                    left_click: GaugePointerInteraction {
+                        info: info_state.lock().ok().map(|info| info.clone()),
+                        ..GaugePointerInteraction::default()
+                    },
+                    right_click: GaugePointerInteraction {
+                        menu,
+                        ..GaugePointerInteraction::default()
+                    },
+                    ..GaugeInteractionModel::default()
+                },
             });
         }
     }
@@ -168,10 +175,17 @@ fn snapshot_model(
         id: "battery",
         icon: svg_asset("power.svg"),
         display: GaugeDisplay::Error,
-        on_click: None,
-        menu,
-        action_dialog: None,
-        info: info_state.lock().ok().map(|info| info.clone()),
+        interactions: GaugeInteractionModel {
+            left_click: GaugePointerInteraction {
+                info: info_state.lock().ok().map(|info| info.clone()),
+                ..GaugePointerInteraction::default()
+            },
+            right_click: GaugePointerInteraction {
+                menu,
+                ..GaugePointerInteraction::default()
+            },
+            ..GaugeInteractionModel::default()
+        },
     })
 }
 

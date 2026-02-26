@@ -3,7 +3,10 @@
 use crate::dialog::info::InfoDialog;
 use crate::icon::{icon_quantity, svg_asset};
 use crate::panels::gauges::gauge::Gauge;
-use crate::panels::gauges::gauge::{GaugeDisplay, GaugeModel, GaugeValue, GaugeValueAttention};
+use crate::panels::gauges::gauge::{
+    GaugeDisplay, GaugeInteractionModel, GaugeModel, GaugePointerInteraction, GaugeValue,
+    GaugeValueAttention,
+};
 use crate::panels::gauges::gauge_registry::GaugeSpec;
 use crate::settings;
 use crate::settings::SettingSpec;
@@ -210,13 +213,16 @@ impl Gauge for DiskGauge {
             id: "disk",
             icon: svg_asset("disk.svg"),
             display,
-            on_click: None,
-            menu: None,
-            action_dialog: None,
-            info: Some(InfoDialog {
-                title: "Disk".to_string(),
-                lines: vec![device, total_line, used_line],
-            }),
+            interactions: GaugeInteractionModel {
+                left_click: GaugePointerInteraction {
+                    info: Some(InfoDialog {
+                        title: "Disk".to_string(),
+                        lines: vec![device, total_line, used_line],
+                    }),
+                    ..GaugePointerInteraction::default()
+                },
+                ..GaugeInteractionModel::default()
+            },
         })
     }
 }

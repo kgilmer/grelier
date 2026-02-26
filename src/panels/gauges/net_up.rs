@@ -3,7 +3,10 @@
 use crate::dialog::info::InfoDialog;
 use crate::icon::{icon_quantity, svg_asset};
 use crate::panels::gauges::gauge::Gauge;
-use crate::panels::gauges::gauge::{GaugeDisplay, GaugeModel, GaugeValue, GaugeValueAttention};
+use crate::panels::gauges::gauge::{
+    GaugeDisplay, GaugeInteractionModel, GaugeModel, GaugePointerInteraction, GaugeValue,
+    GaugeValueAttention,
+};
 use crate::panels::gauges::gauge_registry::GaugeSpec;
 use crate::panels::gauges::net_common::{
     NetIntervalState, SlidingWindow, format_rate_per_sec, net_interval_config_from_settings,
@@ -79,16 +82,19 @@ impl Gauge for NetUpGauge {
             id: "net_up",
             icon: svg_asset("upload.svg"),
             display,
-            on_click: None,
-            menu: None,
-            action_dialog: None,
-            info: Some(InfoDialog {
-                title: "Net Up".to_string(),
-                lines: vec![
-                    iface.unwrap_or_else(|| "No active interface".to_string()),
-                    format_rate_per_sec(bytes_per_sec),
-                ],
-            }),
+            interactions: GaugeInteractionModel {
+                left_click: GaugePointerInteraction {
+                    info: Some(InfoDialog {
+                        title: "Net Up".to_string(),
+                        lines: vec![
+                            iface.unwrap_or_else(|| "No active interface".to_string()),
+                            format_rate_per_sec(bytes_per_sec),
+                        ],
+                    }),
+                    ..GaugePointerInteraction::default()
+                },
+                ..GaugeInteractionModel::default()
+            },
         })
     }
 }

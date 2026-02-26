@@ -26,7 +26,7 @@ use crate::bar::{
     AppIconCache, BarState, DEFAULT_PANELS, GaugeDialog, GaugeDialogWindow, Message,
     close_window_task,
 };
-use crate::panels::gauges::gauge::{GaugeClick, GaugeInput, GaugeModel};
+use crate::panels::gauges::gauge::{GaugeClick, GaugeInput, GaugeModel, GaugePointerInteraction};
 use crate::panels::gauges::gauge_registry;
 use crate::panels::gauges::gauge_work_manager;
 use elbey_cache::Cache;
@@ -506,19 +506,29 @@ fn update(state: &mut BarState, message: Message) -> Task<Message> {
                 return state.close_dialogs();
             }
 
-            let (gauge_menu, gauge_action, gauge_info, gauge_callback) =
-                match state.gauges.iter().find(|g| g.id == id) {
-                    Some(gauge) => (
-                        gauge.menu.clone(),
-                        gauge.action_dialog.clone(),
-                        gauge.info.clone(),
-                        gauge.on_click.clone(),
-                    ),
-                    None => (None, None, None, None),
-                };
+            let interaction = state
+                .gauges
+                .iter()
+                .find(|g| g.id == id)
+                .map(|gauge| match input {
+                    GaugeInput::Button(mouse::Button::Left) => {
+                        gauge.interactions.left_click.clone()
+                    }
+                    GaugeInput::Button(mouse::Button::Middle) => {
+                        gauge.interactions.middle_click.clone()
+                    }
+                    GaugeInput::Button(mouse::Button::Right) => {
+                        gauge.interactions.right_click.clone()
+                    }
+                    GaugeInput::Button(_) => GaugePointerInteraction::default(),
+                    GaugeInput::ScrollUp | GaugeInput::ScrollDown => {
+                        gauge.interactions.scroll.clone()
+                    }
+                })
+                .unwrap_or_else(GaugePointerInteraction::default);
 
             if matches!(input, GaugeInput::Button(iced::mouse::Button::Right))
-                && let Some(dialog) = gauge_action
+                && let Some(dialog) = interaction.action_dialog
             {
                 let anchor_y = state
                     .gauge_dialog_anchor
@@ -529,7 +539,7 @@ fn update(state: &mut BarState, message: Message) -> Task<Message> {
             }
 
             if matches!(input, GaugeInput::Button(iced::mouse::Button::Right))
-                && let Some(menu) = gauge_menu
+                && let Some(menu) = interaction.menu
             {
                 let anchor_y = state
                     .gauge_dialog_anchor
@@ -540,21 +550,7 @@ fn update(state: &mut BarState, message: Message) -> Task<Message> {
             }
 
             if matches!(input, GaugeInput::Button(iced::mouse::Button::Left))
-                && matches!(
-                    id.as_str(),
-                    "battery"
-                        | "audio_in"
-                        | "audio_out"
-                        | "brightness"
-                        | "cpu"
-                        | "disk"
-                        | "net_down"
-                        | "net_up"
-                        | "ram"
-                        | "session"
-                        | "wifi"
-                )
-                && let Some(dialog) = gauge_info
+                && let Some(dialog) = interaction.info
             {
                 let anchor_y = state
                     .gauge_dialog_anchor
@@ -564,7 +560,7 @@ fn update(state: &mut BarState, message: Message) -> Task<Message> {
                 return state.open_info_dialog(&id, dialog, anchor_y);
             }
 
-            if let Some(callback) = gauge_callback {
+            if let Some(callback) = interaction.on_input {
                 callback(GaugeClick { input });
             } else {
                 info!("Gauge '{id}' clicked: {:?}", input);
@@ -583,7 +579,7 @@ fn update(state: &mut BarState, message: Message) -> Task<Message> {
                 .gauges
                 .iter()
                 .find(|g| g.id == gauge_id)
-                .and_then(|g| g.menu.as_ref())
+                .and_then(|g| g.interactions.right_click.menu.as_ref())
                 .and_then(|menu| menu.on_select.clone())
             {
                 menu(item_id);
@@ -602,7 +598,7 @@ fn update(state: &mut BarState, message: Message) -> Task<Message> {
                 .gauges
                 .iter()
                 .find(|g| g.id == gauge_id)
-                .and_then(|g| g.action_dialog.as_ref())
+                .and_then(|g| g.interactions.right_click.action_dialog.as_ref())
                 .and_then(|dialog| dialog.on_select.clone())
             {
                 action(item_id.clone());
@@ -901,7 +897,7 @@ fn refresh_info_dialogs(
     dialog_windows: &mut std::collections::HashMap<window::Id, GaugeDialogWindow>,
     gauge: &GaugeModel,
 ) {
-    let Some(info) = gauge.info.as_ref() else {
+    let Some(info) = gauge.interactions.left_click.info.as_ref() else {
         return;
     };
 
@@ -917,7 +913,10 @@ fn refresh_info_dialogs(
 #[cfg(test)]
 mod tests {
     use crate::bar::{GaugeDialog, GaugeDialogWindow};
-    use crate::panels::gauges::gauge::{GaugeDisplay, GaugeMenu, GaugeValue, GaugeValueAttention};
+    use crate::panels::gauges::gauge::{
+        GaugeDisplay, GaugeInteractionModel, GaugeMenu, GaugePointerInteraction, GaugeValue,
+        GaugeValueAttention,
+    };
     use crate::settings_storage::SettingsStorage;
     use std::sync::Arc;
     use std::sync::Mutex;
@@ -974,10 +973,7 @@ mod tests {
                 value: GaugeValue::Text("12\n00".to_string()),
                 attention: GaugeValueAttention::Nominal,
             },
-            on_click: None,
-            menu: None,
-            action_dialog: None,
-            info: None,
+            interactions: GaugeInteractionModel::default(),
         };
         let g2 = GaugeModel {
             id: "clock",
@@ -986,10 +982,7 @@ mod tests {
                 value: GaugeValue::Text("12\n01".to_string()),
                 attention: GaugeValueAttention::Nominal,
             },
-            on_click: None,
-            menu: None,
-            action_dialog: None,
-            info: None,
+            interactions: GaugeInteractionModel::default(),
         };
 
         update_gauge(&mut gauges, g1.clone());
@@ -1007,10 +1000,7 @@ mod tests {
                 value: GaugeValue::Text("01\n01".to_string()),
                 attention: GaugeValueAttention::Nominal,
             },
-            on_click: None,
-            menu: None,
-            action_dialog: None,
-            info: None,
+            interactions: GaugeInteractionModel::default(),
         };
         update_gauge(&mut gauges, g3.clone());
         assert_eq!(gauges.len(), 2, "different id should append");
@@ -1038,13 +1028,16 @@ mod tests {
             id: "audio_out",
             icon: test_icon(),
             display: GaugeDisplay::Empty,
-            on_click: Some(Arc::new({
-                let clicked = clicked.clone();
-                move |_click| clicked.store(true, Ordering::SeqCst)
-            })),
-            menu: None,
-            action_dialog: None,
-            info: None,
+            interactions: GaugeInteractionModel {
+                left_click: GaugePointerInteraction {
+                    on_input: Some(Arc::new({
+                        let clicked = clicked.clone();
+                        move |_click| clicked.store(true, Ordering::SeqCst)
+                    })),
+                    ..GaugePointerInteraction::default()
+                },
+                ..GaugeInteractionModel::default()
+            },
         });
 
         let task = update(
@@ -1093,10 +1086,7 @@ mod tests {
             id: "audio_out",
             icon: test_icon(),
             display: GaugeDisplay::Empty,
-            on_click: None,
-            menu: None,
-            action_dialog: None,
-            info: None,
+            interactions: GaugeInteractionModel::default(),
         });
 
         let task = update(
@@ -1162,14 +1152,17 @@ mod tests {
             id: "audio_out",
             icon: test_icon(),
             display: GaugeDisplay::Empty,
-            on_click: None,
-            menu: Some(GaugeMenu {
-                title: "Test".into(),
-                items: Vec::new(),
-                on_select: Some(on_select),
-            }),
-            action_dialog: None,
-            info: None,
+            interactions: GaugeInteractionModel {
+                right_click: GaugePointerInteraction {
+                    menu: Some(GaugeMenu {
+                        title: "Test".into(),
+                        items: Vec::new(),
+                        on_select: Some(on_select),
+                    }),
+                    ..GaugePointerInteraction::default()
+                },
+                ..GaugeInteractionModel::default()
+            },
         });
 
         let task = update(

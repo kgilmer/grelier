@@ -4,8 +4,8 @@ use crate::dialog::info::InfoDialog;
 use crate::icon::{icon_quantity, svg_asset};
 use crate::panels::gauges::gauge::{Gauge, GaugeEventSource, GaugeReadyNotify, GaugeRegistrar};
 use crate::panels::gauges::gauge::{
-    GaugeClick, GaugeClickAction, GaugeDisplay, GaugeMenu, GaugeMenuItem, GaugeValue,
-    GaugeValueAttention, MenuSelectAction,
+    GaugeClick, GaugeClickAction, GaugeDisplay, GaugeInteractionModel, GaugeMenu, GaugeMenuItem,
+    GaugePointerInteraction, GaugeValue, GaugeValueAttention, MenuSelectAction,
 };
 use crate::panels::gauges::gauge_registry::GaugeSpec;
 use crate::settings;
@@ -636,27 +636,41 @@ impl Gauge for AudioOutGauge {
             id: "audio_out",
             icon,
             display: format_level(status.map(|status| status.percent)),
-            on_click: Some(on_click),
-            menu: if snapshot.connected {
-                Some(GaugeMenu {
-                    title: "Output Devices".to_string(),
-                    items: menu_snapshot,
-                    on_select: Some(menu_select),
-                })
-            } else {
-                None
-            },
-            action_dialog: None,
-            info: Some(InfoDialog {
-                title: "Audio Out".to_string(),
-                lines: vec![
-                    device_label,
-                    match status {
-                        Some(status) => format!("Level: {}%", status.percent),
-                        None => "Level: N/A".to_string(),
+            interactions: GaugeInteractionModel {
+                left_click: GaugePointerInteraction {
+                    info: Some(InfoDialog {
+                        title: "Audio Out".to_string(),
+                        lines: vec![
+                            device_label,
+                            match status {
+                                Some(status) => format!("Level: {}%", status.percent),
+                                None => "Level: N/A".to_string(),
+                            },
+                        ],
+                    }),
+                    ..GaugePointerInteraction::default()
+                },
+                middle_click: GaugePointerInteraction {
+                    on_input: Some(on_click.clone()),
+                    ..GaugePointerInteraction::default()
+                },
+                right_click: GaugePointerInteraction {
+                    menu: if snapshot.connected {
+                        Some(GaugeMenu {
+                            title: "Output Devices".to_string(),
+                            items: menu_snapshot,
+                            on_select: Some(menu_select),
+                        })
+                    } else {
+                        None
                     },
-                ],
-            }),
+                    ..GaugePointerInteraction::default()
+                },
+                scroll: GaugePointerInteraction {
+                    on_input: Some(on_click),
+                    ..GaugePointerInteraction::default()
+                },
+            },
         })
     }
 }

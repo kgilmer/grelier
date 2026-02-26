@@ -70,31 +70,23 @@ pub struct GaugeActionDialog {
     pub on_select: Option<ActionSelectAction>,
 }
 
-/// Full render/update model for a single gauge instance.
-#[derive(Clone)]
-pub struct GaugeModel {
-    /// Stable gauge id used for routing, replacement, and click dispatch.
-    pub id: &'static str,
-    /// Icon rendered at the top of the gauge.
-    pub icon: svg::Handle,
-    /// Value/error content shown in the gauge value area.
-    pub display: GaugeDisplay,
-    /// Optional pointer-input callback for click/scroll interactions.
-    pub on_click: Option<GaugeClickAction>,
-    /// Optional context menu shown on right-click.
+/// Interaction capabilities for one pointer input type.
+#[derive(Clone, Default)]
+pub struct GaugePointerInteraction {
+    /// Optional callback invoked when this input type is triggered.
+    pub on_input: Option<GaugeClickAction>,
+    /// Optional menu opened for this input type.
     pub menu: Option<GaugeMenu>,
-    /// Optional action dialog shown on right-click when configured.
+    /// Optional action dialog opened for this input type.
     pub action_dialog: Option<GaugeActionDialog>,
-    /// Optional info dialog content shown for this gauge.
+    /// Optional info dialog opened for this input type.
     pub info: Option<InfoDialog>,
 }
 
-impl fmt::Debug for GaugeModel {
+impl fmt::Debug for GaugePointerInteraction {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("GaugeModel")
-            .field("id", &self.id)
-            .field("icon", &self.icon)
-            .field("display", &self.display)
+        f.debug_struct("GaugePointerInteraction")
+            .field("on_input", &self.on_input.as_ref().map(|_| "<set>"))
             .field(
                 "menu",
                 &self
@@ -119,6 +111,39 @@ impl fmt::Debug for GaugeModel {
                     .map(|dialog| dialog.title.as_str())
                     .unwrap_or("<none>"),
             )
+            .finish()
+    }
+}
+
+/// Pointer interaction model grouped by mouse action.
+#[derive(Debug, Clone, Default)]
+pub struct GaugeInteractionModel {
+    pub left_click: GaugePointerInteraction,
+    pub middle_click: GaugePointerInteraction,
+    pub right_click: GaugePointerInteraction,
+    pub scroll: GaugePointerInteraction,
+}
+
+/// Full render/update model for a single gauge instance.
+#[derive(Clone)]
+pub struct GaugeModel {
+    /// Stable gauge id used for routing, replacement, and click dispatch.
+    pub id: &'static str,
+    /// Icon rendered at the top of the gauge.
+    pub icon: svg::Handle,
+    /// Value/error content shown in the gauge value area.
+    pub display: GaugeDisplay,
+    /// Pointer interactions grouped by mouse action.
+    pub interactions: GaugeInteractionModel,
+}
+
+impl fmt::Debug for GaugeModel {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("GaugeModel")
+            .field("id", &self.id)
+            .field("icon", &self.icon)
+            .field("display", &self.display)
+            .field("interactions", &self.interactions)
             .finish_non_exhaustive()
     }
 }

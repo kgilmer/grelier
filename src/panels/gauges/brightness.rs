@@ -4,7 +4,8 @@ use crate::dialog::info::InfoDialog;
 use crate::icon::{icon_quantity, svg_asset};
 use crate::panels::gauges::gauge::{Gauge, GaugeReadyNotify};
 use crate::panels::gauges::gauge::{
-    GaugeClick, GaugeClickAction, GaugeDisplay, GaugeInput, GaugeValue, GaugeValueAttention,
+    GaugeClick, GaugeClickAction, GaugeDisplay, GaugeInput, GaugeInteractionModel, GaugeValue,
+    GaugeValueAttention,
 };
 use crate::panels::gauges::gauge_registry::GaugeSpec;
 use crate::settings;
@@ -205,19 +206,26 @@ impl Gauge for BrightnessGauge {
             id: "brightness",
             icon: svg_asset("brightness.svg"),
             display: brightness_value(percent),
-            on_click: Some(on_click),
-            menu: None,
-            action_dialog: None,
-            info: Some(InfoDialog {
-                title: "Brightness".to_string(),
-                lines: vec![
-                    device_name.unwrap_or_else(|| "No backlight device".to_string()),
-                    match percent {
-                        Some(value) => format!("Brightness: {value}%"),
-                        None => "Brightness: N/A".to_string(),
-                    },
-                ],
-            }),
+            interactions: GaugeInteractionModel {
+                left_click: crate::panels::gauges::gauge::GaugePointerInteraction {
+                    info: Some(InfoDialog {
+                        title: "Brightness".to_string(),
+                        lines: vec![
+                            device_name.unwrap_or_else(|| "No backlight device".to_string()),
+                            match percent {
+                                Some(value) => format!("Brightness: {value}%"),
+                                None => "Brightness: N/A".to_string(),
+                            },
+                        ],
+                    }),
+                    ..crate::panels::gauges::gauge::GaugePointerInteraction::default()
+                },
+                scroll: crate::panels::gauges::gauge::GaugePointerInteraction {
+                    on_input: Some(on_click),
+                    ..crate::panels::gauges::gauge::GaugePointerInteraction::default()
+                },
+                ..GaugeInteractionModel::default()
+            },
         })
     }
 }

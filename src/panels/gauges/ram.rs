@@ -3,7 +3,10 @@
 use crate::dialog::info::InfoDialog;
 use crate::icon::{icon_quantity, svg_asset};
 use crate::panels::gauges::gauge::Gauge;
-use crate::panels::gauges::gauge::{GaugeDisplay, GaugeModel, GaugeValue, GaugeValueAttention};
+use crate::panels::gauges::gauge::{
+    GaugeDisplay, GaugeInteractionModel, GaugeModel, GaugePointerInteraction, GaugeValue,
+    GaugeValueAttention,
+};
 use crate::panels::gauges::gauge_registry::GaugeSpec;
 use crate::settings;
 use crate::settings::SettingSpec;
@@ -260,13 +263,16 @@ impl Gauge for RamGauge {
                 self.warning_threshold,
                 self.danger_threshold,
             ),
-            on_click: None,
-            menu: None,
-            action_dialog: None,
-            info: Some(InfoDialog {
-                title: "RAM".to_string(),
-                lines,
-            }),
+            interactions: GaugeInteractionModel {
+                left_click: GaugePointerInteraction {
+                    info: Some(InfoDialog {
+                        title: "RAM".to_string(),
+                        lines,
+                    }),
+                    ..GaugePointerInteraction::default()
+                },
+                ..GaugeInteractionModel::default()
+            },
         })
     }
 }

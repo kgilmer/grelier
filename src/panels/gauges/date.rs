@@ -5,7 +5,9 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use crate::icon::svg_asset;
 use crate::panels::gauges::gauge::Gauge;
-use crate::panels::gauges::gauge::{GaugeDisplay, GaugeModel, GaugeValue, GaugeValueAttention};
+use crate::panels::gauges::gauge::{
+    GaugeDisplay, GaugeInteractionModel, GaugeModel, GaugeValue, GaugeValueAttention,
+};
 use crate::panels::gauges::gauge_registry::GaugeSpec;
 use crate::settings;
 use crate::settings::SettingSpec;
@@ -70,10 +72,7 @@ impl Gauge for DateGauge {
             id: "date",
             icon: svg_asset("calendar-alt.svg"),
             display: render_date_display(&self.month_format, &self.day_format),
-            on_click: None,
-            menu: None,
-            action_dialog: None,
-            info: None,
+            interactions: GaugeInteractionModel::default(),
         })
     }
 }

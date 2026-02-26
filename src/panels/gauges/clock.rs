@@ -10,7 +10,8 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use crate::panels::gauges::gauge::{Gauge, GaugeReadyNotify};
 use crate::panels::gauges::gauge::{
-    GaugeClick, GaugeClickAction, GaugeDisplay, GaugeModel, GaugeValue, GaugeValueAttention,
+    GaugeClick, GaugeClickAction, GaugeDisplay, GaugeInteractionModel, GaugeModel,
+    GaugePointerInteraction, GaugeValue, GaugeValueAttention,
 };
 use crate::panels::gauges::gauge_registry::GaugeSpec;
 use crate::settings;
@@ -239,10 +240,13 @@ impl Gauge for ClockGauge {
             id: "clock",
             icon,
             display,
-            on_click: Some(on_click),
-            menu: None,
-            action_dialog: None,
-            info: None,
+            interactions: GaugeInteractionModel {
+                right_click: GaugePointerInteraction {
+                    on_input: Some(on_click),
+                    ..GaugePointerInteraction::default()
+                },
+                ..GaugeInteractionModel::default()
+            },
         })
     }
 }

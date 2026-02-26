@@ -3,11 +3,11 @@ use iced::mouse;
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
-use crate::dialog::info::InfoDialog;
 use crate::icon::{icon_quantity, svg_asset};
 use crate::panels::gauges::gauge::{
     ActionSelectAction, GaugeActionDialog, GaugeActionItem, GaugeClick, GaugeClickAction,
-    GaugeDisplay, GaugeModel, GaugeValue, GaugeValueAttention,
+    GaugeDisplay, GaugeInteractionModel, GaugeModel, GaugePointerInteraction, GaugeValue,
+    GaugeValueAttention,
 };
 use crate::panels::gauges::gauge::{Gauge, GaugeReadyNotify};
 use crate::panels::gauges::gauge_registry::GaugeSpec;
@@ -117,25 +117,12 @@ fn action_dialog() -> GaugeActionDialog {
     }
 }
 
-fn info_dialog() -> InfoDialog {
-    InfoDialog {
-        title: "Test Gauge Info".to_string(),
-        lines: vec![
-            "Lorem ipsum dolor sit amet, consectetur adipiscing elit.".to_string(),
-            "Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua.".to_string(),
-            "Ut enim ad minim veniam, quis nostrud exercitation ullamco laboris nisi ut aliquip ex ea commodo consequat.".to_string(),
-        ],
-    }
-}
-
 /// Test-only gauge used to exercise quantity and dialog interactions.
 struct TestGauge {
     /// Shared mutable quantity state advanced on each run/click.
     state: Arc<Mutex<QuantityState>>,
     /// Fixed action dialog used by the test gauge.
     action_dialog: GaugeActionDialog,
-    /// Fixed info dialog used by the test gauge.
-    info_dialog: InfoDialog,
     /// Notifier used to request immediate reruns during interaction tests.
     ready_notify: Option<GaugeReadyNotify>,
     /// Scheduler deadline for the next run.
@@ -180,10 +167,17 @@ impl Gauge for TestGauge {
             id: "test_gauge",
             icon: svg_asset("option-checked.svg"),
             display,
-            on_click: Some(on_click),
-            menu: None,
-            action_dialog: Some(self.action_dialog.clone()),
-            info: Some(self.info_dialog.clone()),
+            interactions: GaugeInteractionModel {
+                left_click: GaugePointerInteraction {
+                    on_input: Some(on_click),
+                    ..GaugePointerInteraction::default()
+                },
+                right_click: GaugePointerInteraction {
+                    action_dialog: Some(self.action_dialog.clone()),
+                    ..GaugePointerInteraction::default()
+                },
+                ..GaugeInteractionModel::default()
+            },
         })
     }
 }
@@ -192,7 +186,6 @@ pub fn create_gauge(now: Instant) -> Box<dyn Gauge> {
     Box::new(TestGauge {
         state: Arc::new(Mutex::new(QuantityState::new())),
         action_dialog: action_dialog(),
-        info_dialog: info_dialog(),
         ready_notify: None,
         next_deadline: now,
     })
@@ -217,21 +210,6 @@ inventory::submit! {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::Once;
-
-    use crate::settings_storage::SettingsStorage;
-
-    fn init_settings_once() {
-        static INIT: Once = Once::new();
-        INIT.call_once(|| {
-            let mut path = std::env::temp_dir();
-            path.push("grelier_test_gauge_settings");
-            path.push(format!("Settings-{}.xresources", env!("CARGO_PKG_VERSION")));
-            let storage = SettingsStorage::new(path);
-            let settings = crate::settings::Settings::new(storage);
-            let _ = crate::settings::init_settings(settings);
-        });
-    }
 
     #[test]
     fn quantity_sequence_bounces() {
@@ -265,17 +243,5 @@ mod tests {
         assert_eq!(state.attention, GaugeValueAttention::Danger);
         state.cycle_attention();
         assert_eq!(state.attention, GaugeValueAttention::Nominal);
-    }
-
-    #[test]
-    fn info_dialog_attached_to_model() {
-        init_settings_once();
-        let now = Instant::now();
-        let mut gauge = create_gauge(now);
-        let first = gauge.run_once(now).expect("gauge model");
-        let info = first.info.expect("info dialog should be set");
-
-        assert_eq!(info.title, "Test Gauge Info");
-        assert_eq!(info.lines.len(), 3);
     }
 }

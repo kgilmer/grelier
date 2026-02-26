@@ -2,8 +2,8 @@
 use crate::bar::Message;
 use crate::icon::svg_asset;
 use crate::panels::gauges::gauge::{
-    Gauge, GaugeDisplay, GaugeEventSource, GaugeModel, GaugeReadyNotify, GaugeRegistrar, GaugeWake,
-    RunOutcome,
+    Gauge, GaugeDisplay, GaugeEventSource, GaugeInteractionModel, GaugeModel, GaugeReadyNotify,
+    GaugeRegistrar, GaugeWake, RunOutcome,
 };
 use crate::panels::gauges::gauge_registry;
 use crate::settings;
@@ -446,10 +446,7 @@ fn dead_gauge_model(id: &'static str) -> GaugeModel {
         id,
         icon: svg_asset("turtle.svg"),
         display: GaugeDisplay::Empty,
-        on_click: None,
-        menu: None,
-        action_dialog: None,
-        info: None,
+        interactions: GaugeInteractionModel::default(),
     }
 }
 
@@ -457,13 +454,7 @@ fn models_visually_equal(a: &GaugeModel, b: &GaugeModel) -> bool {
     if a.id != b.id || a.icon != b.icon || !display_equal(&a.display, &b.display) {
         return false;
     }
-    if !menu_equal(a.menu.as_ref(), b.menu.as_ref()) {
-        return false;
-    }
-    if !action_dialog_equal(a.action_dialog.as_ref(), b.action_dialog.as_ref()) {
-        return false;
-    }
-    info_equal(a.info.as_ref(), b.info.as_ref())
+    interactions_equal(&a.interactions, &b.interactions)
 }
 
 fn display_equal(a: &GaugeDisplay, b: &GaugeDisplay) -> bool {
@@ -547,6 +538,25 @@ fn info_equal(
     }
 }
 
+fn pointer_interaction_equal(
+    a: &crate::panels::gauges::gauge::GaugePointerInteraction,
+    b: &crate::panels::gauges::gauge::GaugePointerInteraction,
+) -> bool {
+    menu_equal(a.menu.as_ref(), b.menu.as_ref())
+        && action_dialog_equal(a.action_dialog.as_ref(), b.action_dialog.as_ref())
+        && info_equal(a.info.as_ref(), b.info.as_ref())
+}
+
+fn interactions_equal(
+    a: &crate::panels::gauges::gauge::GaugeInteractionModel,
+    b: &crate::panels::gauges::gauge::GaugeInteractionModel,
+) -> bool {
+    pointer_interaction_equal(&a.left_click, &b.left_click)
+        && pointer_interaction_equal(&a.middle_click, &b.middle_click)
+        && pointer_interaction_equal(&a.right_click, &b.right_click)
+        && pointer_interaction_equal(&a.scroll, &b.scroll)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -605,10 +615,7 @@ mod tests {
                     id: self.id,
                     icon: svg_asset("ratio-0.svg"),
                     display: GaugeDisplay::Empty,
-                    on_click: None,
-                    menu: None,
-                    action_dialog: None,
-                    info: None,
+                    interactions: GaugeInteractionModel::default(),
                 })
             } else {
                 None

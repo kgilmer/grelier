@@ -396,10 +396,7 @@ mod tests {
                 value: GaugeValue::Text(id.to_string()),
                 attention: GaugeValueAttention::Nominal,
             },
-            on_click: None,
-            menu: None,
-            action_dialog: None,
-            info: None,
+            interactions: crate::panels::gauges::gauge::GaugeInteractionModel::default(),
         }
     }
 
