@@ -23,8 +23,8 @@ use iced_layershell::settings::{LayerShellSettings, Settings as LayerShellAppSet
 
 use crate::bar::Orientation;
 use crate::bar::{
-    AppIconCache, BarState, DEFAULT_PANELS, GaugeDialog, GaugeDialogWindow, Message,
-    close_window_task,
+    AppIconCache, BarState, DEFAULT_PANELS, GaugeDialog, GaugeDialogWindow, Message, PanelKind,
+    close_window_task, panel_order_from_setting,
 };
 use crate::panels::gauges::gauge::{GaugeClick, GaugeInput, GaugeModel, GaugePointerInteraction};
 use crate::panels::gauges::gauge_registry;
@@ -357,8 +357,17 @@ fn main() -> Result<(), iced_layershell::Error> {
 
     let gauge_order = gauges;
     let gauges_for_subscription = gauge_order.clone();
-    let workspace_app_icons = settings_store.get_bool_or("grelier.app.workspace.app_icons", true);
-    let top_apps_count = settings_store.get_parsed_or("grelier.app.top_apps.count", 6usize);
+    let panels_setting = settings_store.get_or("grelier.panels", DEFAULT_PANELS);
+    let panel_order = panel_order_from_setting(&panels_setting);
+    let workspaces_panel_active = panel_order.contains(&PanelKind::Workspaces);
+    let top_apps_panel_active = panel_order.contains(&PanelKind::TopApps);
+    let workspace_app_icons = workspaces_panel_active
+        && settings_store.get_bool_or("grelier.app.workspace.app_icons", true);
+    let top_apps_count = if top_apps_panel_active {
+        settings_store.get_parsed_or("grelier.app.top_apps.count", 6usize)
+    } else {
+        0usize
+    };
 
     let theme_for_state = theme.clone();
     let run_result = daemon(
@@ -412,13 +421,26 @@ fn main() -> Result<(), iced_layershell::Error> {
 }
 
 fn app_subscription(_state: &BarState, gauges: &[String]) -> Subscription<Message> {
+    let panels_setting = settings::settings().get_or("grelier.panels", DEFAULT_PANELS);
+    let panels = panel_order_from_setting(&panels_setting);
+    let workspace_subscription = if panels.contains(&PanelKind::Workspaces) {
+        sway_workspace::workspace_subscription()
+    } else {
+        sway_workspace::output_subscription()
+    };
+    let gauge_subscription = if panels.contains(&PanelKind::Gauges) {
+        gauge_work_manager::subscription(gauges)
+    } else {
+        Subscription::none()
+    };
+
     let subs = vec![
-        sway_workspace::workspace_subscription(),
+        workspace_subscription,
         event::listen().map(Message::IcedEvent),
         window::open_events().map(Message::WindowOpened),
         window::events().map(|(id, event)| Message::WindowEvent(id, event)),
         window::close_events().map(Message::WindowClosed),
-        gauge_work_manager::subscription(gauges),
+        gauge_subscription,
     ];
     Subscription::batch(subs)
 }

@@ -508,11 +508,7 @@ impl BarState {
             return container(Space::new()).into();
         }
 
-        let mut panel_order =
-            panel_order_from_setting(&settings.get_or("grelier.panels", DEFAULT_PANELS));
-        if panel_order.is_empty() {
-            panel_order = panel_order_from_setting(DEFAULT_PANELS);
-        }
+        let panel_order = panel_order_from_setting(&settings.get_or("grelier.panels", DEFAULT_PANELS));
 
         let mut layout = Column::new().width(Length::Fill).height(Length::Fill);
         let mut iter = panel_order.iter().peekable();
