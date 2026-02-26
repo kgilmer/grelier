@@ -8,6 +8,7 @@ pub mod date;
 pub mod disk;
 pub mod gauge;
 pub mod gauge_registry;
+pub mod gauge_work_manager;
 pub mod net_common;
 pub mod net_down;
 pub mod net_up;

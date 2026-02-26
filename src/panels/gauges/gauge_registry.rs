@@ -1,22 +1,28 @@
-use crate::bar::Message;
-use crate::panels::gauges::gauge::GaugeModel;
+use crate::panels::gauges::gauge::Gauge;
 use crate::settings::{SettingSpec, Settings};
-use iced::Subscription;
-use iced::futures::StreamExt;
 use std::sync::OnceLock;
+use std::time::Instant;
 
-/// Boxed gauge stream used by the registry.
-pub type GaugeStream = Box<dyn iced::futures::Stream<Item = GaugeModel> + Send + Unpin>;
-pub type GaugeMessageStream = iced::futures::stream::Map<GaugeStream, fn(GaugeModel) -> Message>;
 pub type GaugeValidator = fn(&Settings) -> Result<(), String>;
+/// Factory used to create a runtime gauge instance.
+///
+/// The `Instant` argument is the scheduler start time and should be used to seed
+/// initial deadlines/state when needed.
+pub type GaugeFactory = fn(Instant) -> Box<dyn Gauge>;
 
 /// Static metadata for a gauge implementation.
 pub struct GaugeSpec {
+    /// Stable gauge id used in settings (`grelier.gauges`) and model routing.
     pub id: &'static str,
+    /// Human-readable description shown in `--list-gauges`.
     pub description: &'static str,
+    /// Whether the gauge is enabled in the default gauge set.
     pub default_enabled: bool,
+    /// Gauge-specific settings spec entries.
     pub settings: fn() -> &'static [SettingSpec],
-    pub stream: fn() -> GaugeStream,
+    /// Runtime gauge constructor.
+    pub create: GaugeFactory,
+    /// Optional gauge-specific settings validator.
     pub validate: Option<GaugeValidator>,
 }
 
@@ -32,6 +38,11 @@ pub fn find(id: &str) -> Option<&'static GaugeSpec> {
         .find(|spec| spec.id == id)
 }
 
+/// Construct a gauge runtime by id.
+pub fn create_gauge(id: &str, now: Instant) -> Option<Box<dyn Gauge>> {
+    find(id).map(|spec| (spec.create)(now))
+}
+
 /// Build the default gauges list based on registry metadata.
 pub fn default_gauges() -> &'static str {
     static DEFAULT_GAUGES: OnceLock<&'static str> = OnceLock::new();
@@ -44,10 +55,6 @@ pub fn default_gauges() -> &'static str {
         let joined = ids.join(",");
         Box::leak(joined.into_boxed_str())
     })
-}
-
-pub fn subscription_for(spec: &GaugeSpec) -> Subscription<Message> {
-    Subscription::run_with(spec.id, gauge_message_stream_by_id)
 }
 
 pub fn collect_settings(base: &[SettingSpec]) -> Vec<SettingSpec> {
@@ -86,9 +93,4 @@ pub fn validate_settings(settings: &Settings) -> Result<(), String> {
         }
     }
     Ok(())
-}
-
-fn gauge_message_stream_by_id(id: &&str) -> GaugeMessageStream {
-    let spec = find(id).expect("gauge spec registered");
-    (spec.stream)().map(Message::Gauge)
 }

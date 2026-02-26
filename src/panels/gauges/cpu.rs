@@ -2,15 +2,17 @@
 // Consumes Settings: grelier.gauge.cpu.*.
 use crate::dialog::info::InfoDialog;
 use crate::icon::{icon_quantity, svg_asset};
-use crate::panels::gauges::gauge::{GaugeDisplay, GaugeValue, GaugeValueAttention, fixed_interval};
-use crate::panels::gauges::gauge_registry::{GaugeSpec, GaugeStream};
+use crate::panels::gauges::gauge::Gauge;
+use crate::panels::gauges::gauge::{
+    GaugeDisplay, GaugeInteractionModel, GaugeModel, GaugePointerInteraction, GaugeValue,
+    GaugeValueAttention,
+};
+use crate::panels::gauges::gauge_registry::GaugeSpec;
 use crate::settings;
 use crate::settings::SettingSpec;
-use iced::futures::StreamExt;
 use std::fs::File;
 use std::io::{BufRead, BufReader};
-use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 const DEFAULT_WARNING_THRESHOLD: f32 = 0.90;
 const DEFAULT_DANGER_THRESHOLD: f32 = 1.0;
@@ -95,15 +97,25 @@ fn attention_for(
     }
 }
 
+/// Internal sampling and pacing state for the CPU gauge.
 struct CpuState {
+    /// Previous `/proc/stat` aggregate sample used to compute utilization deltas.
     previous: Option<CpuTime>,
+    /// Whether the gauge is currently polling at the fast interval.
     fast_interval: bool,
+    /// Consecutive samples below `fast_threshold` while in fast mode.
     below_threshold_streak: u8,
+    /// Utilization threshold that triggers fast polling when exceeded.
     fast_threshold: f32,
+    /// Number of calm samples required before returning to slow polling.
     calm_ticks: u8,
+    /// Poll interval used while in fast mode.
     fast_interval_duration: Duration,
+    /// Poll interval used while in normal/slow mode.
     slow_interval_duration: Duration,
+    /// Utilization threshold where display attention becomes warning.
     warning_threshold: f32,
+    /// Utilization threshold where display attention becomes danger.
     danger_threshold: f32,
 }
 
@@ -145,7 +157,83 @@ fn cpu_value(
     }
 }
 
-fn cpu_stream() -> impl iced::futures::Stream<Item = crate::panels::gauges::gauge::GaugeModel> {
+/// Gauge that samples and displays overall CPU utilization.
+struct CpuGauge {
+    /// Rolling CPU sample state used to compute utilization and poll intervals.
+    state: CpuState,
+    /// Human-readable CPU model shown in the info dialog.
+    cpu_model: String,
+    /// Scheduler deadline for the next run.
+    next_deadline: Instant,
+}
+
+impl Gauge for CpuGauge {
+    fn id(&self) -> &'static str {
+        "cpu"
+    }
+
+    fn next_deadline(&self) -> Instant {
+        self.next_deadline
+    }
+
+    fn run_once(&mut self, now: Instant) -> Option<GaugeModel> {
+        let (display, load_line) = match read_cpu_time() {
+            Some(current) => match self.state.previous {
+                Some(previous) => {
+                    let utilization = current.utilization_since(previous);
+                    self.state.previous = Some(current);
+                    self.state.update_interval_state(utilization);
+                    (
+                        cpu_value(
+                            Some(utilization),
+                            self.state.warning_threshold,
+                            self.state.danger_threshold,
+                        ),
+                        format!("Load: {:.1}%", (utilization * 100.0).clamp(0.0, 100.0)),
+                    )
+                }
+                None => {
+                    self.state.previous = Some(current);
+                    (
+                        GaugeDisplay::Value {
+                            value: GaugeValue::Svg(icon_quantity(0.0)),
+                            attention: GaugeValueAttention::Nominal,
+                        },
+                        "Load: 0.0%".to_string(),
+                    )
+                }
+            },
+            None => (
+                cpu_value(
+                    None,
+                    self.state.warning_threshold,
+                    self.state.danger_threshold,
+                ),
+                "Load: N/A".to_string(),
+            ),
+        };
+
+        self.next_deadline = now + self.state.interval();
+
+        Some(GaugeModel {
+            id: "cpu",
+            icon: svg_asset("microchip.svg"),
+            display,
+            interactions: GaugeInteractionModel {
+                left_click: GaugePointerInteraction {
+                    info: Some(InfoDialog {
+                        title: "CPU".to_string(),
+                        lines: vec![self.cpu_model.clone(), load_line],
+                    }),
+                    ..GaugePointerInteraction::default()
+                },
+                ..GaugeInteractionModel::default()
+            },
+        })
+    }
+}
+
+pub fn create_gauge(now: Instant) -> Box<dyn Gauge> {
     let warning_threshold = settings::settings().get_parsed_or(
         "grelier.gauge.cpu.warning_threshold",
         DEFAULT_WARNING_THRESHOLD,
@@ -166,93 +254,21 @@ fn cpu_stream() -> impl iced::futures::Stream<Item = crate::panels::gauges::gaug
         "grelier.gauge.cpu.slow_interval_secs",
         DEFAULT_SLOW_INTERVAL_SECS,
     );
-    let cpu_model = read_cpu_model().unwrap_or_else(|| "Unknown CPU".to_string());
-    let info_state = Arc::new(Mutex::new(InfoDialog {
-        title: "CPU".to_string(),
-        lines: vec![cpu_model.clone(), "Load: N/A".to_string()],
-    }));
-    let state = Arc::new(Mutex::new(CpuState {
-        fast_threshold,
-        calm_ticks,
-        fast_interval_duration: Duration::from_secs(fast_interval_secs),
-        slow_interval_duration: Duration::from_secs(slow_interval_secs),
-        warning_threshold,
-        danger_threshold,
-        previous: None,
-        fast_interval: false,
-        below_threshold_streak: 0,
-    }));
-    let interval_state = Arc::clone(&state);
-    fixed_interval(
-        "cpu",
-        Some(svg_asset("microchip.svg")),
-        move || {
-            interval_state
-                .lock()
-                .map(|s| s.interval())
-                .unwrap_or(Duration::from_secs(2))
+
+    Box::new(CpuGauge {
+        state: CpuState {
+            previous: None,
+            fast_interval: false,
+            below_threshold_streak: 0,
+            fast_threshold,
+            calm_ticks,
+            fast_interval_duration: Duration::from_secs(fast_interval_secs),
+            slow_interval_duration: Duration::from_secs(slow_interval_secs),
+            warning_threshold,
+            danger_threshold,
         },
-        {
-            let info_state = Arc::clone(&info_state);
-            move || {
-                let now = match read_cpu_time() {
-                    Some(now) => now,
-                    None => {
-                        if let Ok(mut info) = info_state.lock() {
-                            info.lines = vec![cpu_model.clone(), "Load: N/A".to_string()];
-                        }
-                        return Some(cpu_value(None, warning_threshold, danger_threshold));
-                    }
-                };
-
-                let mut state = match state.lock() {
-                    Ok(state) => state,
-                    Err(_) => {
-                        if let Ok(mut info) = info_state.lock() {
-                            info.lines = vec![cpu_model.clone(), "Load: N/A".to_string()];
-                        }
-                        return Some(cpu_value(None, warning_threshold, danger_threshold));
-                    }
-                };
-                let previous = match state.previous {
-                    Some(prev) => prev,
-                    None => {
-                        state.previous = Some(now);
-                        if let Ok(mut info) = info_state.lock() {
-                            info.lines = vec![cpu_model.clone(), "Load: 0.0%".to_string()];
-                        }
-                        return Some(GaugeDisplay::Value {
-                            value: GaugeValue::Svg(icon_quantity(0.0)),
-                            attention: GaugeValueAttention::Nominal,
-                        });
-                    }
-                };
-
-                let utilization = now.utilization_since(previous);
-                state.previous = Some(now);
-                state.update_interval_state(utilization);
-                if let Ok(mut info) = info_state.lock() {
-                    let percent = (utilization * 100.0).clamp(0.0, 100.0);
-                    info.lines = vec![cpu_model.clone(), format!("Load: {:.1}%", percent)];
-                }
-
-                Some(cpu_value(
-                    Some(utilization),
-                    state.warning_threshold,
-                    state.danger_threshold,
-                ))
-            }
-        },
-        None,
-    )
-    .map({
-        let info_state = Arc::clone(&info_state);
-        move |mut model| {
-            if let Ok(info) = info_state.lock() {
-                model.info = Some(info.clone());
-            }
-            model
-        }
+        cpu_model: read_cpu_model().unwrap_or_else(|| "Unknown CPU".to_string()),
+        next_deadline: now,
     })
 }
 
@@ -286,17 +302,13 @@ pub fn settings() -> &'static [SettingSpec] {
     SETTINGS
 }
 
-fn stream() -> GaugeStream {
-    Box::new(cpu_stream())
-}
-
 inventory::submit! {
     GaugeSpec {
         id: "cpu",
         description: "CPU utilization gauge displaying percent usage with adaptive polling.",
         default_enabled: true,
         settings,
-        stream,
+        create: create_gauge,
         validate: None,
     }
 }

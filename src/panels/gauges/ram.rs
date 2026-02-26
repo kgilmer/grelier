@@ -2,15 +2,17 @@
 // Consumes Settings: grelier.gauge.ram.*.
 use crate::dialog::info::InfoDialog;
 use crate::icon::{icon_quantity, svg_asset};
-use crate::panels::gauges::gauge::{GaugeDisplay, GaugeValue, GaugeValueAttention, fixed_interval};
-use crate::panels::gauges::gauge_registry::{GaugeSpec, GaugeStream};
+use crate::panels::gauges::gauge::Gauge;
+use crate::panels::gauges::gauge::{
+    GaugeDisplay, GaugeInteractionModel, GaugeModel, GaugePointerInteraction, GaugeValue,
+    GaugeValueAttention,
+};
+use crate::panels::gauges::gauge_registry::GaugeSpec;
 use crate::settings;
 use crate::settings::SettingSpec;
-use iced::futures::StreamExt;
 use std::fs::{File, read_to_string};
 use std::io::{BufRead, BufReader};
-use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 const DEFAULT_WARNING_THRESHOLD: f32 = 0.10;
 const DEFAULT_DANGER_THRESHOLD: f32 = 0.05;
@@ -185,7 +187,97 @@ impl RamState {
     }
 }
 
-fn ram_stream() -> impl iced::futures::Stream<Item = crate::panels::gauges::gauge::GaugeModel> {
+/// Gauge that samples and displays system memory usage.
+struct RamGauge {
+    /// Rolling RAM sample state used for display smoothing and cadence.
+    state: RamState,
+    /// Utilization threshold where the gauge switches to warning attention.
+    warning_threshold: f32,
+    /// Utilization threshold where the gauge switches to danger attention.
+    danger_threshold: f32,
+    /// Scheduler deadline for the next run.
+    next_deadline: Instant,
+}
+
+impl Gauge for RamGauge {
+    fn id(&self) -> &'static str {
+        "ram"
+    }
+
+    fn next_deadline(&self) -> Instant {
+        self.next_deadline
+    }
+
+    fn run_once(&mut self, now: Instant) -> Option<GaugeModel> {
+        let snapshot = MemorySnapshot::read();
+        let utilization = snapshot.as_ref().and_then(|snapshot| {
+            if snapshot.total == 0 {
+                None
+            } else {
+                let available = snapshot.available_bytes();
+                let used = snapshot.total.saturating_sub(available);
+                let utilization = used as f32 / snapshot.total as f32;
+                Some(utilization.clamp(0.0, 1.0))
+            }
+        });
+        let free_ratio = snapshot.as_ref().and_then(|snapshot| {
+            if snapshot.total == 0 {
+                None
+            } else {
+                let available = snapshot.available_bytes();
+                let ratio = available as f32 / snapshot.total as f32;
+                Some(ratio.clamp(0.0, 1.0))
+            }
+        });
+
+        let lines = if let Some(snapshot) = snapshot.as_ref() {
+            let available = snapshot.available_bytes();
+            let reserved = available.saturating_sub(snapshot.free);
+            let used = snapshot.total.saturating_sub(available);
+            vec![
+                format!("Total: {}", format_bytes(snapshot.total)),
+                format!("Free: {}", format_bytes(snapshot.free)),
+                format!("Reserved: {}", format_bytes(reserved)),
+                format!("Used: {}", format_bytes(used)),
+            ]
+        } else {
+            vec![
+                "Total: N/A".to_string(),
+                "Free: N/A".to_string(),
+                "Reserved: N/A".to_string(),
+                "Used: N/A".to_string(),
+            ]
+        };
+
+        if let Some(utilization) = utilization {
+            self.state.update_interval_state(utilization);
+        }
+        self.next_deadline = now + self.state.interval();
+
+        Some(GaugeModel {
+            id: "ram",
+            icon: svg_asset("ram.svg"),
+            display: ram_value(
+                utilization,
+                free_ratio,
+                self.warning_threshold,
+                self.danger_threshold,
+            ),
+            interactions: GaugeInteractionModel {
+                left_click: GaugePointerInteraction {
+                    info: Some(InfoDialog {
+                        title: "RAM".to_string(),
+                        lines,
+                    }),
+                    ..GaugePointerInteraction::default()
+                },
+                ..GaugeInteractionModel::default()
+            },
+        })
+    }
+}
+
+pub fn create_gauge(now: Instant) -> Box<dyn Gauge> {
     let warning_threshold_raw = settings::settings().get_parsed_or(
         "grelier.gauge.ram.warning_threshold",
         DEFAULT_WARNING_THRESHOLD,
@@ -194,7 +286,6 @@ fn ram_stream() -> impl iced::futures::Stream<Item = crate::panels::gauges::gaug
         "grelier.gauge.ram.danger_threshold",
         DEFAULT_DANGER_THRESHOLD,
     );
-    // Back-compat: older configs stored "used" thresholds (high values). Convert to free ratios.
     let (warning_threshold, danger_threshold) = {
         let warning = if warning_threshold_raw > 0.5 {
             (1.0 - warning_threshold_raw).clamp(0.0, 1.0)
@@ -206,7 +297,6 @@ fn ram_stream() -> impl iced::futures::Stream<Item = crate::panels::gauges::gaug
         } else {
             danger_threshold_raw.clamp(0.0, 1.0)
         };
-        // Ensure danger is not above warning for free-ratio thresholds.
         if danger > warning {
             (danger, warning)
         } else {
@@ -225,101 +315,19 @@ fn ram_stream() -> impl iced::futures::Stream<Item = crate::panels::gauges::gaug
         "grelier.gauge.ram.slow_interval_secs",
         DEFAULT_SLOW_INTERVAL_SECS,
     );
-    let info_state = Arc::new(Mutex::new(InfoDialog {
-        title: "RAM".to_string(),
-        lines: vec![
-            "Total: N/A".to_string(),
-            "Free: N/A".to_string(),
-            "Reserved: N/A".to_string(),
-            "Used: N/A".to_string(),
-        ],
-    }));
-    let state = Arc::new(Mutex::new(RamState {
-        fast_threshold,
-        calm_ticks,
-        fast_interval_duration: Duration::from_secs(fast_interval_secs),
-        slow_interval_duration: Duration::from_secs(slow_interval_secs),
-        fast_interval: false,
-        below_threshold_streak: 0,
-    }));
 
-    fixed_interval(
-        "ram",
-        Some(svg_asset("ram.svg")),
-        {
-            let state = Arc::clone(&state);
-            move || {
-                state
-                    .lock()
-                    .map(|s| s.interval())
-                    .unwrap_or(Duration::from_secs(4))
-            }
+    Box::new(RamGauge {
+        state: RamState {
+            fast_interval: false,
+            below_threshold_streak: 0,
+            fast_threshold,
+            calm_ticks,
+            fast_interval_duration: Duration::from_secs(fast_interval_secs),
+            slow_interval_duration: Duration::from_secs(slow_interval_secs),
         },
-        {
-            let state = Arc::clone(&state);
-            let info_state = Arc::clone(&info_state);
-            move || {
-                let snapshot = MemorySnapshot::read();
-                let utilization = snapshot.as_ref().and_then(|snapshot| {
-                    if snapshot.total == 0 {
-                        None
-                    } else {
-                        let available = snapshot.available_bytes();
-                        let used = snapshot.total.saturating_sub(available);
-                        let utilization = used as f32 / snapshot.total as f32;
-                        Some(utilization.clamp(0.0, 1.0))
-                    }
-                });
-                let free_ratio = snapshot.as_ref().and_then(|snapshot| {
-                    if snapshot.total == 0 {
-                        None
-                    } else {
-                        let available = snapshot.available_bytes();
-                        let ratio = available as f32 / snapshot.total as f32;
-                        Some(ratio.clamp(0.0, 1.0))
-                    }
-                });
-                if let Ok(mut info) = info_state.lock() {
-                    if let Some(snapshot) = snapshot.as_ref() {
-                        let available = snapshot.available_bytes();
-                        let reserved = available.saturating_sub(snapshot.free);
-                        let used = snapshot.total.saturating_sub(available);
-                        info.lines = vec![
-                            format!("Total: {}", format_bytes(snapshot.total)),
-                            format!("Free: {}", format_bytes(snapshot.free)),
-                            format!("Reserved: {}", format_bytes(reserved)),
-                            format!("Used: {}", format_bytes(used)),
-                        ];
-                    } else {
-                        info.lines = vec![
-                            "Total: N/A".to_string(),
-                            "Free: N/A".to_string(),
-                            "Reserved: N/A".to_string(),
-                            "Used: N/A".to_string(),
-                        ];
-                    }
-                }
-                if let Ok(mut state) = state.lock()
-                    && let Some(util) = utilization
-                {
-                    state.update_interval_state(util);
-                }
-
-                let display =
-                    ram_value(utilization, free_ratio, warning_threshold, danger_threshold);
-                Some(display)
-            }
-        },
-        None,
-    )
-    .map({
-        let info_state = Arc::clone(&info_state);
-        move |mut model| {
-            if let Ok(info) = info_state.lock() {
-                model.info = Some(info.clone());
-            }
-            model
-        }
+        warning_threshold,
+        danger_threshold,
+        next_deadline: now,
     })
 }
 
@@ -353,17 +361,13 @@ pub fn settings() -> &'static [SettingSpec] {
     SETTINGS
 }
 
-fn stream() -> GaugeStream {
-    Box::new(ram_stream())
-}
-
 inventory::submit! {
     GaugeSpec {
         id: "ram",
         description: "RAM usage gauge showing percent memory utilization.",
         default_enabled: true,
         settings,
-        stream,
+        create: create_gauge,
         validate: None,
     }
 }

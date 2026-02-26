@@ -2,18 +2,20 @@
 // Consumes Settings: grelier.gauge.disk.*.
 use crate::dialog::info::InfoDialog;
 use crate::icon::{icon_quantity, svg_asset};
-use crate::panels::gauges::gauge::{GaugeDisplay, GaugeValue, GaugeValueAttention, fixed_interval};
-use crate::panels::gauges::gauge_registry::{GaugeSpec, GaugeStream};
+use crate::panels::gauges::gauge::Gauge;
+use crate::panels::gauges::gauge::{
+    GaugeDisplay, GaugeInteractionModel, GaugeModel, GaugePointerInteraction, GaugeValue,
+    GaugeValueAttention,
+};
+use crate::panels::gauges::gauge_registry::GaugeSpec;
 use crate::settings;
 use crate::settings::SettingSpec;
-use iced::futures::StreamExt;
 use std::cmp::Ordering;
 use std::ffi::CString;
 use std::fs;
 use std::mem::MaybeUninit;
 use std::os::raw::{c_char, c_int, c_ulong};
-use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 const DEFAULT_ROOT_PATH: &str = "/";
 const DEFAULT_POLL_INTERVAL_SECS: u64 = 60;
@@ -160,7 +162,72 @@ fn disk_value(
     }
 }
 
-fn disk_stream() -> impl iced::futures::Stream<Item = crate::panels::gauges::gauge::GaugeModel> {
+/// Gauge that reports filesystem usage for a configured path.
+struct DiskGauge {
+    /// Filesystem path whose mount usage is sampled.
+    path: String,
+    /// Utilization threshold where the gauge switches to warning attention.
+    warning_threshold: f32,
+    /// Utilization threshold where the gauge switches to danger attention.
+    danger_threshold: f32,
+    /// Poll cadence for filesystem usage sampling.
+    poll_interval: Duration,
+    /// Scheduler deadline for the next run.
+    next_deadline: Instant,
+}
+
+impl Gauge for DiskGauge {
+    fn id(&self) -> &'static str {
+        "disk"
+    }
+
+    fn next_deadline(&self) -> Instant {
+        self.next_deadline
+    }
+
+    fn run_once(&mut self, now: Instant) -> Option<GaugeModel> {
+        let usage = disk_usage(&self.path);
+        let utilization = usage.and_then(|usage| {
+            if usage.total == 0 {
+                None
+            } else {
+                Some((usage.used as f32 / usage.total as f32).clamp(0.0, 1.0))
+            }
+        });
+        let display = disk_value(utilization, self.warning_threshold, self.danger_threshold);
+
+        let device =
+            mount_device_for_path(&self.path).unwrap_or_else(|| "Unknown device".to_string());
+        let (total_line, used_line) = usage
+            .map(|usage| {
+                (
+                    format!("Total: {}", format_bytes(usage.total)),
+                    format!("Used: {}", format_bytes(usage.used)),
+                )
+            })
+            .unwrap_or_else(|| ("Total: N/A".to_string(), "Used: N/A".to_string()));
+
+        self.next_deadline = now + self.poll_interval;
+
+        Some(GaugeModel {
+            id: "disk",
+            icon: svg_asset("disk.svg"),
+            display,
+            interactions: GaugeInteractionModel {
+                left_click: GaugePointerInteraction {
+                    info: Some(InfoDialog {
+                        title: "Disk".to_string(),
+                        lines: vec![device, total_line, used_line],
+                    }),
+                    ..GaugePointerInteraction::default()
+                },
+                ..GaugeInteractionModel::default()
+            },
+        })
+    }
+}
+
+pub fn create_gauge(now: Instant) -> Box<dyn Gauge> {
     let path = settings::settings().get_or("grelier.gauge.disk.path", DEFAULT_ROOT_PATH);
     let poll_interval_secs = settings::settings().get_parsed_or(
         "grelier.gauge.disk.poll_interval_secs",
@@ -174,58 +241,13 @@ fn disk_stream() -> impl iced::futures::Stream<Item = crate::panels::gauges::gau
         "grelier.gauge.disk.danger_threshold",
         DEFAULT_DANGER_THRESHOLD,
     );
-    let info_state = Arc::new(Mutex::new(InfoDialog {
-        title: "Disk".to_string(),
-        lines: vec![
-            "Unknown device".to_string(),
-            "Total: N/A".to_string(),
-            "Used: N/A".to_string(),
-        ],
-    }));
 
-    fixed_interval(
-        "disk",
-        Some(svg_asset("disk.svg")),
-        move || Duration::from_secs(poll_interval_secs),
-        {
-            let path = path.clone();
-            let info_state = Arc::clone(&info_state);
-            move || {
-                let usage = disk_usage(&path);
-                let utilization = usage.and_then(|usage| {
-                    if usage.total == 0 {
-                        None
-                    } else {
-                        Some((usage.used as f32 / usage.total as f32).clamp(0.0, 1.0))
-                    }
-                });
-                let display = disk_value(utilization, warning_threshold, danger_threshold);
-                if let Ok(mut info) = info_state.lock() {
-                    let device = mount_device_for_path(&path)
-                        .unwrap_or_else(|| "Unknown device".to_string());
-                    let (total_line, used_line) = usage
-                        .map(|usage| {
-                            (
-                                format!("Total: {}", format_bytes(usage.total)),
-                                format!("Used: {}", format_bytes(usage.used)),
-                            )
-                        })
-                        .unwrap_or_else(|| ("Total: N/A".to_string(), "Used: N/A".to_string()));
-                    info.lines = vec![device, total_line, used_line];
-                }
-                Some(display)
-            }
-        },
-        None,
-    )
-    .map({
-        let info_state = Arc::clone(&info_state);
-        move |mut model| {
-            if let Ok(info) = info_state.lock() {
-                model.info = Some(info.clone());
-            }
-            model
-        }
+    Box::new(DiskGauge {
+        path,
+        warning_threshold,
+        danger_threshold,
+        poll_interval: Duration::from_secs(poll_interval_secs),
+        next_deadline: now,
     })
 }
 
@@ -251,17 +273,13 @@ pub fn settings() -> &'static [SettingSpec] {
     SETTINGS
 }
 
-fn stream() -> GaugeStream {
-    Box::new(disk_stream())
-}
-
 inventory::submit! {
     GaugeSpec {
         id: "disk",
         description: "Disk usage gauge showing percent utilization for a configured path.",
         default_enabled: false,
         settings,
-        stream,
+        create: create_gauge,
         validate: None,
     }
 }

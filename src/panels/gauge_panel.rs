@@ -173,56 +173,54 @@ pub fn view<'a>(state: &'a BarState) -> Panel<'a> {
                 .align_x(alignment::Horizontal::Center)
                 .width(Length::Fill);
 
-            if let Some(icon) = &gauge.icon {
-                let attention = icon_attention;
-                let icon_handle = icon.clone();
-                let bar_theme = bar_theme.clone();
-                let svg_cache = svg_cache.clone();
-                let icon_box: Element<'_, Message> =
-                    AnimationBuilder::new(if dialog_open { 1.0 } else { 0.0 }, move |t| {
-                        let icon_view: Element<'_, Message> = {
-                            let theme = &bar_theme;
-                            let (base_start, base_end) = nominal_gradient_colors(theme);
-                            let base_fallback = attention_color(attention, theme);
-                            let selected_foreground = theme.palette().background;
-                            let start = lerp_color(base_start, selected_foreground, t);
-                            let end = lerp_color(base_end, selected_foreground, t);
-                            let fallback = lerp_color(base_fallback, selected_foreground, t);
-                            themed_svg_element(
-                                svg_cache.clone(),
-                                icon_handle.clone(),
-                                start,
-                                end,
-                                gauge_icon_size,
-                                Some(fallback),
-                            )
-                        };
+            let attention = icon_attention;
+            let icon_handle = gauge.icon.clone();
+            let icon_bar_theme = bar_theme.clone();
+            let icon_svg_cache = svg_cache.clone();
+            let icon_box: Element<'_, Message> =
+                AnimationBuilder::new(if dialog_open { 1.0 } else { 0.0 }, move |t| {
+                    let icon_view: Element<'_, Message> = {
+                        let theme = &icon_bar_theme;
+                        let (base_start, base_end) = nominal_gradient_colors(theme);
+                        let base_fallback = attention_color(attention, theme);
+                        let selected_foreground = theme.palette().background;
+                        let start = lerp_color(base_start, selected_foreground, t);
+                        let end = lerp_color(base_end, selected_foreground, t);
+                        let fallback = lerp_color(base_fallback, selected_foreground, t);
+                        themed_svg_element(
+                            icon_svg_cache.clone(),
+                            icon_handle.clone(),
+                            start,
+                            end,
+                            gauge_icon_size,
+                            Some(fallback),
+                        )
+                    };
 
-                        container(icon_view)
-                            .width(Length::Fixed(gauge_icon_size))
-                            .height(Length::Fixed(gauge_icon_size))
-                            .style(move |theme: &Theme| {
-                                let target = theme.palette().primary;
-                                let transparent = Color { a: 0.0, ..target };
-                                container::Style {
-                                    background: Some(lerp_color(transparent, target, t).into()),
-                                    ..container::Style::default()
-                                }
-                            })
-                            .into()
-                    })
-                    .animation(Easing::EASE_IN_OUT.very_quick())
-                    .into();
-                let centered_icon: Element<'_, Message> = container(icon_box)
-                    .width(Length::Fill)
-                    .align_x(alignment::Horizontal::Center)
-                    .into();
-                gauge_column = gauge_column.push(centered_icon).push(if show_value {
-                    Space::new().height(Length::Fixed(gauge_icon_value_spacing))
-                } else {
-                    Space::new().height(Length::Fixed(0.0))
-                });
-            }
+                    container(icon_view)
+                        .width(Length::Fixed(gauge_icon_size))
+                        .height(Length::Fixed(gauge_icon_size))
+                        .style(move |theme: &Theme| {
+                            let target = theme.palette().primary;
+                            let transparent = Color { a: 0.0, ..target };
+                            container::Style {
+                                background: Some(lerp_color(transparent, target, t).into()),
+                                ..container::Style::default()
+                            }
+                        })
+                        .into()
+                })
+                .animation(Easing::EASE_IN_OUT.very_quick())
+                .into();
+            let centered_icon: Element<'_, Message> = container(icon_box)
+                .width(Length::Fill)
+                .align_x(alignment::Horizontal::Center)
+                .into();
+            gauge_column = gauge_column.push(centered_icon).push(if show_value {
+                Space::new().height(Length::Fixed(gauge_icon_value_spacing))
+            } else {
+                Space::new().height(Length::Fixed(0.0))
+            });
 
             let centered_value: Option<Element<'_, Message>> = if show_value {
                 let value: Element<'_, Message> = match &gauge.display {
@@ -393,15 +391,12 @@ mod tests {
     fn gauge(id: &'static str) -> GaugeModel {
         GaugeModel {
             id,
-            icon: None,
+            icon: svg_asset("ratio-0.svg"),
             display: GaugeDisplay::Value {
                 value: GaugeValue::Text(id.to_string()),
                 attention: GaugeValueAttention::Nominal,
             },
-            on_click: None,
-            menu: None,
-            action_dialog: None,
-            info: None,
+            interactions: crate::panels::gauges::gauge::GaugeInteractionModel::default(),
         }
     }
 

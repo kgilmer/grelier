@@ -1,17 +1,17 @@
 // Desktop session actions gauge with uptime info and session controls.
 use crate::dialog::info::InfoDialog;
 use crate::icon::svg_asset;
+use crate::panels::gauges::gauge::Gauge;
 use crate::panels::gauges::gauge::{
-    ActionSelectAction, GaugeActionDialog, GaugeActionItem, GaugeDisplay, GaugeModel,
-    fixed_interval,
+    ActionSelectAction, GaugeActionDialog, GaugeActionItem, GaugeDisplay, GaugeInteractionModel,
+    GaugeModel, GaugePointerInteraction,
 };
-use crate::panels::gauges::gauge_registry::{GaugeSpec, GaugeStream};
+use crate::panels::gauges::gauge_registry::GaugeSpec;
 use crate::settings::SettingSpec;
-use iced::futures::StreamExt;
 use std::fs;
 use std::sync::Arc;
 use std::thread;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use zbus::blocking::{Connection, Proxy};
 
 const LOGIND_SERVICE: &str = "org.freedesktop.login1";
@@ -84,7 +84,7 @@ fn format_uptime(seconds: u64) -> String {
     }
 }
 
-fn session_stream() -> impl iced::futures::Stream<Item = GaugeModel> {
+fn session_action_dialog() -> GaugeActionDialog {
     let on_select: ActionSelectAction = Arc::new(|item_id: String| {
         let Some(action) = SessionAction::from_item_id(&item_id) else {
             log::warn!("session gauge: unknown action '{item_id}'");
@@ -93,7 +93,7 @@ fn session_stream() -> impl iced::futures::Stream<Item = GaugeModel> {
         thread::spawn(move || perform_session_action(action));
     });
 
-    let action_dialog = GaugeActionDialog {
+    GaugeActionDialog {
         title: "Session".to_string(),
         items: vec![
             GaugeActionItem {
@@ -110,25 +110,57 @@ fn session_stream() -> impl iced::futures::Stream<Item = GaugeModel> {
             },
         ],
         on_select: Some(on_select),
-    };
+    }
+}
 
-    fixed_interval(
-        "session",
-        Some(svg_asset("shutdown.svg")),
-        || Duration::from_secs(DEFAULT_REFRESH_INTERVAL_SECS),
-        || Some(GaugeDisplay::Empty),
-        None,
-    )
-    .map(move |mut model| {
-        model.action_dialog = Some(action_dialog.clone());
-        model.info = Some(InfoDialog {
-            title: "Session".to_string(),
-            lines: vec![match read_uptime_seconds() {
-                Some(seconds) => format!("Uptime: {}", format_uptime(seconds)),
-                None => "Uptime: Unknown".to_string(),
-            }],
-        });
-        model
+/// Gauge that exposes session-level actions such as logout and power controls.
+struct SessionGauge {
+    /// Prebuilt action dialog with session management actions.
+    action_dialog: GaugeActionDialog,
+    /// Scheduler deadline for the next run.
+    next_deadline: Instant,
+}
+
+impl Gauge for SessionGauge {
+    fn id(&self) -> &'static str {
+        "session"
+    }
+
+    fn next_deadline(&self) -> Instant {
+        self.next_deadline
+    }
+
+    fn run_once(&mut self, now: Instant) -> Option<GaugeModel> {
+        self.next_deadline = now + Duration::from_secs(DEFAULT_REFRESH_INTERVAL_SECS);
+        Some(GaugeModel {
+            id: "session",
+            icon: svg_asset("shutdown.svg"),
+            display: GaugeDisplay::Empty,
+            interactions: GaugeInteractionModel {
+                left_click: GaugePointerInteraction {
+                    info: Some(InfoDialog {
+                        title: "Session".to_string(),
+                        lines: vec![match read_uptime_seconds() {
+                            Some(seconds) => format!("Uptime: {}", format_uptime(seconds)),
+                            None => "Uptime: Unknown".to_string(),
+                        }],
+                    }),
+                    ..GaugePointerInteraction::default()
+                },
+                right_click: GaugePointerInteraction {
+                    action_dialog: Some(self.action_dialog.clone()),
+                    ..GaugePointerInteraction::default()
+                },
+                ..GaugeInteractionModel::default()
+            },
+        })
+    }
+}
+
+pub fn create_gauge(now: Instant) -> Box<dyn Gauge> {
+    Box::new(SessionGauge {
+        action_dialog: session_action_dialog(),
+        next_deadline: now,
     })
 }
 
@@ -137,17 +169,13 @@ pub fn settings() -> &'static [SettingSpec] {
     SETTINGS
 }
 
-fn stream() -> GaugeStream {
-    Box::new(session_stream())
-}
-
 inventory::submit! {
     GaugeSpec {
         id: "session",
         description: "Desktop session actions with uptime info.",
         default_enabled: false,
         settings,
-        stream,
+        create: create_gauge,
         validate: None,
     }
 }

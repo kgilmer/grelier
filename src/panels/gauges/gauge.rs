@@ -1,11 +1,9 @@
-// Gauge models, menus, and stream helpers for interval/event-driven gauges.
-use iced::futures::channel::mpsc;
+// Gauge models, menus, and interaction payloads.
 use iced::mouse;
 use iced::widget::svg;
 use std::fmt;
-use std::sync::{Arc, mpsc as sync_mpsc};
-use std::thread;
-use std::time::Duration;
+use std::sync::Arc;
+use std::time::Instant;
 
 use crate::dialog::info::InfoDialog;
 
@@ -72,24 +70,23 @@ pub struct GaugeActionDialog {
     pub on_select: Option<ActionSelectAction>,
 }
 
-/// Full render/update model for a single gauge instance.
-#[derive(Clone)]
-pub struct GaugeModel {
-    pub id: &'static str,
-    pub icon: Option<svg::Handle>,
-    pub display: GaugeDisplay,
-    pub on_click: Option<GaugeClickAction>,
+/// Interaction capabilities for one pointer input type.
+#[derive(Clone, Default)]
+pub struct GaugePointerInteraction {
+    /// Optional callback invoked when this input type is triggered.
+    pub on_input: Option<GaugeClickAction>,
+    /// Optional menu opened for this input type.
     pub menu: Option<GaugeMenu>,
+    /// Optional action dialog opened for this input type.
     pub action_dialog: Option<GaugeActionDialog>,
+    /// Optional info dialog opened for this input type.
     pub info: Option<InfoDialog>,
 }
 
-impl fmt::Debug for GaugeModel {
+impl fmt::Debug for GaugePointerInteraction {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.debug_struct("GaugeModel")
-            .field("id", &self.id)
-            .field("icon", &self.icon)
-            .field("display", &self.display)
+        f.debug_struct("GaugePointerInteraction")
+            .field("on_input", &self.on_input.as_ref().map(|_| "<set>"))
             .field(
                 "menu",
                 &self
@@ -114,6 +111,39 @@ impl fmt::Debug for GaugeModel {
                     .map(|dialog| dialog.title.as_str())
                     .unwrap_or("<none>"),
             )
+            .finish()
+    }
+}
+
+/// Pointer interaction model grouped by mouse action.
+#[derive(Debug, Clone, Default)]
+pub struct GaugeInteractionModel {
+    pub left_click: GaugePointerInteraction,
+    pub middle_click: GaugePointerInteraction,
+    pub right_click: GaugePointerInteraction,
+    pub scroll: GaugePointerInteraction,
+}
+
+/// Full render/update model for a single gauge instance.
+#[derive(Clone)]
+pub struct GaugeModel {
+    /// Stable gauge id used for routing, replacement, and click dispatch.
+    pub id: &'static str,
+    /// Icon rendered at the top of the gauge.
+    pub icon: svg::Handle,
+    /// Value/error content shown in the gauge value area.
+    pub display: GaugeDisplay,
+    /// Pointer interactions grouped by mouse action.
+    pub interactions: GaugeInteractionModel,
+}
+
+impl fmt::Debug for GaugeModel {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("GaugeModel")
+            .field("id", &self.id)
+            .field("icon", &self.icon)
+            .field("display", &self.display)
+            .field("interactions", &self.interactions)
             .finish_non_exhaustive()
     }
 }
@@ -135,101 +165,76 @@ pub struct GaugeClick {
 /// Callback invoked when a gauge receives pointer input.
 pub type GaugeClickAction = Arc<dyn Fn(GaugeClick) + Send + Sync>;
 
-/// Create a gauge stream that polls on a (potentially dynamic) interval.
-pub fn fixed_interval(
-    id: &'static str,
-    icon: Option<svg::Handle>,
-    interval: impl Fn() -> Duration + Send + 'static,
-    tick: impl Fn() -> Option<GaugeDisplay> + Send + 'static,
-    on_click: Option<GaugeClickAction>,
-) -> impl iced::futures::Stream<Item = GaugeModel> {
-    let (mut sender, receiver) = mpsc::channel(1);
-    let (trigger_tx, trigger_rx) = sync_mpsc::channel::<()>();
+/// Callback used by gauges to request immediate scheduling by the work manager.
+///
+/// Gauges call this after local input/state changes (for example from click handlers)
+/// when they want `run_once` invoked before the next deadline.
+pub type GaugeReadyNotify = Arc<dyn Fn(&'static str) + Send + Sync>;
 
-    let on_click = on_click.map(|callback| {
-        let trigger_tx = trigger_tx.clone();
-        Arc::new(move |click: GaugeClick| {
-            callback(click);
-            let _ = trigger_tx.send(());
-        }) as GaugeClickAction
-    });
+/// Why the scheduler is invoking `Gauge::run`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum GaugeWake {
+    /// Gauge timer deadline elapsed.
+    Timer,
+    /// Gauge was explicitly marked ready by an external event source or local command.
+    ExternalEvent,
+}
 
-    thread::spawn(move || {
-        // Keep a sender alive even if there is no click handler to prevent the channel
-        // from disconnecting and stopping the loop after the first tick.
-        let _trigger_tx = trigger_tx;
+/// Result from one gauge execution.
+#[derive(Clone)]
+pub enum RunOutcome {
+    NoChange,
+    ModelChanged(Box<GaugeModel>),
+}
 
-        loop {
-            if let Some(display) = tick() {
-                let _ = sender.try_send(GaugeModel {
-                    id,
-                    icon: icon.clone(),
-                    display,
-                    on_click: on_click.clone(),
-                    menu: None,
-                    action_dialog: None,
-                    info: None,
-                });
-            }
+/// Source of external gauge events owned by the work manager.
+pub trait GaugeEventSource: Send + 'static {
+    fn run(self: Box<Self>, notify: GaugeReadyNotify);
+}
 
-            let sleep_duration = interval();
-            match trigger_rx.recv_timeout(sleep_duration) {
-                Ok(_) | Err(sync_mpsc::RecvTimeoutError::Timeout) => continue,
-                Err(sync_mpsc::RecvTimeoutError::Disconnected) => break,
-            }
+/// Registration interface for manager-owned scheduling/event wiring.
+pub trait GaugeRegistrar {
+    fn add_event_source(&mut self, source: Box<dyn GaugeEventSource>);
+}
+
+/// Runtime contract implemented by every gauge.
+///
+/// A gauge is a stateful worker that decides when it wants to run next and can emit
+/// a new `GaugeModel` for rendering.
+pub trait Gauge: Send + 'static {
+    /// Stable gauge id. Must match `GaugeSpec::id`.
+    fn id(&self) -> &'static str;
+
+    /// Inject the callback used to request immediate scheduling.
+    ///
+    /// Most gauges can keep the default implementation. Gauges with click/menu callbacks
+    /// should store the callback and trigger it after queuing local commands.
+    fn bind_ready_notify(&mut self, _notify: GaugeReadyNotify) {}
+
+    /// Register optional event sources or scheduling hints.
+    ///
+    /// The work manager owns and runs registered event sources.
+    fn register(&mut self, _registrar: &mut dyn GaugeRegistrar) {}
+
+    /// Next time this gauge should be run by the scheduler.
+    ///
+    /// The scheduler will not run the gauge before this deadline unless it is explicitly
+    /// marked ready via `GaugeReadyNotify`.
+    fn next_deadline(&self) -> Instant;
+
+    /// Execute one unit of gauge work.
+    ///
+    /// Return `Some(GaugeModel)` when the UI should be updated, or `None` to keep the
+    /// previously rendered model.
+    fn run_once(&mut self, now: Instant) -> Option<GaugeModel>;
+
+    /// Execute one unit of gauge work for the given wake reason.
+    ///
+    /// Default implementation delegates to `run_once` for backwards compatibility.
+    fn run(&mut self, _wake: GaugeWake, now: Instant) -> RunOutcome {
+        match self.run_once(now) {
+            Some(model) => RunOutcome::ModelChanged(Box::new(model)),
+            None => RunOutcome::NoChange,
         }
-    });
-
-    receiver
-}
-
-/// Create a gauge stream driven by external events.
-pub fn event_stream(
-    _id: &'static str,
-    _icon: Option<svg::Handle>,
-    start: impl Fn(mpsc::Sender<GaugeModel>) + Send + 'static,
-) -> impl iced::futures::Stream<Item = GaugeModel> {
-    let (sender, receiver) = mpsc::channel(16);
-
-    thread::spawn(move || start(sender));
-
-    receiver
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use iced::futures::{StreamExt, executor::block_on};
-    use std::sync::atomic::{AtomicUsize, Ordering};
-
-    #[test]
-    fn fixed_interval_keeps_running_without_click_handler() {
-        let tick_count = Arc::new(AtomicUsize::new(0));
-        let ticks = Arc::clone(&tick_count);
-
-        let mut stream = fixed_interval(
-            "test",
-            None,
-            || Duration::from_millis(5),
-            move || {
-                ticks.fetch_add(1, Ordering::SeqCst);
-                Some(GaugeDisplay::Value {
-                    value: GaugeValue::Text(String::from("ok")),
-                    attention: GaugeValueAttention::Nominal,
-                })
-            },
-            None,
-        );
-
-        let first = block_on(stream.next());
-        let second = block_on(stream.next());
-
-        assert!(first.is_some());
-        assert!(second.is_some());
-        assert!(
-            tick_count.load(Ordering::SeqCst) >= 2,
-            "expected multiple ticks, got {}",
-            tick_count.load(Ordering::SeqCst)
-        );
     }
 }
