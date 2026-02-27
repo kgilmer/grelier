@@ -5,6 +5,8 @@ use crate::icon::{svg_asset, themed_svg_handle_cached};
 use crate::panels::gauges::gauge::{
     GaugeDisplay, GaugeInput, GaugeModel, GaugeValue, GaugeValueAttention,
 };
+use crate::panels::gauges::gauge_work_manager;
+use crate::panels::panel_registry::{PanelActivation, PanelSpec, PanelSubscriptionContext};
 use crate::settings;
 use iced::alignment;
 use iced::widget::svg::{self, Svg};
@@ -382,6 +384,31 @@ pub fn anchor_y(state: &BarState) -> Option<i32> {
     let icon_offset =
         settings::settings().get_parsed_or("grelier.gauge.ui.anchor_offset_icon", 7.0);
     Some((p.y - icon_offset).round() as i32)
+}
+
+fn panel_settings() -> &'static [crate::settings::SettingSpec] {
+    crate::settings::NO_SETTINGS
+}
+
+fn panel_subscription(context: PanelSubscriptionContext<'_>) -> Option<iced::Subscription<Message>> {
+    if context.activation == PanelActivation::Active {
+        Some(gauge_work_manager::subscription(context.gauges))
+    } else {
+        None
+    }
+}
+
+inventory::submit! {
+    PanelSpec {
+        id: "gauges",
+        description: "Gauge stack showing configured telemetry and controls.",
+        default_enabled: true,
+        settings: panel_settings,
+        view,
+        subscription: Some(panel_subscription),
+        bootstrap: None,
+        validate: None,
+    }
 }
 
 #[cfg(test)]

@@ -8,6 +8,7 @@ use crate::dialog::action::{action_view, dialog_dimensions as action_dialog_dime
 use crate::dialog::info::{InfoDialog, dialog_dimensions as info_dialog_dimensions, info_view};
 use crate::dialog::menu::{dialog_dimensions as menu_dialog_dimensions, menu_view};
 use crate::panels::gauges::gauge::{GaugeActionDialog, GaugeInput, GaugeMenu, GaugeModel};
+use crate::panels::panel_registry;
 use crate::settings;
 use crate::sway_workspace::{WorkspaceApps, WorkspaceInfo};
 use elbey_cache::{AppDescriptor, FALLBACK_ICON_HANDLE, IconHandle};
@@ -20,8 +21,6 @@ use iced_layershell::actions::IcedNewPopupSettings;
 use iced_layershell::to_layer_message;
 
 const CLICK_FILTER_WINDOW: Duration = Duration::from_millis(250);
-/// Default panel ordering when no explicit panel list is set.
-pub const DEFAULT_PANELS: &str = "workspaces,top_apps,gauges";
 
 /// Application-level messages for the bar, panels, and dialogs.
 #[to_layer_message(multi)]
@@ -75,36 +74,6 @@ pub enum Message {
     IcedEvent(iced::Event),
 }
 
-/// Supported panel types that can be ordered in the bar.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum PanelKind {
-    Workspaces,
-    TopApps,
-    Gauges,
-}
-
-impl PanelKind {
-    pub fn parse(value: &str) -> Option<Self> {
-        match value.trim().to_ascii_lowercase().as_str() {
-            "workspaces" => Some(PanelKind::Workspaces),
-            "top_apps" => Some(PanelKind::TopApps),
-            "gauges" => Some(PanelKind::Gauges),
-            _ => None,
-        }
-    }
-
-    pub fn as_str(&self) -> &'static str {
-        match self {
-            PanelKind::Workspaces => "workspaces",
-            PanelKind::TopApps => "top_apps",
-            PanelKind::Gauges => "gauges",
-        }
-    }
-}
-
-pub const PANEL_KINDS: &[PanelKind] =
-    &[PanelKind::Workspaces, PanelKind::TopApps, PanelKind::Gauges];
-
 pub(crate) fn close_window_task(window: window::Id) -> Task<Message> {
     let callback = iced_layershell::actions::ActionCallback::new(|_region| {});
     Task::batch([
@@ -114,27 +83,6 @@ pub(crate) fn close_window_task(window: window::Id) -> Task<Message> {
         }),
         Task::done(Message::RemoveWindow(window)),
     ])
-}
-
-pub fn list_panels() {
-    for kind in PANEL_KINDS {
-        println!("{}", kind.as_str());
-    }
-}
-
-/// Parse a comma-delimited panel list into a de-duplicated order.
-pub fn panel_order_from_setting(setting: &str) -> Vec<PanelKind> {
-    let mut ordered = Vec::new();
-    let mut seen = HashSet::new();
-    for raw in setting.split(',') {
-        let Some(kind) = PanelKind::parse(raw) else {
-            continue;
-        };
-        if seen.insert(kind) {
-            ordered.push(kind);
-        }
-    }
-    ordered
 }
 
 /// Simple container wrapper for a panel element.
@@ -508,17 +456,17 @@ impl BarState {
             return container(Space::new()).into();
         }
 
-        let panel_order =
-            panel_order_from_setting(&settings.get_or("grelier.panels", DEFAULT_PANELS));
+        let panel_order = panel_registry::panel_order_from_setting(
+            &settings.get_or("grelier.panels", panel_registry::default_panels()),
+        );
 
         let mut layout = Column::new().width(Length::Fill).height(Length::Fill);
         let mut iter = panel_order.iter().peekable();
-        while let Some(panel) = iter.next() {
-            let panel = match panel {
-                PanelKind::Workspaces => crate::panels::ws_panel::view(self),
-                PanelKind::TopApps => crate::panels::top_apps_panel::view(self),
-                PanelKind::Gauges => crate::panels::gauge_panel::view(self),
+        while let Some(panel_id) = iter.next() {
+            let Some(spec) = panel_registry::find(panel_id) else {
+                continue;
             };
+            let panel = (spec.view)(self);
             layout = layout.push(panel.view());
             if iter.peek().is_some() {
                 layout = layout.push(Space::new().height(Length::Fill));
@@ -589,8 +537,7 @@ mod tests {
 
     #[test]
     fn panel_order_filters_duplicates() {
-        let order = panel_order_from_setting("gauges,workspaces,gauges,top_apps");
-        let labels: Vec<_> = order.iter().map(PanelKind::as_str).collect();
-        assert_eq!(labels, vec!["gauges", "workspaces", "top_apps"]);
+        let order = panel_registry::panel_order_from_setting("gauges,workspaces,gauges,top_apps");
+        assert_eq!(order, vec!["gauges", "workspaces", "top_apps"]);
     }
 }

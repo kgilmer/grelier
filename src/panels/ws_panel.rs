@@ -1,4 +1,8 @@
 use crate::bar::{BarState, Message, Panel, app_icon_view, lerp_color};
+use crate::panels::panel_registry::{
+    PanelActivation, PanelBootstrapConfig, PanelBootstrapContext, PanelSpec,
+    PanelSubscriptionContext,
+};
 use crate::settings;
 use crate::sway_workspace::WorkspaceInfo;
 use elbey_cache::FALLBACK_ICON_HANDLE;
@@ -267,6 +271,39 @@ pub fn view<'a>(state: &'a BarState) -> Panel<'a> {
     );
 
     Panel::new(workspaces)
+}
+
+fn panel_settings() -> &'static [crate::settings::SettingSpec] {
+    crate::settings::NO_SETTINGS
+}
+
+fn panel_subscription(context: PanelSubscriptionContext<'_>) -> Option<iced::Subscription<Message>> {
+    Some(if context.activation == PanelActivation::Active {
+        crate::sway_workspace::workspace_subscription()
+    } else {
+        crate::sway_workspace::output_subscription()
+    })
+}
+
+fn panel_bootstrap(context: PanelBootstrapContext<'_>, out: &mut PanelBootstrapConfig) {
+    if context.activation == PanelActivation::Active {
+        out.workspace_app_icons = context
+            .settings
+            .get_bool_or("grelier.app.workspace.app_icons", true);
+    }
+}
+
+inventory::submit! {
+    PanelSpec {
+        id: "workspaces",
+        description: "Workspace list with focus state and optional workspace app icons.",
+        default_enabled: true,
+        settings: panel_settings,
+        view,
+        subscription: Some(panel_subscription),
+        bootstrap: Some(panel_bootstrap),
+        validate: None,
+    }
 }
 
 #[cfg(test)]
