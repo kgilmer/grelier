@@ -390,7 +390,9 @@ fn panel_settings() -> &'static [crate::settings::SettingSpec] {
     crate::settings::NO_SETTINGS
 }
 
-fn panel_subscription(context: PanelSubscriptionContext<'_>) -> Option<iced::Subscription<Message>> {
+fn panel_subscription(
+    context: PanelSubscriptionContext<'_>,
+) -> Option<iced::Subscription<Message>> {
     if context.activation == PanelActivation::Active {
         Some(gauge_work_manager::subscription(context.gauges))
     } else {

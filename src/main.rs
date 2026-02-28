@@ -25,9 +25,9 @@ use crate::bar::Orientation;
 use crate::bar::{
     AppIconCache, BarState, GaugeDialog, GaugeDialogWindow, Message, close_window_task,
 };
-use crate::panels::panel_registry;
 use crate::panels::gauges::gauge::{GaugeClick, GaugeInput, GaugeModel, GaugePointerInteraction};
 use crate::panels::gauges::gauge_registry;
+use crate::panels::panel_registry;
 use elbey_cache::Cache;
 use log::{error, info, warn};
 use std::io::Write;
@@ -244,8 +244,12 @@ fn main() -> Result<(), iced_layershell::Error> {
 
     let default_gauges = gauge_registry::default_gauges();
     let default_panels = panel_registry::default_panels();
-    let base_setting_specs =
-        settings::base_setting_specs(default_gauges, default_panels, DEFAULT_ORIENTATION, DEFAULT_THEME);
+    let base_setting_specs = settings::base_setting_specs(
+        default_gauges,
+        default_panels,
+        DEFAULT_ORIENTATION,
+        DEFAULT_THEME,
+    );
 
     let mut registered_gauges: Vec<&'static gauge_registry::GaugeSpec> =
         gauge_registry::all().collect();

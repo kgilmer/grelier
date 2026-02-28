@@ -277,7 +277,9 @@ fn panel_settings() -> &'static [crate::settings::SettingSpec] {
     crate::settings::NO_SETTINGS
 }
 
-fn panel_subscription(context: PanelSubscriptionContext<'_>) -> Option<iced::Subscription<Message>> {
+fn panel_subscription(
+    context: PanelSubscriptionContext<'_>,
+) -> Option<iced::Subscription<Message>> {
     Some(if context.activation == PanelActivation::Active {
         crate::sway_workspace::workspace_subscription()
     } else {
