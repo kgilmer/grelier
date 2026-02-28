@@ -69,6 +69,11 @@ pub fn subscribe_workspace_events() -> Result<EventStream, Error> {
     Connection::new()?.subscribe([EventType::Workspace, EventType::Window, EventType::Output])
 }
 
+/// Subscribe to output-only events.
+pub fn subscribe_output_events() -> Result<EventStream, Error> {
+    Connection::new()?.subscribe([EventType::Output])
+}
+
 /// Focus the workspace with the given name.
 pub fn focus_workspace(name: &str) -> Result<(), Error> {
     with_command_conn(|conn| {
@@ -187,6 +192,10 @@ pub fn workspace_subscription() -> Subscription<Message> {
     Subscription::run(workspace_stream)
 }
 
+pub fn output_subscription() -> Subscription<Message> {
+    Subscription::run(output_stream)
+}
+
 fn workspace_stream() -> impl iced::futures::Stream<Item = Message> {
     let (mut sender, receiver) = mpsc::channel(16);
 
@@ -232,6 +241,35 @@ fn workspace_stream() -> impl iced::futures::Stream<Item = Message> {
                 Ok(_) => {}
                 Err(err) => {
                     log::error!("Workspace event stream error: {err}");
+                    break;
+                }
+            }
+        }
+    });
+
+    receiver
+}
+
+fn output_stream() -> impl iced::futures::Stream<Item = Message> {
+    let (mut sender, receiver) = mpsc::channel(16);
+
+    std::thread::spawn(move || {
+        let mut stream = match subscribe_output_events() {
+            Ok(stream) => stream,
+            Err(err) => {
+                log::error!("Failed to subscribe to output events: {err}");
+                return;
+            }
+        };
+
+        for event in &mut stream {
+            match event {
+                Ok(Event::Output(_)) => {
+                    let _ = sender.try_send(Message::OutputChanged);
+                }
+                Ok(_) => {}
+                Err(err) => {
+                    log::error!("Output event stream error: {err}");
                     break;
                 }
             }

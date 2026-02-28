@@ -1,4 +1,7 @@
 use crate::bar::{BarState, Message, Panel, app_icon_view};
+use crate::panels::panel_registry::{
+    PanelActivation, PanelBootstrapConfig, PanelBootstrapContext, PanelSpec,
+};
 use crate::settings;
 use elbey_cache::{FALLBACK_ICON_HANDLE, IconHandle};
 use iced::alignment;
@@ -44,4 +47,29 @@ pub fn view<'a>(state: &'a BarState) -> Panel<'a> {
         .into();
 
     Panel::new(top_apps_section)
+}
+
+fn panel_settings() -> &'static [crate::settings::SettingSpec] {
+    crate::settings::NO_SETTINGS
+}
+
+fn panel_bootstrap(context: PanelBootstrapContext<'_>, out: &mut PanelBootstrapConfig) {
+    if context.activation == PanelActivation::Active {
+        out.top_apps_count = context
+            .settings
+            .get_parsed_or("grelier.app.top_apps.count", 6usize);
+    }
+}
+
+inventory::submit! {
+    PanelSpec {
+        id: "top_apps",
+        description: "Top launched apps panel with clickable app icons.",
+        default_enabled: true,
+        settings: panel_settings,
+        view,
+        subscription: None,
+        bootstrap: Some(panel_bootstrap),
+        validate: None,
+    }
 }

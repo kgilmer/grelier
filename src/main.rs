@@ -23,12 +23,11 @@ use iced_layershell::settings::{LayerShellSettings, Settings as LayerShellAppSet
 
 use crate::bar::Orientation;
 use crate::bar::{
-    AppIconCache, BarState, DEFAULT_PANELS, GaugeDialog, GaugeDialogWindow, Message,
-    close_window_task,
+    AppIconCache, BarState, GaugeDialog, GaugeDialogWindow, Message, close_window_task,
 };
 use crate::panels::gauges::gauge::{GaugeClick, GaugeInput, GaugeModel, GaugePointerInteraction};
 use crate::panels::gauges::gauge_registry;
-use crate::panels::gauges::gauge_work_manager;
+use crate::panels::panel_registry;
 use elbey_cache::Cache;
 use log::{error, info, warn};
 use std::io::Write;
@@ -225,7 +224,7 @@ fn main() -> Result<(), iced_layershell::Error> {
     }
 
     if args.list_panels {
-        bar::list_panels();
+        panel_registry::list_panels();
         return Ok(());
     }
 
@@ -244,9 +243,10 @@ fn main() -> Result<(), iced_layershell::Error> {
     }
 
     let default_gauges = gauge_registry::default_gauges();
+    let default_panels = panel_registry::default_panels();
     let base_setting_specs = settings::base_setting_specs(
         default_gauges,
-        DEFAULT_PANELS,
+        default_panels,
         DEFAULT_ORIENTATION,
         DEFAULT_THEME,
     );
@@ -274,7 +274,8 @@ fn main() -> Result<(), iced_layershell::Error> {
         }
     }
 
-    let all_setting_specs = gauge_registry::collect_settings(&base_setting_specs);
+    let panel_setting_specs = panel_registry::collect_settings(&base_setting_specs);
+    let all_setting_specs = gauge_registry::collect_settings(&panel_setting_specs);
     settings_store.ensure_defaults(&all_setting_specs);
 
     let gauges_setting = settings_store.get_or("grelier.gauges", default_gauges);
@@ -292,6 +293,9 @@ fn main() -> Result<(), iced_layershell::Error> {
     }
 
     if let Err(err) = gauge_registry::validate_settings(settings_store) {
+        exit_with_error(err);
+    }
+    if let Err(err) = panel_registry::validate_settings(settings_store) {
         exit_with_error(err);
     }
 
@@ -357,8 +361,10 @@ fn main() -> Result<(), iced_layershell::Error> {
 
     let gauge_order = gauges;
     let gauges_for_subscription = gauge_order.clone();
-    let workspace_app_icons = settings_store.get_bool_or("grelier.app.workspace.app_icons", true);
-    let top_apps_count = settings_store.get_parsed_or("grelier.app.top_apps.count", 6usize);
+    let panels_setting = settings_store.get_or("grelier.panels", default_panels);
+    let panel_bootstrap = panel_registry::bootstrap_for_setting(&panels_setting, settings_store);
+    let workspace_app_icons = panel_bootstrap.workspace_app_icons;
+    let top_apps_count = panel_bootstrap.top_apps_count;
 
     let theme_for_state = theme.clone();
     let run_result = daemon(
@@ -412,14 +418,18 @@ fn main() -> Result<(), iced_layershell::Error> {
 }
 
 fn app_subscription(_state: &BarState, gauges: &[String]) -> Subscription<Message> {
-    let subs = vec![
-        sway_workspace::workspace_subscription(),
+    let default_panels = panel_registry::default_panels();
+    let panels_setting = settings::settings().get_or("grelier.panels", default_panels);
+    let mut subs = vec![
         event::listen().map(Message::IcedEvent),
         window::open_events().map(Message::WindowOpened),
         window::events().map(|(id, event)| Message::WindowEvent(id, event)),
         window::close_events().map(Message::WindowClosed),
-        gauge_work_manager::subscription(gauges),
     ];
+    subs.extend(panel_registry::subscriptions_for_setting(
+        &panels_setting,
+        gauges,
+    ));
     Subscription::batch(subs)
 }
 
@@ -945,7 +955,7 @@ mod tests {
         let mut all_setting_specs = Vec::new();
         let base_setting_specs = settings::base_setting_specs(
             gauge_registry::default_gauges(),
-            DEFAULT_PANELS,
+            panel_registry::default_panels(),
             DEFAULT_ORIENTATION,
             DEFAULT_THEME,
         );
