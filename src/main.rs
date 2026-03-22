@@ -617,6 +617,16 @@ fn update(state: &mut BarState, message: Message) -> Task<Message> {
             }
             return Task::batch([close_others, Task::done(Message::RemoveWindow(window))]);
         }
+        Message::MenuSliderChanged { window, value } => {
+            if let Some(dialog_window) = state.dialog_windows.get_mut(&window) {
+                dialog_window.slider_value = Some(value);
+                if let GaugeDialog::Menu(menu) = &dialog_window.dialog {
+                    if let Some(slider) = &menu.slider {
+                        (slider.on_change)(value);
+                    }
+                }
+            }
+        }
         Message::MenuItemHoverEnter { window, item_id } => {
             if let Some(dialog_window) = state.dialog_windows.get_mut(&window) {
                 dialog_window.hovered_item = Some(item_id);
@@ -1030,8 +1040,10 @@ mod tests {
                     title: "Test".into(),
                     items: Vec::new(),
                     on_select: None,
+                    slider: None,
                 }),
                 hovered_item: None,
+                slider_value: None,
             },
         );
 
@@ -1090,8 +1102,10 @@ mod tests {
                     title: "Test".into(),
                     items: Vec::new(),
                     on_select: None,
+                    slider: None,
                 }),
                 hovered_item: None,
+                slider_value: None,
             },
         );
         state.gauges.push(GaugeModel {
@@ -1136,8 +1150,10 @@ mod tests {
                     title: "Test".into(),
                     items: Vec::new(),
                     on_select: None,
+                    slider: None,
                 }),
                 hovered_item: None,
+                slider_value: None,
             },
         );
         state.dialog_windows.insert(
@@ -1148,8 +1164,10 @@ mod tests {
                     title: "Other".into(),
                     items: Vec::new(),
                     on_select: None,
+                    slider: None,
                 }),
                 hovered_item: None,
+                slider_value: None,
             },
         );
 
@@ -1170,6 +1188,7 @@ mod tests {
                         title: "Test".into(),
                         items: Vec::new(),
                         on_select: Some(on_select),
+                    slider: None,
                     }),
                     ..GaugePointerInteraction::default()
                 },
@@ -1215,8 +1234,10 @@ mod tests {
                     title: "Test".into(),
                     items: Vec::new(),
                     on_select: None,
+                    slider: None,
                 }),
                 hovered_item: None,
+                slider_value: None,
             },
         );
         state.closing_dialogs.insert(window);
@@ -1245,8 +1266,10 @@ mod tests {
                     title: "Test".into(),
                     items: Vec::new(),
                     on_select: None,
+                    slider: None,
                 }),
                 hovered_item: None,
+                slider_value: None,
             },
         );
         state.last_dialog_opened_at = Some(Instant::now());
@@ -1272,8 +1295,10 @@ mod tests {
                     title: "Test".into(),
                     items: Vec::new(),
                     on_select: None,
+                    slider: None,
                 }),
                 hovered_item: None,
+                slider_value: None,
             },
         );
 

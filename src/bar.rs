@@ -64,6 +64,10 @@ pub enum Message {
         window: iced::window::Id,
         item_id: String,
     },
+    MenuSliderChanged {
+        window: iced::window::Id,
+        value: u8,
+    },
     WindowFocusChanged {
         focused: bool,
     },
@@ -279,6 +283,8 @@ pub struct GaugeDialogWindow {
     pub gauge_id: String,
     pub dialog: GaugeDialog,
     pub hovered_item: Option<String>,
+    /// Tracks the live slider position while the menu dialog is open.
+    pub slider_value: Option<u8>,
 }
 
 impl BarState {
@@ -377,12 +383,18 @@ impl BarState {
         let (window, task) = Message::popup_open(settings);
         self.gauge_dialog_anchor
             .insert(gauge_id.to_string(), anchor_y);
+        let initial_slider = if let GaugeDialog::Menu(menu) = &dialog {
+            menu.slider.as_ref().map(|s| s.value)
+        } else {
+            None
+        };
         self.dialog_windows.insert(
             window,
             GaugeDialogWindow {
                 gauge_id: gauge_id.to_string(),
                 dialog,
                 hovered_item: None,
+                slider_value: initial_slider,
             },
         );
         self.last_dialog_opened_at = Some(Instant::now());
@@ -436,6 +448,7 @@ impl BarState {
                 GaugeDialog::Menu(menu) => menu_view(
                     menu,
                     dialog_window.hovered_item.as_deref(),
+                    dialog_window.slider_value,
                     move |item_id| Message::MenuItemSelected {
                         window: window_id,
                         gauge_id: gauge_id.clone(),
@@ -448,6 +461,10 @@ impl BarState {
                     move |item_id| Message::MenuItemHoverExit {
                         window: window_id,
                         item_id,
+                    },
+                    move |value| Message::MenuSliderChanged {
+                        window: window_id,
+                        value,
                     },
                 ),
                 GaugeDialog::Action(dialog) => {

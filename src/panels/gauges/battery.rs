@@ -540,6 +540,7 @@ fn power_profile_menu(on_select: MenuSelectAction) -> Option<GaugeMenu> {
         title: "Power Mode".to_string(),
         items,
         on_select: Some(on_select),
+        slider: None,
     })
 }
 
