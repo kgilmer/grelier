@@ -1,7 +1,7 @@
 // Gauge work-manager runtime and subscription adapter.
 use crate::bar::Message;
-use crate::icon::svg_asset;
 use crate::dialog::info::InfoDialog;
+use crate::icon::svg_asset;
 use crate::panels::gauges::gauge::{
     Gauge, GaugeActionDialog, GaugeDisplay, GaugeEventSource, GaugeInteractionModel, GaugeMenu,
     GaugeModel, GaugePointerInteraction, GaugeReadyNotify, GaugeRegistrar, GaugeValue, GaugeWake,
