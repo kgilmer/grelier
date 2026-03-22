@@ -26,6 +26,8 @@ const CLICK_FILTER_WINDOW: Duration = Duration::from_millis(250);
 #[to_layer_message(multi)]
 #[derive(Debug, Clone)]
 pub enum Message {
+    /// Discarded input event (e.g. zero-delta scroll); handled as a no-op in update.
+    Noop,
     Workspaces {
         workspaces: Vec<WorkspaceInfo>,
         apps: Vec<WorkspaceApps>,
@@ -169,7 +171,8 @@ pub struct BarState {
     pub top_apps: Vec<AppDescriptor>,
     pub app_icons: AppIconCache,
     pub gauges: Vec<GaugeModel>,
-    pub gauge_order: Vec<String>,
+    /// Precomputed position index from the configured gauge order; avoids a per-frame allocation.
+    pub gauge_order_index: HashMap<String, usize>,
     pub bar_theme: Theme,
     pub themed_svg_cache: Arc<Mutex<HashMap<String, iced::widget::svg::Handle>>>,
     pub current_workspace: Option<String>,
@@ -196,7 +199,7 @@ impl Default for BarState {
             top_apps: Vec::new(),
             app_icons: AppIconCache::default(),
             gauges: Vec::new(),
-            gauge_order: Vec::new(),
+            gauge_order_index: HashMap::new(),
             bar_theme: Theme::Nord,
             themed_svg_cache: Arc::new(Mutex::new(HashMap::new())),
             current_workspace: None,
@@ -284,8 +287,13 @@ impl BarState {
         app_icons: AppIconCache,
         top_apps: Vec<AppDescriptor>,
     ) -> Self {
+        let gauge_order_index = gauge_order
+            .iter()
+            .enumerate()
+            .map(|(i, id)| (id.clone(), i))
+            .collect();
         Self {
-            gauge_order,
+            gauge_order_index,
             top_apps,
             app_icons,
             ..Self::default()

@@ -275,9 +275,15 @@ impl Settings {
 
     pub fn ensure_defaults(&self, specs: &[SettingSpec]) {
         let mut map = self.map.write().expect("settings write lock poisoned");
+        let mut changed = false;
         for spec in specs {
-            map.entry(spec.key.to_string())
-                .or_insert_with(|| spec.default.to_string());
+            if !map.contains_key(spec.key) {
+                map.insert(spec.key.to_string(), spec.default.to_string());
+                changed = true;
+            }
+        }
+        if !changed {
+            return;
         }
         let snapshot = map.clone();
         drop(map);

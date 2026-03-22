@@ -126,13 +126,10 @@ fn scroll_input(delta: mouse::ScrollDelta) -> Option<GaugeInput> {
     }
 }
 
-pub fn ordered_gauges<'a>(gauges: &'a [GaugeModel], gauge_order: &[String]) -> Vec<&'a GaugeModel> {
-    let order_index: HashMap<_, _> = gauge_order
-        .iter()
-        .enumerate()
-        .map(|(i, id)| (id.clone(), i))
-        .collect();
-
+pub fn ordered_gauges<'a>(
+    gauges: &'a [GaugeModel],
+    order_index: &HashMap<String, usize>,
+) -> Vec<&'a GaugeModel> {
     let mut ordered: Vec<(usize, &GaugeModel)> = gauges.iter().enumerate().collect();
     ordered.sort_by_key(|(idx, g)| (order_index.get(g.id).copied().unwrap_or(usize::MAX), *idx));
     ordered.into_iter().map(|(_, gauge)| gauge).collect()
@@ -142,9 +139,7 @@ pub fn view<'a>(state: &'a BarState) -> Panel<'a> {
     let settings = settings::settings();
     let gauge_padding_x = settings.get_parsed_or("grelier.gauge.ui.padding_x", 2u16);
     let gauge_padding_y = settings.get_parsed_or("grelier.gauge.ui.padding_y", 2u16);
-    let gauge_spacing = settings
-        .get_parsed("grelier.gauge.spacing")
-        .unwrap_or_else(|| settings.get_parsed_or("grelier.gauge.ui.spacing", 14u32));
+    let gauge_spacing = settings.get_parsed_or("grelier.gauge.ui.spacing", 14u32);
     let gauge_icon_size = settings.get_parsed_or("grelier.gauge.ui.icon_size", 20.0);
     let gauge_value_icon_size = settings.get_parsed_or("grelier.gauge.ui.value_icon_size", 20.0);
     let gauge_icon_value_spacing =
@@ -152,7 +147,7 @@ pub fn view<'a>(state: &'a BarState) -> Panel<'a> {
     let bar_theme = state.bar_theme.clone();
     let svg_cache = state.themed_svg_cache.clone();
 
-    let ordered = ordered_gauges(&state.gauges, &state.gauge_order);
+    let ordered = ordered_gauges(&state.gauges, &state.gauge_order_index);
     let ratio_inner_full_icon = svg_asset("ratio-inner-full.svg");
 
     let gauges = ordered.into_iter().fold(
@@ -323,9 +318,12 @@ pub fn view<'a>(state: &'a BarState) -> Panel<'a> {
                 id: gauge_id.clone(),
                 input: GaugeInput::Button(mouse::Button::Middle),
             })
-            .on_scroll(move |delta| Message::GaugeClicked {
-                id: gauge_id.clone(),
-                input: scroll_input(delta).unwrap_or(GaugeInput::ScrollUp),
+            .on_scroll(move |delta| match scroll_input(delta) {
+                Some(input) => Message::GaugeClicked {
+                    id: gauge_id.clone(),
+                    input,
+                },
+                None => Message::Noop,
             })
             .interaction(mouse::Interaction::Pointer)
             .into();
@@ -432,9 +430,14 @@ mod tests {
     #[test]
     fn orders_gauges_by_config_then_appends_rest() {
         let gauges = vec![gauge("cpu"), gauge("ram"), gauge("disk")];
-        let gauge_order = vec!["ram".into(), "clock".into(), "cpu".into()];
+        let gauge_order = vec!["ram".to_string(), "clock".to_string(), "cpu".to_string()];
+        let order_index: HashMap<String, usize> = gauge_order
+            .iter()
+            .enumerate()
+            .map(|(i, id)| (id.clone(), i))
+            .collect();
 
-        let ordered_ids: Vec<_> = ordered_gauges(&gauges, &gauge_order)
+        let ordered_ids: Vec<_> = ordered_gauges(&gauges, &order_index)
             .into_iter()
             .map(|g| g.id)
             .collect();
