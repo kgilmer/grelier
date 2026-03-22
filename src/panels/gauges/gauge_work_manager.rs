@@ -1,9 +1,11 @@
 // Gauge work-manager runtime and subscription adapter.
 use crate::bar::Message;
+use crate::dialog::info::InfoDialog;
 use crate::icon::svg_asset;
 use crate::panels::gauges::gauge::{
-    Gauge, GaugeDisplay, GaugeEventSource, GaugeInteractionModel, GaugeModel, GaugeReadyNotify,
-    GaugeRegistrar, GaugeWake, RunOutcome,
+    Gauge, GaugeActionDialog, GaugeDisplay, GaugeEventSource, GaugeInteractionModel, GaugeMenu,
+    GaugeModel, GaugePointerInteraction, GaugeReadyNotify, GaugeRegistrar, GaugeValue, GaugeWake,
+    RunOutcome,
 };
 use crate::panels::gauges::gauge_registry;
 use crate::settings;
@@ -334,15 +336,15 @@ impl<C: Clock> GaugeWorkManager<C> {
             if runtime.generation != generation || runtime.next_deadline != deadline {
                 continue;
             }
-            let _ = runnable.insert(idx);
+            runnable.insert(idx);
         }
 
         // Merge explicit ready notifications; set+queue guarantees each gauge runs at most once/cycle.
         while let Some(idx) = self.ready_queue.pop_front() {
             self.ready_set.remove(&idx);
             if self.runtimes[idx].status == GaugeStatus::Active {
-                let _ = runnable.insert(idx);
-                let _ = external_wake.insert(idx);
+                runnable.insert(idx);
+                external_wake.insert(idx);
             }
         }
 
@@ -475,27 +477,15 @@ fn display_equal(a: &GaugeDisplay, b: &GaugeDisplay) -> bool {
     }
 }
 
-fn value_equal(
-    a: &crate::panels::gauges::gauge::GaugeValue,
-    b: &crate::panels::gauges::gauge::GaugeValue,
-) -> bool {
+fn value_equal(a: &GaugeValue, b: &GaugeValue) -> bool {
     match (a, b) {
-        (
-            crate::panels::gauges::gauge::GaugeValue::Text(at),
-            crate::panels::gauges::gauge::GaugeValue::Text(bt),
-        ) => at == bt,
-        (
-            crate::panels::gauges::gauge::GaugeValue::Svg(ai),
-            crate::panels::gauges::gauge::GaugeValue::Svg(bi),
-        ) => ai == bi,
+        (GaugeValue::Text(at), GaugeValue::Text(bt)) => at == bt,
+        (GaugeValue::Svg(ai), GaugeValue::Svg(bi)) => ai == bi,
         _ => false,
     }
 }
 
-fn menu_equal(
-    a: Option<&crate::panels::gauges::gauge::GaugeMenu>,
-    b: Option<&crate::panels::gauges::gauge::GaugeMenu>,
-) -> bool {
+fn menu_equal(a: Option<&GaugeMenu>, b: Option<&GaugeMenu>) -> bool {
     match (a, b) {
         (None, None) => true,
         (Some(a), Some(b)) => {
@@ -509,10 +499,7 @@ fn menu_equal(
     }
 }
 
-fn action_dialog_equal(
-    a: Option<&crate::panels::gauges::gauge::GaugeActionDialog>,
-    b: Option<&crate::panels::gauges::gauge::GaugeActionDialog>,
-) -> bool {
+fn action_dialog_equal(a: Option<&GaugeActionDialog>, b: Option<&GaugeActionDialog>) -> bool {
     match (a, b) {
         (None, None) => true,
         (Some(a), Some(b)) => {
@@ -527,10 +514,7 @@ fn action_dialog_equal(
     }
 }
 
-fn info_equal(
-    a: Option<&crate::dialog::info::InfoDialog>,
-    b: Option<&crate::dialog::info::InfoDialog>,
-) -> bool {
+fn info_equal(a: Option<&InfoDialog>, b: Option<&InfoDialog>) -> bool {
     match (a, b) {
         (None, None) => true,
         (Some(a), Some(b)) => a.title == b.title && a.lines == b.lines,
@@ -538,19 +522,13 @@ fn info_equal(
     }
 }
 
-fn pointer_interaction_equal(
-    a: &crate::panels::gauges::gauge::GaugePointerInteraction,
-    b: &crate::panels::gauges::gauge::GaugePointerInteraction,
-) -> bool {
+fn pointer_interaction_equal(a: &GaugePointerInteraction, b: &GaugePointerInteraction) -> bool {
     menu_equal(a.menu.as_ref(), b.menu.as_ref())
         && action_dialog_equal(a.action_dialog.as_ref(), b.action_dialog.as_ref())
         && info_equal(a.info.as_ref(), b.info.as_ref())
 }
 
-fn interactions_equal(
-    a: &crate::panels::gauges::gauge::GaugeInteractionModel,
-    b: &crate::panels::gauges::gauge::GaugeInteractionModel,
-) -> bool {
+fn interactions_equal(a: &GaugeInteractionModel, b: &GaugeInteractionModel) -> bool {
     pointer_interaction_equal(&a.left_click, &b.left_click)
         && pointer_interaction_equal(&a.middle_click, &b.middle_click)
         && pointer_interaction_equal(&a.right_click, &b.right_click)

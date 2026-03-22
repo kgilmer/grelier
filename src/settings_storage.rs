@@ -216,6 +216,10 @@ fn unescape_value(value: &str) -> String {
                 }
                 if let Ok(value) = u8::from_str_radix(&digits, 8) {
                     output.push(value as char);
+                } else {
+                    // Octal value out of u8 range (> \377); emit the digits literally
+                    // rather than silently dropping characters.
+                    output.push_str(&digits);
                 }
             }
             Some(other) => output.push(other),
@@ -306,6 +310,21 @@ mod tests {
         assert_eq!(map.get("key.one"), Some(&"line\nwrap".to_string()));
         assert_eq!(map.get("key.two"), Some(&"tab\tvalue".to_string()));
         assert_eq!(map.get("key.three"), Some(&"A".to_string()));
+
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn load_octal_overflow_emits_digits_literally() {
+        let (storage, dir) = temp_storage("octal_overflow");
+        // \400 and \777 exceed u8 range; digits should appear literally rather than
+        // being silently dropped.
+        let data = "key.one: \\400\nkey.two: \\777\n";
+        fs::write(&storage.path, data).expect("write settings storage");
+
+        let map = storage.load().expect("load octal overflow settings");
+        assert_eq!(map.get("key.one"), Some(&"400".to_string()));
+        assert_eq!(map.get("key.two"), Some(&"777".to_string()));
 
         let _ = fs::remove_dir_all(dir);
     }

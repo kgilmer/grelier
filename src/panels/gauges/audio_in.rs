@@ -31,6 +31,7 @@ const IDLE_WAIT: Duration = Duration::from_millis(250);
 const DEFAULT_STEP_PERCENT: i8 = 5;
 const IDLE_RUN_INTERVAL_SECS: u64 = 300;
 const MENU_REFRESH_INTERVAL_SECS: u64 = 15;
+const MAX_LABEL_CHARS: usize = 92;
 
 fn format_level(percent: Option<u8>) -> GaugeDisplay {
     match percent {
@@ -292,13 +293,12 @@ fn sources_to_menu_items(
 }
 
 fn truncate_label(raw: String) -> String {
-    let max = 92usize;
     let count = raw.chars().count();
-    if count <= max {
+    if count <= MAX_LABEL_CHARS {
         return raw;
     }
 
-    let keep = max.saturating_sub(3);
+    let keep = MAX_LABEL_CHARS.saturating_sub(3);
     let mut truncated: String = raw.chars().take(keep).collect();
     truncated.push_str("...");
     truncated

@@ -110,7 +110,7 @@ pub fn custom_theme_from_settings(settings: &Settings) -> Result<Theme, String> 
     ))))
 }
 
-pub fn parse_them(name: &str) -> Option<Theme> {
+pub fn parse_theme(name: &str) -> Option<Theme> {
     match name.trim().to_ascii_lowercase().as_str() {
         "catppuccinfrappe" => Some(Theme::CatppuccinFrappe),
         "catppuccinlatte" => Some(Theme::CatppuccinLatte),

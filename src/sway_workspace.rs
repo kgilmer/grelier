@@ -210,12 +210,10 @@ fn workspace_stream() -> impl iced::futures::Stream<Item = Message> {
                         Vec::new()
                     }
                 };
-                sender
-                    .try_send(Message::Workspaces {
-                        workspaces: info,
-                        apps,
-                    })
-                    .expect("failed to send workspace info");
+                let _ = sender.try_send(Message::Workspaces {
+                    workspaces: info,
+                    apps,
+                });
             }
             Err(err) => log::error!("Failed to fetch workspaces: {err}"),
         };

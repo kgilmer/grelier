@@ -347,7 +347,7 @@ fn main() -> Result<(), iced_layershell::Error> {
                 exit_with_error(err);
             })
         }
-        Some(name) => match theme::parse_them(&name) {
+        Some(name) => match theme::parse_theme(&name) {
             Some(theme) => theme,
             None => {
                 exit_with_error(format!(
@@ -576,15 +576,16 @@ fn update(state: &mut BarState, message: Message) -> Task<Message> {
                 info!("Gauge '{id}' clicked: {:?}", input);
             }
         }
+        Message::Noop => {}
         Message::MenuItemSelected {
             window,
             gauge_id,
             item_id,
         } => {
-            // close menus first so clicking in parent bar after selection behaves consistently
+            // Close the selected window and any other open dialogs.
             state.dialog_windows.remove(&window);
             state.closing_dialogs.remove(&window);
-            let _ = state.close_dialogs();
+            let close_others = state.close_dialogs();
             if let Some(menu) = state
                 .gauges
                 .iter()
@@ -594,16 +595,17 @@ fn update(state: &mut BarState, message: Message) -> Task<Message> {
             {
                 menu(item_id);
             }
-            return close_window_task(window);
+            return Task::batch([close_others, close_window_task(window)]);
         }
         Message::ActionItemSelected {
             window,
             gauge_id,
             item_id,
         } => {
+            // Close the selected window and any other open dialogs.
             state.dialog_windows.remove(&window);
             state.closing_dialogs.remove(&window);
-            let _ = state.close_dialogs();
+            let close_others = state.close_dialogs();
             if let Some(action) = state
                 .gauges
                 .iter()
@@ -613,7 +615,7 @@ fn update(state: &mut BarState, message: Message) -> Task<Message> {
             {
                 action(item_id.clone());
             }
-            return Task::done(Message::RemoveWindow(window));
+            return Task::batch([close_others, Task::done(Message::RemoveWindow(window))]);
         }
         Message::MenuItemHoverEnter { window, item_id } => {
             if let Some(dialog_window) = state.dialog_windows.get_mut(&window) {
