@@ -5,7 +5,7 @@ use crate::icon::{icon_quantity, svg_asset};
 use crate::panels::gauges::gauge::{Gauge, GaugeEventSource, GaugeReadyNotify, GaugeRegistrar};
 use crate::panels::gauges::gauge::{
     GaugeClick, GaugeClickAction, GaugeDisplay, GaugeInteractionModel, GaugeMenu, GaugeMenuItem,
-    GaugePointerInteraction, GaugeValue, GaugeValueAttention, MenuSelectAction,
+    GaugeMenuSlider, GaugePointerInteraction, GaugeValue, GaugeValueAttention, MenuSelectAction,
 };
 use crate::panels::gauges::gauge_registry::GaugeSpec;
 use crate::settings;
@@ -203,6 +203,7 @@ fn read_sink_status(
 enum SoundCommand {
     ToggleMute,
     AdjustVolume(i8),
+    SetVolume(u8),
     SetDefaultSink(String),
 }
 
@@ -346,6 +347,21 @@ fn apply_output_command(
                 let new_percent = status.percent.saturating_add_signed(delta).clamp(0, 99);
                 let mut volumes = ChannelVolumes::default();
                 volumes.set(status.channels, volume_from_percent(new_percent));
+                let operation = context.introspect().set_sink_volume_by_name(
+                    &sink,
+                    &volumes,
+                    None::<Box<dyn FnMut(bool)>>,
+                );
+                wait_for_operation(mainloop, context, &operation)?;
+            }
+        }
+        SoundCommand::SetVolume(percent) => {
+            if let Some(sink) = default_sink_name(mainloop, context)
+                && let Some(status) = read_sink_status(mainloop, context, &sink)
+                && status.channels > 0
+            {
+                let mut volumes = ChannelVolumes::default();
+                volumes.set(status.channels, volume_from_percent(percent.clamp(0, 99)));
                 let operation = context.introspect().set_sink_volume_by_name(
                     &sink,
                     &volumes,
@@ -620,6 +636,12 @@ impl Gauge for AudioOutGauge {
                 let _ = command_tx.send(SoundCommand::SetDefaultSink(sink));
             })
         };
+        let slider_on_change: Arc<dyn Fn(u8) + Send + Sync> = {
+            let command_tx = self.command_tx.clone();
+            Arc::new(move |value: u8| {
+                let _ = command_tx.send(SoundCommand::SetVolume(value));
+            })
+        };
 
         let icon = status
             .map(|status| {
@@ -660,6 +682,10 @@ impl Gauge for AudioOutGauge {
                             title: "Output Devices".to_string(),
                             items: menu_snapshot,
                             on_select: Some(menu_select),
+                            slider: status.map(|s| GaugeMenuSlider {
+                                value: s.percent,
+                                on_change: slider_on_change,
+                            }),
                         })
                     } else {
                         None

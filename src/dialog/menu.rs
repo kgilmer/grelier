@@ -5,9 +5,10 @@ use crate::icon::svg_asset;
 use crate::panels::gauges::gauge::{GaugeMenu, GaugeMenuItem};
 use crate::settings;
 use iced::alignment;
+use iced::widget::slider;
 use iced::widget::svg::{self, Svg};
 use iced::widget::text::LineHeight;
-use iced::widget::{Column, Row, Space, Text, button, container, mouse_area};
+use iced::widget::{Column, Row, Slider, Space, Text, button, container, mouse_area};
 use iced::{Element, Length, Pixels, Theme};
 
 const DEFAULT_HEADER_FONT_SIZE: u32 = 14;
@@ -25,6 +26,7 @@ const DEFAULT_HEADER_BOTTOM_SPACING: u32 = 4;
 const DEFAULT_INDICATOR_SPACING: u32 = 10;
 const DEFAULT_BUTTON_PADDING_X: u32 = 6;
 const DEFAULT_CONTAINER_PADDING_X: u32 = 10;
+const DEFAULT_SLIDER_HEIGHT: u32 = 24;
 
 struct MenuDialogSettings {
     min_width: u32,
@@ -42,6 +44,7 @@ struct MenuDialogSettings {
     indicator_spacing: u32,
     button_padding_x: u32,
     container_padding_x: u32,
+    slider_height: u32,
 }
 
 impl MenuDialogSettings {
@@ -90,6 +93,8 @@ impl MenuDialogSettings {
                 "grelier.dialog.container.padding_x",
                 DEFAULT_CONTAINER_PADDING_X,
             ),
+            slider_height: settings
+                .get_parsed_or("grelier.menu_dialog.slider_height", DEFAULT_SLIDER_HEIGHT),
         }
     }
 }
@@ -119,8 +124,17 @@ pub fn dialog_dimensions(menu: &GaugeMenu) -> (u32, u32) {
     let text_height = item_line_height.ceil() as u32;
     let row_height = cfg.indicator_size.max(text_height) + cfg.button_padding_y * 2;
     let list_height = rows * row_height + cfg.list_spacing.saturating_mul(rows.saturating_sub(1));
+    // When a slider is present the body Column inserts header_list_spacing both
+    // before and after it, so slider_extra captures the slider height plus that
+    // second gap (the first gap is already in the base header_list_spacing term).
+    let slider_extra = if menu.slider.is_some() {
+        cfg.slider_height + cfg.header_list_spacing
+    } else {
+        0
+    };
     let height = header_height
         + cfg.header_list_spacing
+        + slider_extra
         + list_height
         + cfg.container_padding_y.saturating_mul(2);
 
@@ -130,9 +144,11 @@ pub fn dialog_dimensions(menu: &GaugeMenu) -> (u32, u32) {
 pub fn menu_view<'a, Message: Clone + 'a>(
     menu: &'a GaugeMenu,
     hovered_item: Option<&'a str>,
+    slider_value: Option<u8>,
     on_select: impl Fn(String) -> Message + 'a,
     on_hover_enter: impl Fn(String) -> Message + 'a,
     on_hover_exit: impl Fn(String) -> Message + 'a,
+    on_slider_change: impl Fn(u8) -> Message + 'a,
 ) -> Element<'a, Message> {
     let border_settings = BorderSettings::load();
     let cfg = MenuDialogSettings::load();
@@ -146,6 +162,42 @@ pub fn menu_view<'a, Message: Clone + 'a>(
             cfg.header_font_size,
         ))
         .push(Space::new().height(Length::Fixed(cfg.header_bottom_spacing as f32)));
+
+    let mut body = Column::new()
+        .width(Length::Fill)
+        .spacing(cfg.header_list_spacing);
+    body = body.push(header);
+
+    if let Some(menu_slider) = &menu.slider {
+        let current_val = slider_value.unwrap_or(menu_slider.value);
+        let slider_widget = Slider::new(0u8..=99u8, current_val, on_slider_change)
+            .height(cfg.slider_height as f32)
+            .style(|theme: &Theme, status| {
+                let palette = theme.extended_palette();
+                slider::Style {
+                    rail: slider::Rail {
+                        backgrounds: (
+                            palette.primary.strong.color.into(),
+                            palette.background.weak.color.into(),
+                        ),
+                        width: 4.0,
+                        border: iced::Border::default(),
+                    },
+                    handle: slider::Handle {
+                        shape: slider::HandleShape::Circle { radius: 7.0 },
+                        background: match status {
+                            slider::Status::Hovered | slider::Status::Dragged => {
+                                palette.primary.strong.color.into()
+                            }
+                            slider::Status::Active => palette.primary.base.color.into(),
+                        },
+                        border_width: 0.0,
+                        border_color: iced::Color::TRANSPARENT,
+                    },
+                }
+            });
+        body = body.push(slider_widget);
+    }
 
     let mut list = Column::new().width(Length::Fill);
 
@@ -216,13 +268,9 @@ pub fn menu_view<'a, Message: Clone + 'a>(
         );
     }
 
+    body = body.push(list.spacing(cfg.list_spacing));
     let content = common::dialog_surface(
-        Column::new()
-            .width(Length::Fill)
-            .height(Length::Fill)
-            .spacing(cfg.header_list_spacing)
-            .push(header)
-            .push(list.spacing(cfg.list_spacing)),
+        body.height(Length::Fill),
         cfg.container_padding_y as u16,
         cfg.container_padding_x as u16,
     );

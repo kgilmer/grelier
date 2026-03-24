@@ -670,6 +670,7 @@ impl Gauge for WifiGauge {
                 title: "Wi-Fi Networks".to_string(),
                 items: self.cached_menu_items.clone(),
                 on_select: Some(menu_select),
+                slider: None,
             })
         } else {
             self.cached_menu_items.clear();

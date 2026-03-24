@@ -46,6 +46,17 @@ pub struct GaugeMenuItem {
 pub type MenuSelectAction = Arc<dyn Fn(String) + Send + Sync>;
 /// Callback invoked when a gauge action item is selected.
 pub type ActionSelectAction = MenuSelectAction;
+/// Callback invoked when a gauge menu slider value changes.
+pub type MenuSliderAction = Arc<dyn Fn(u8) + Send + Sync>;
+
+/// Volume/level slider shown above device list items in a gauge menu.
+#[derive(Clone)]
+pub struct GaugeMenuSlider {
+    /// Initial value (0–99) when the dialog opens.
+    pub value: u8,
+    /// Callback invoked immediately on every slider movement.
+    pub on_change: MenuSliderAction,
+}
 
 /// Context menu model shown for a gauge.
 #[derive(Clone)]
@@ -53,6 +64,8 @@ pub struct GaugeMenu {
     pub title: String,
     pub items: Vec<GaugeMenuItem>,
     pub on_select: Option<MenuSelectAction>,
+    /// Optional slider rendered above the item list.
+    pub slider: Option<GaugeMenuSlider>,
 }
 
 /// One action entry shown in a gauge action dialog.
