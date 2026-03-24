@@ -620,10 +620,10 @@ fn update(state: &mut BarState, message: Message) -> Task<Message> {
         Message::MenuSliderChanged { window, value } => {
             if let Some(dialog_window) = state.dialog_windows.get_mut(&window) {
                 dialog_window.slider_value = Some(value);
-                if let GaugeDialog::Menu(menu) = &dialog_window.dialog {
-                    if let Some(slider) = &menu.slider {
-                        (slider.on_change)(value);
-                    }
+                if let GaugeDialog::Menu(menu) = &dialog_window.dialog
+                    && let Some(slider) = &menu.slider
+                {
+                    (slider.on_change)(value);
                 }
             }
         }
@@ -1188,7 +1188,7 @@ mod tests {
                         title: "Test".into(),
                         items: Vec::new(),
                         on_select: Some(on_select),
-                    slider: None,
+                        slider: None,
                     }),
                     ..GaugePointerInteraction::default()
                 },
