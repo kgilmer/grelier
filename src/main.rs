@@ -699,6 +699,12 @@ fn update(state: &mut BarState, message: Message) -> Task<Message> {
                     return Task::none();
                 }
                 state.primary_window = None;
+                // Don't attempt to reopen while all displays are inactive;
+                // OutputChanged will trigger recreation when a display returns.
+                if state.waiting_for_display {
+                    state.pending_primary_window = false;
+                    return Task::none();
+                }
                 state.pending_primary_window = true;
                 let mut tasks = vec![state.close_dialogs()];
                 let id = window::Id::unique();
@@ -715,7 +721,22 @@ fn update(state: &mut BarState, message: Message) -> Task<Message> {
             if let Some(snapshot) = monitor::snapshot_outputs() {
                 if !monitor::has_active_outputs(&snapshot) {
                     state.last_outputs = Some(snapshot);
+                    // All displays are gone. Close existing windows and wait
+                    // for a display to become available before recreating.
+                    if !state.waiting_for_display {
+                        state.waiting_for_display = true;
+                        if state.primary_window.is_some() || !state.bar_windows.is_empty() {
+                            return close_all_windows_for_display_wait(state);
+                        }
+                    }
                     return Task::none();
+                }
+                // Active outputs are available.
+                if state.waiting_for_display {
+                    // A display just became available again — recreate the window.
+                    state.waiting_for_display = false;
+                    state.last_outputs = Some(snapshot);
+                    return reopen_primary_window(state);
                 }
                 match state.last_outputs.as_ref() {
                     None => {
@@ -723,10 +744,6 @@ fn update(state: &mut BarState, message: Message) -> Task<Message> {
                         return Task::none();
                     }
                     Some(prev) => {
-                        if !monitor::has_active_outputs(prev) {
-                            state.last_outputs = Some(snapshot);
-                            return Task::none();
-                        }
                         if monitor::outputs_equal(prev, &snapshot) {
                             state.last_outputs = Some(snapshot);
                             return Task::none();
@@ -849,6 +866,21 @@ fn layershell_reopen_settings() -> NewLayerShellSettings {
         events_transparent: false,
         namespace: Some(BarState::namespace()),
     }
+}
+
+/// Close all bar windows without scheduling a reopen. Used when all displays
+/// go inactive so we don't attempt to create a layershell with no output.
+fn close_all_windows_for_display_wait(state: &mut BarState) -> Task<Message> {
+    state.primary_window = None;
+    state.pending_primary_window = false;
+    let closing_bar_windows: Vec<window::Id> = state.bar_windows.drain().collect();
+    state
+        .closing_dialogs
+        .extend(closing_bar_windows.iter().copied());
+    Task::batch(
+        std::iter::once(state.close_dialogs())
+            .chain(closing_bar_windows.into_iter().map(close_window_task)),
+    )
 }
 
 fn reopen_primary_window(state: &mut BarState) -> Task<Message> {
