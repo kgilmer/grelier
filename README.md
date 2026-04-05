@@ -1,16 +1,22 @@
 # grelier
 
-A desktop bar for Sway on Linux
+A vertical status bar for the [Sway](https://swaywm.org/) tiling window manager on Linux.
 
 ## Overview
 
-A the top level is a persistent window that says on the screen at all times, called the `bar`.  The `bar` lives either on the left or right side of the screen.  The bar contains a set of `panel`s.  There is a workspace `panel` that displays and allows navigation of desktop workspaces.  There is a `top_apps` panel that, can display a finite list of the top most used apps on the system.  There is a `gauge` panel which displays a set of configured gauges.  A gauge displays some information about the system or user state, and optionally can provide some basic management functions based on the `gauge`.  For example, the `wifi` gauge allows the user to select from the set of previously configured access points.  The `session` gauge displays system uptime and allows the user to suspend, reboot, or shutdown the system. The program can take configuration parameters from CLI arguments or use Xresource-style key-value pairs specified in `$HOME/.config/grelier/Settings-<version>.xresources`.
+`grelier` renders a persistent bar anchored to the left or right edge of each monitor. It is built for Sway (a Wayland compositor) and integrates directly with its workspace system, giving you a compact, always-visible panel for navigating workspaces and monitoring system state.
 
-Generally right-click actions are read-only, for example seeing network download statistics, and left-click actions cause some change to occur, for example selecting the output audio device.
+The bar is composed of stacked **panels**, each serving a distinct role:
 
-### Status
+- **`workspaces`** — displays Sway workspaces as clickable indicators; the focused workspace is highlighted and urgent workspaces are flagged visually.
+- **`top_apps`** — shows a curated list of frequently used application launchers.
+- **`gauges`** — a column of system status widgets (see [Gauges](#gauges) below).
 
-This project is in active development and should not be considered stable.
+Each **gauge** monitors one aspect of system or user state and optionally exposes simple controls. Interaction follows a consistent convention: **left-click** performs an action (e.g. switching audio output device, toggling mute), while **right-click** shows read-only detail (e.g. network throughput, battery stats).
+
+Configuration is read from `$HOME/.config/grelier/Settings-<version>.xresources` using Xresources-style `key: value` pairs. Settings can also be passed directly on the command line with `-s key=value`. Any changes made through the UI are written back to the config file immediately; manual edits to that file may be overwritten.
+
+> **Status:** This project is under active development and should not be considered stable.
 
 ## Usage
 
