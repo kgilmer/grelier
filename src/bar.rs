@@ -193,6 +193,9 @@ pub struct BarState {
     pub last_output_change_at: Option<Instant>,
     pub last_bar_window_opened_at: Option<Instant>,
     pub last_outputs: Option<Vec<OutputSnapshot>>,
+    /// Set when all displays are disconnected/inactive. Cleared and window
+    /// recreated once an active output is detected again.
+    pub waiting_for_display: bool,
 }
 
 impl Default for BarState {
@@ -220,6 +223,7 @@ impl Default for BarState {
             last_output_change_at: None,
             last_bar_window_opened_at: None,
             last_outputs: None,
+            waiting_for_display: false,
         }
     }
 }
