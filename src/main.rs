@@ -977,6 +977,36 @@ mod tests {
         crate::icon::svg_asset("ratio-0.svg")
     }
 
+    /// The bar requests `size = (width, 0)`, so the layer-shell protocol
+    /// requires both top and bottom anchors. A compositor that enforces this
+    /// rejects anything else with zwlr_layer_surface_v1 error 1 (invalid_size),
+    /// which is what broke the bar on newer stacks. See issue #3.
+    #[test]
+    fn bar_anchor_allows_zero_height() {
+        const TOP: Anchor = Anchor::Top;
+        const BOTTOM: Anchor = Anchor::Bottom;
+
+        for orientation in [Orientation::Left, Orientation::Right] {
+            let anchor = bar_anchor(orientation);
+            assert!(
+                anchor.contains(TOP) && anchor.contains(BOTTOM),
+                "{orientation:?} bar must anchor top and bottom while requesting height 0"
+            );
+        }
+    }
+
+    #[test]
+    fn bar_anchor_keeps_its_screen_edge() {
+        assert!(
+            bar_anchor(Orientation::Left).contains(Anchor::Left)
+                && !bar_anchor(Orientation::Left).contains(Anchor::Right)
+        );
+        assert!(
+            bar_anchor(Orientation::Right).contains(Anchor::Right)
+                && !bar_anchor(Orientation::Right).contains(Anchor::Left)
+        );
+    }
+
     #[test]
     fn command_line_overrides_apply_before_settings_persist() {
         let (storage, path) = temp_storage_path("overrides_before_save");
