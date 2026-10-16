@@ -856,10 +856,7 @@ fn layershell_reopen_settings() -> NewLayerShellSettings {
             Orientation::Left
         }
     };
-    let anchor = match orientation {
-        Orientation::Left => Anchor::Left,
-        Orientation::Right => Anchor::Right,
-    };
+    let anchor = bar_anchor(orientation);
 
     NewLayerShellSettings {
         size: Some((bar_width, 0)),
