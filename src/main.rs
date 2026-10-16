@@ -802,6 +802,32 @@ fn update(state: &mut BarState, message: Message) -> Task<Message> {
     Task::none()
 }
 
+/// Layer-shell anchor for a bar on the given screen edge.
+///
+/// The bar sets `size: Some((width, 0))` so the compositor stretches it along
+/// the output. `zwlr_layer_surface_v1.set_size` only permits a zero dimension
+/// when the surface is anchored to *both* edges perpendicular to it, so a
+/// left/right bar must anchor top and bottom as well:
+///
+/// > If you pass 0 for either value, the compositor will assign it and inform
+/// > you of the assignment in the configure event. You must set your anchor to
+/// > opposite edges in the dimensions you omit; not doing so is a protocol
+/// > error.
+///
+/// Sending a single-edge anchor with a zero height makes a compositor that
+/// enforces this raise `zwlr_layer_surface_v1` error 1 (`invalid_size`, "height
+/// 0 requested without setting top and bottom anchors"). The three-edge anchor
+/// below is what sway and the wlroots scene helper already treat as the
+/// canonical form for an edge bar: `ANCHOR_LEFT | ANCHOR_TOP | ANCHOR_BOTTOM`
+/// reserves exactly the same exclusive zone as `ANCHOR_LEFT` alone, so this
+/// changes nothing about placement.
+fn bar_anchor(orientation: Orientation) -> Anchor {
+    match orientation {
+        Orientation::Left => Anchor::Left | Anchor::Top | Anchor::Bottom,
+        Orientation::Right => Anchor::Right | Anchor::Top | Anchor::Bottom,
+    }
+}
+
 fn track_bar_window(state: &mut BarState, window: window::Id) -> Option<Task<Message>> {
     if state.dialog_windows.contains_key(&window) || state.closing_dialogs.contains(&window) {
         return None;
