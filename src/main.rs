@@ -315,10 +315,7 @@ fn main() -> Result<(), iced_layershell::Error> {
             exit_with_error(err);
         });
 
-    let anchor = match orientation_setting {
-        Orientation::Left => Anchor::Left,
-        Orientation::Right => Anchor::Right,
-    };
+    let anchor = bar_anchor(orientation_setting);
 
     let start_mode = match monitor_name {
         Some(name) => StartMode::TargetScreen(name),
