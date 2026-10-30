@@ -146,7 +146,12 @@ enum NmSsid {
 /// Previously any NM miss, including the perfectly normal "no active AP yet", fell
 /// through, so a connected-but-not-yet-associated interface paid ~30ms on **every**
 /// tick.
-fn read_ssid(nm: &NmClient, iface: &str, probe_deadline: &mut Instant, now: Instant) -> Option<String> {
+fn read_ssid(
+    nm: &NmClient,
+    iface: &str,
+    probe_deadline: &mut Instant,
+    now: Instant,
+) -> Option<String> {
     match nm.ssid_for_iface(iface) {
         NmSsid::Ssid(ssid) => return Some(ssid),
         NmSsid::NoActiveAccessPoint => return None,
@@ -739,7 +744,11 @@ impl Gauge for WifiGauge {
             if let Some(device_path) = device_path.as_ref() {
                 let WifiCommand::Connect(connection_path) = command;
                 let _ = self.nm.with_connection(|connection| {
-                    Some(activate_connection(connection, &connection_path, device_path))
+                    Some(activate_connection(
+                        connection,
+                        &connection_path,
+                        device_path,
+                    ))
                 });
             }
         }
@@ -954,23 +963,24 @@ mod tests {
         write_iface(&sys_net, "wlan0", Some("0"), Some("down"));
         write_wireless(&proc_wireless, &["wlan0: 0000 0. 0. 0. 0. 0. 0."]);
         let mut calls = 0usize;
-        let snapshot =
-            wifi_snapshot_with_paths(&sys_net, &proc_wireless, 70.0, &mut |_| {
-                calls += 1;
-                None
-            });
+        let snapshot = wifi_snapshot_with_paths(&sys_net, &proc_wireless, 70.0, &mut |_| {
+            calls += 1;
+            None
+        });
         assert!(matches!(snapshot.state, WifiState::NotConnected));
-        assert_eq!(calls, 0, "a disconnected interface must not cost an SSID read");
+        assert_eq!(
+            calls, 0,
+            "a disconnected interface must not cost an SSID read"
+        );
 
         write_iface(&sys_net, "wlan1", Some("1"), Some("up"));
         write_wireless(&proc_wireless, &["wlan1: 0000 40. 0. 0. 0. 0. 0."]);
         let mut calls = 0usize;
-        let snapshot =
-            wifi_snapshot_with_paths(&sys_net, &proc_wireless, 70.0, &mut |iface| {
-                calls += 1;
-                assert_eq!(iface, "wlan1");
-                Some("home".to_string())
-            });
+        let snapshot = wifi_snapshot_with_paths(&sys_net, &proc_wireless, 70.0, &mut |iface| {
+            calls += 1;
+            assert_eq!(iface, "wlan1");
+            Some("home".to_string())
+        });
         assert!(matches!(snapshot.state, WifiState::Connected));
         assert_eq!(snapshot.ssid.as_deref(), Some("home"));
         assert_eq!(calls, 1);

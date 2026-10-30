@@ -370,7 +370,12 @@ mod tests {
 
     #[test]
     fn gauge_work_budget_specs_match_manager_constants() {
-        let specs = base_setting_specs("clock", "", DEFAULT_ORIENTATION_FOR_TEST, DEFAULT_THEME_FOR_TEST);
+        let specs = base_setting_specs(
+            "clock",
+            "",
+            DEFAULT_ORIENTATION_FOR_TEST,
+            DEFAULT_THEME_FOR_TEST,
+        );
         let default_of = |key: &str| {
             specs
                 .iter()

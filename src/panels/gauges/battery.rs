@@ -527,7 +527,10 @@ fn property_str(dev: &udev::Device, key: &str) -> Option<String> {
         })
 }
 
-fn power_profile_menu(on_select: MenuSelectAction, bus: &RefCell<BusConnection>) -> Option<GaugeMenu> {
+fn power_profile_menu(
+    on_select: MenuSelectAction,
+    bus: &RefCell<BusConnection>,
+) -> Option<GaugeMenu> {
     let snapshot = power_profiles_snapshot(bus)?;
     if snapshot.profiles.is_empty() {
         return None;
@@ -558,7 +561,8 @@ fn power_profiles_snapshot(bus: &RefCell<BusConnection>) -> Option<PowerProfiles
 }
 
 fn power_profiles_snapshot_ppd(bus: &RefCell<BusConnection>) -> Option<PowerProfilesSnapshot> {
-    bus.borrow_mut().with_connection(power_profiles_snapshot_ppd_on)
+    bus.borrow_mut()
+        .with_connection(power_profiles_snapshot_ppd_on)
 }
 
 fn power_profiles_snapshot_ppd_on(connection: &Connection) -> Option<PowerProfilesSnapshot> {

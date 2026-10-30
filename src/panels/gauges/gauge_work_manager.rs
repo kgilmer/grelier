@@ -53,8 +53,10 @@ fn gauge_batch_stream_by_ids(ids: &Arc<[String]>) -> GaugeBatchMessageStream {
             gauge.bind_ready_notify(ready_notify.clone());
         }
 
-        let max_run_ms = settings::settings()
-            .get_parsed_or("grelier.gauge.work.max_run_ms", settings::GAUGE_WORK_MAX_RUN_MS);
+        let max_run_ms = settings::settings().get_parsed_or(
+            "grelier.gauge.work.max_run_ms",
+            settings::GAUGE_WORK_MAX_RUN_MS,
+        );
         let max_run_strikes = settings::settings().get_parsed_or(
             "grelier.gauge.work.max_run_strikes",
             settings::GAUGE_WORK_MAX_RUN_STRIKES,
@@ -869,7 +871,10 @@ mod tests {
         let dead = manager
             .step_once()
             .expect("second strike over the gauge's own budget kills it");
-        assert_eq!(runtime(&manager.snapshot(), "slow-ipc").status, GaugeStatus::Dead);
+        assert_eq!(
+            runtime(&manager.snapshot(), "slow-ipc").status,
+            GaugeStatus::Dead
+        );
         assert_eq!(dead[0].icon, svg_asset("turtle.svg"));
     }
 
