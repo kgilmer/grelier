@@ -235,6 +235,16 @@ impl NmClient {
             .borrow_mut()
             .with_connection(|connection| Some(call(connection)))
     }
+
+    /// Whether the session bus is reachable, connecting once if it is not held yet.
+    fn is_reachable(&self) -> bool {
+        let mut bus = self.bus.borrow_mut();
+        if bus.connection.is_some() {
+            return true;
+        }
+        bus.connection = Connection::system().ok();
+        bus.connection.is_some()
+    }
 }
 
 fn read_ssid_network_manager(connection: &Connection, iface: &str) -> Option<NmSsid> {
@@ -585,18 +595,27 @@ fn pick_interface(ifaces: &[String], sys_net: &Path, proc_net_wireless: &Path) -
     ifaces.first().cloned()
 }
 
-fn wifi_snapshot(quality_max: f32) -> WifiSnapshot {
+fn wifi_snapshot(
+    quality_max: f32,
+    nm: &NmClient,
+    fallback_probe_deadline: &mut Instant,
+    now: Instant,
+) -> WifiSnapshot {
     wifi_snapshot_with_paths(
         Path::new(SYS_NET),
         Path::new(PROC_NET_WIRELESS),
         quality_max,
+        &mut |iface| read_ssid(nm, iface, fallback_probe_deadline, now),
     )
 }
 
+/// Sysfs/proc snapshot with SSID lookup injected, so the D-Bus and wpa_supplicant
+/// paths stay testable without a wireless interface.
 fn wifi_snapshot_with_paths(
     sys_net: &Path,
     proc_net_wireless: &Path,
     quality_max: f32,
+    read_ssid: &mut dyn FnMut(&str) -> Option<String>,
 ) -> WifiSnapshot {
     let ifaces = wifi_interfaces_at(sys_net);
     if ifaces.is_empty() {
@@ -707,6 +726,10 @@ struct WifiGauge {
     cached_menu_iface: Option<String>,
     /// Absolute deadline for refreshing cached menu data.
     menu_refresh_deadline: Instant,
+    /// NetworkManager reads, served from one held session bus connection.
+    nm: NmClient,
+    /// Earliest next wpa_supplicant control-socket probe.
+    fallback_probe_deadline: Instant,
     /// Scheduler deadline for the next run.
     next_deadline: Instant,
 }
@@ -729,21 +752,24 @@ impl Gauge for WifiGauge {
     }
 
     fn run_once(&mut self, now: Instant) -> Option<GaugeModel> {
-        let snapshot = wifi_snapshot(self.quality_max);
-        let nm_connection = Connection::system().ok();
-        let device_path = nm_connection.as_ref().and_then(|connection| {
-            snapshot
-                .iface
-                .as_deref()
-                .and_then(|iface| nm_device_path(connection, iface))
-        });
+        let snapshot = wifi_snapshot(
+            self.quality_max,
+            &self.nm,
+            &mut self.fallback_probe_deadline,
+            now,
+        );
+        let device_path = snapshot
+            .iface
+            .as_deref()
+            .and_then(|iface| self.nm.device_path(iface));
 
         while let Ok(command) = self.command_rx.try_recv() {
-            if let (Some(connection), Some(device_path)) =
-                (nm_connection.as_ref(), device_path.as_ref())
-            {
+            if let Some(device_path) = device_path.as_ref() {
                 let WifiCommand::Connect(connection_path) = command;
-                let _ = activate_connection(connection, &connection_path, device_path);
+                let activated = self.nm.with_connection(|connection| {
+                    activate_connection(connection, &connection_path, device_path)
+                });
+                let _ = activated;
             }
         }
 
@@ -765,15 +791,15 @@ impl Gauge for WifiGauge {
             self.cached_menu_iface.as_deref(),
             current_iface,
         ) {
-            self.cached_menu_items = nm_connection
-                .as_ref()
-                .map(|connection| refresh_wifi_menu_items(connection, &snapshot))
+            self.cached_menu_items = self
+                .nm
+                .with_connection(|connection| refresh_wifi_menu_items(connection, &snapshot))
                 .unwrap_or_default();
             self.cached_menu_iface = current_iface.map(ToString::to_string);
             self.menu_refresh_deadline = now + self.menu_refresh_interval;
         }
 
-        let menu = if nm_connection.is_some() && snapshot.iface.is_some() {
+        let menu = if snapshot.iface.is_some() && self.nm.is_reachable() {
             Some(GaugeMenu {
                 title: "Wi-Fi Networks".to_string(),
                 items: self.cached_menu_items.clone(),
@@ -814,6 +840,8 @@ pub fn create_gauge(now: Instant) -> Box<dyn Gauge> {
         cached_menu_items: Vec::new(),
         cached_menu_iface: None,
         menu_refresh_deadline: now,
+        nm: NmClient::new(),
+        fallback_probe_deadline: now,
         next_deadline: now,
     })
 }
@@ -923,7 +951,7 @@ mod tests {
         write_iface(&sys_net, "wlan0", Some("1"), Some("up"));
         write_wireless(&proc_wireless, &["wlan0: 0000 100. 0. 0. 0. 0. 0."]);
 
-        let snapshot = wifi_snapshot_with_paths(&sys_net, &proc_wireless, 70.0);
+        let snapshot = wifi_snapshot_with_paths(&sys_net, &proc_wireless, 70.0, &mut |_| None);
         assert!(matches!(snapshot.state, WifiState::Connected));
         assert!((snapshot.strength - 1.0).abs() < f32::EPSILON);
 
@@ -938,7 +966,7 @@ mod tests {
         let proc_wireless = dir.join("wireless");
         write_wireless(&proc_wireless, &[]);
 
-        let snapshot = wifi_snapshot_with_paths(&sys_net, &proc_wireless, 70.0);
+        let snapshot = wifi_snapshot_with_paths(&sys_net, &proc_wireless, 70.0, &mut |_| None);
         assert!(matches!(snapshot.state, WifiState::NoDevice));
         assert_eq!(snapshot.strength, 0.0);
 
