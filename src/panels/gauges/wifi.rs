@@ -36,6 +36,9 @@ const NM_SETTINGS_CONNECTION_IFACE: &str = "org.freedesktop.NetworkManager.Setti
 const NM_DEVICE_IFACE: &str = "org.freedesktop.NetworkManager.Device";
 const NM_DEVICE_WIRELESS_IFACE: &str = "org.freedesktop.NetworkManager.Device.Wireless";
 const NM_ACCESS_POINT_IFACE: &str = "org.freedesktop.NetworkManager.AccessPoint";
+/// Run-budget floor: every tick is NetworkManager IPC, so the budget has to cover
+/// ordinary round-trip latency rather than one frame.
+const RUN_BUDGET: Duration = Duration::from_millis(250);
 
 #[derive(Clone, Copy, Debug)]
 enum WifiState {
@@ -618,6 +621,10 @@ impl Gauge for WifiGauge {
 
     fn next_deadline(&self) -> Instant {
         self.next_deadline
+    }
+
+    fn run_budget(&self) -> Duration {
+        RUN_BUDGET
     }
 
     fn run_once(&mut self, now: Instant) -> Option<GaugeModel> {
