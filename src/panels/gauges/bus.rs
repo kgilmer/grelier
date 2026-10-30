@@ -57,9 +57,7 @@ impl BusConnection {
     /// reconnect every tick.
     pub fn with_connection<T>(&mut self, call: impl FnOnce(&Connection) -> Option<T>) -> Option<T> {
         let now = Instant::now();
-        let result = self
-            .connection_at(now)
-            .and_then(|connection| call(connection));
+        let result = self.connection_at(now).and_then(call);
         if result.is_none() {
             self.connection = None;
             self.retry_deadline = now + BUS_RETRY_COOLDOWN;
