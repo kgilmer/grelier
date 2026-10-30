@@ -371,8 +371,22 @@ impl<C: Clock> GaugeWorkManager<C> {
 
             if elapsed > self.max_run {
                 runtime.strike_count = runtime.strike_count.saturating_add(1);
+                log::warn!(
+                    "gauge '{}' took {}ms, over its {}ms budget (strike {}/{})",
+                    runtime.gauge.id(),
+                    elapsed.as_millis(),
+                    self.max_run.as_millis(),
+                    runtime.strike_count,
+                    self.max_run_strikes
+                );
                 if runtime.strike_count >= self.max_run_strikes {
                     // Emit one final model (turtle icon) and permanently unschedule this gauge.
+                    log::warn!(
+                        "gauge '{}' unscheduled after {} consecutive runs over budget; \
+                         restart grelier to re-enable it",
+                        runtime.gauge.id(),
+                        runtime.strike_count
+                    );
                     runtime.status = GaugeStatus::Dead;
                     updates.push(dead_gauge_model(runtime.gauge.id()));
                     continue;
