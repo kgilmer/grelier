@@ -42,8 +42,9 @@ use std::collections::{HashMap, HashSet};
 /// Run-budget floor: every tick is NetworkManager IPC, so the budget has to cover
 /// ordinary round-trip latency rather than one frame.
 const RUN_BUDGET: Duration = Duration::from_millis(250);
-/// How long to wait for a wpa_supplicant control-socket reply. Only paid on the
-/// ticks where NetworkManager is not managing the interface (see `read_ssid`).
+/// Minimum gap between wpa_supplicant control-socket probes. Only relevant on ticks
+/// where NetworkManager could not answer at all (see `read_ssid`), and it bounds the
+/// cost of a silent control socket to one `WPA_CTRL_READ_TIMEOUT` per interval.
 const FALLBACK_PROBE_INTERVAL_SECS: u64 = 30;
 
 #[derive(Clone, Copy, Debug)]
