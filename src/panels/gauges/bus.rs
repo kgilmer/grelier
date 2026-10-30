@@ -60,6 +60,27 @@ impl BusConnection {
         self.connection_at(Instant::now())
     }
 
+    /// Whether the session bus itself can be reached, ignoring any cooldown left over
+    /// from a failed call.
+    ///
+    /// For "should this UI exist at all" questions. A service refusing a request is not
+    /// evidence the bus is gone, and gating UI on the method-call path makes it flicker
+    /// once per cooldown. Only a failed *open* is rate-limited here.
+    pub fn bus_available(&mut self) -> bool {
+        if self.connection.is_some() {
+            return true;
+        }
+        let now = Instant::now();
+        if now < self.open_retry_deadline {
+            return false;
+        }
+        self.connection = Connection::system().ok();
+        if self.connection.is_none() {
+            self.open_retry_deadline = now + OPEN_RETRY_COOLDOWN;
+        }
+        self.connection.is_some()
+    }
+
     /// Run `call` against the held connection.
     ///
     /// A failure retires the connection and postpones the reconnect, because a failure
@@ -150,6 +171,24 @@ mod tests {
         assert_eq!(
             bus.reconnect_deadline, deadline,
             "calls that never reached a connection must not extend the cooldown"
+        );
+    }
+
+    #[test]
+    fn bus_available_ignores_the_reconnect_cooldown() {
+        let mut bus = BusConnection::new();
+        if !bus.bus_available() {
+            // No session bus in this container: nothing to hold.
+            return;
+        }
+        let _: Option<u8> = bus.with_connection(|_| None);
+        assert!(
+            bus.reconnect_deadline > Instant::now(),
+            "precondition: the reconnect cooldown is in force"
+        );
+        assert!(
+            bus.bus_available(),
+            "a refused call must not make the bus itself look unreachable"
         );
     }
 
