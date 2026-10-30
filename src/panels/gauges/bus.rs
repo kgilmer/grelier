@@ -68,11 +68,15 @@ impl BusConnection {
     /// short so a genuinely dead connection recovers quickly, and it only ever hides a
     /// menu whose contents come from the same failing service.
     pub fn with_connection<T>(&mut self, call: impl FnOnce(&Connection) -> Option<T>) -> Option<T> {
-        let now = Instant::now();
-        let result = self.connection_at(now).and_then(|connection| call(connection));
+        let Some(connection) = self.connection() else {
+            // Already on cooldown from an earlier failure: report unavailable without
+            // touching the deadlines, so the cooldown can actually elapse.
+            return None;
+        };
+        let result = call(connection);
         if result.is_none() {
             self.connection = None;
-            self.reconnect_deadline = now + RECONNECT_AFTER_FAILURE_COOLDOWN;
+            self.reconnect_deadline = Instant::now() + RECONNECT_AFTER_FAILURE_COOLDOWN;
         }
         result
     }
@@ -115,6 +119,35 @@ mod tests {
         assert!(
             bus.reconnect_deadline > Instant::now(),
             "a failed call must not be retried on every tick"
+        );
+    }
+
+    #[test]
+    fn a_cooldown_is_not_extended_by_calls_that_never_ran() {
+        // Wifi polls every 3s against a 5s cooldown. If a call made while the cooldown
+        // was in force pushed it further out, the deadline could never elapse and a
+        // transient bus failure would never recover.
+        let mut bus = BusConnection::new();
+        if bus.connection().is_none() {
+            // No session bus here: the open cooldown, not the reconnect one, is in force.
+            let deadline = bus.open_retry_deadline;
+            for _ in 0..5 {
+                let _: Option<u8> = bus.with_connection(|_| Some(1));
+            }
+            assert_eq!(
+                bus.open_retry_deadline, deadline,
+                "calls that never reached a connection must not move the open deadline"
+            );
+            return;
+        }
+        let _: Option<u8> = bus.with_connection(|_| None);
+        let deadline = bus.reconnect_deadline;
+        for _ in 0..5 {
+            let _: Option<u8> = bus.with_connection(|_| Some(1));
+        }
+        assert_eq!(
+            bus.reconnect_deadline, deadline,
+            "calls that never reached a connection must not extend the cooldown"
         );
     }
 
