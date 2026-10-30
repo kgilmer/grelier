@@ -29,6 +29,9 @@ const PPD_PATH: &str = "/net/hadess/PowerProfiles";
 const PPD_IFACE: &str = "net.hadess.PowerProfiles";
 const SYS_PLATFORM_PROFILE: &str = "/sys/firmware/acpi/platform_profile";
 const SYS_PLATFORM_PROFILE_CHOICES: &str = "/sys/firmware/acpi/platform_profile_choices";
+/// Run-budget floor: a run scans udev `power_supply` and round-trips to
+/// power-profiles-daemon, so the budget has to cover IPC latency, not one frame.
+const RUN_BUDGET: Duration = Duration::from_millis(250);
 
 #[derive(Debug)]
 enum BatteryCommand {
@@ -726,6 +729,10 @@ impl Gauge for BatteryGauge {
 
     fn next_deadline(&self) -> Instant {
         self.next_deadline
+    }
+
+    fn run_budget(&self) -> Duration {
+        RUN_BUDGET
     }
 
     fn run_once(&mut self, now: Instant) -> Option<GaugeModel> {
