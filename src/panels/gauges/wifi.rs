@@ -10,7 +10,7 @@ use crate::panels::gauges::gauge::{
 use crate::panels::gauges::gauge_registry::GaugeSpec;
 use crate::settings;
 use crate::settings::SettingSpec;
-use std::collections::{HashMap, HashSet};
+use std::cell::RefCell;
 use std::fs;
 use std::os::unix::net::UnixDatagram;
 use std::path::{Path, PathBuf};
@@ -36,9 +36,14 @@ const NM_SETTINGS_CONNECTION_IFACE: &str = "org.freedesktop.NetworkManager.Setti
 const NM_DEVICE_IFACE: &str = "org.freedesktop.NetworkManager.Device";
 const NM_DEVICE_WIRELESS_IFACE: &str = "org.freedesktop.NetworkManager.Device.Wireless";
 const NM_ACCESS_POINT_IFACE: &str = "org.freedesktop.NetworkManager.AccessPoint";
+use std::collections::{HashMap, HashSet};
+
 /// Run-budget floor: every tick is NetworkManager IPC, so the budget has to cover
 /// ordinary round-trip latency rather than one frame.
 const RUN_BUDGET: Duration = Duration::from_millis(250);
+/// How long to wait for a wpa_supplicant control-socket reply. Only paid on the
+/// ticks where NetworkManager is not managing the interface (see `read_ssid`).
+const FALLBACK_PROBE_INTERVAL_SECS: u64 = 30;
 
 #[derive(Clone, Copy, Debug)]
 enum WifiState {
@@ -120,11 +125,41 @@ fn read_link_quality_at(proc_net_wireless: &Path, iface: &str) -> Option<f32> {
     None
 }
 
-fn read_ssid(iface: &str) -> Option<String> {
-    if let Some(ssid) = read_ssid_network_manager(iface) {
-        return Some(ssid);
+/// Outcome of asking NetworkManager about an interface.
+enum NmSsid {
+    /// NetworkManager reported the associated SSID.
+    Ssid(String),
+    /// NetworkManager is reachable and managing the device, but no access point is
+    /// active yet (re-association, suspend/resume, driver reload). A silent NM reply
+    /// is an answer, not a failure, so it must not fall through to wpa_supplicant.
+    NoActiveAccessPoint,
+    /// NetworkManager could not answer at all: no bus, no service, or no such device.
+    Unavailable,
+}
+
+/// Per-tick SSID read.
+///
+/// The wpa_supplicant control-socket fallback is bounded to the case it exists for —
+/// an interface NetworkManager does not manage — and rate-limited, because a socket
+/// that exists and stays silent costs the full `WPA_CTRL_READ_TIMEOUT` per attempt.
+/// Previously any NM miss, including the perfectly normal "no active AP yet", fell
+/// through, so a connected-but-not-yet-associated interface paid ~30ms on **every**
+/// tick.
+fn read_ssid(nm: &NmClient, iface: &str, probe_deadline: &mut Instant, now: Instant) -> Option<String> {
+    match nm.ssid_for_iface(iface) {
+        NmSsid::Ssid(ssid) => return Some(ssid),
+        NmSsid::NoActiveAccessPoint => return None,
+        NmSsid::Unavailable => {}
     }
 
+    if now < *probe_deadline {
+        return None;
+    }
+    *probe_deadline = now + Duration::from_secs(FALLBACK_PROBE_INTERVAL_SECS);
+    read_ssid_wpa_ctrl_any(iface)
+}
+
+fn read_ssid_wpa_ctrl_any(iface: &str) -> Option<String> {
     for dir in WPA_CTRL_DIRS {
         let path = Path::new(dir).join(iface);
         if !path.exists() {
@@ -137,12 +172,75 @@ fn read_ssid(iface: &str) -> Option<String> {
     None
 }
 
-fn read_ssid_network_manager(iface: &str) -> Option<String> {
-    let connection = Connection::system().ok()?;
-    let nm_proxy = Proxy::new(&connection, NM_SERVICE, NM_PATH, NM_IFACE).ok()?;
-    let device_path: OwnedObjectPath = nm_proxy.call("GetDeviceByIpIface", &(iface)).ok()?;
+/// One cached session bus connection, reconnected lazily after a failed call.
+///
+/// `Connection::system()` costs ~0.17ms on a quiet x86 bus, which was paid one or two
+/// times per tick before this existed. A held connection also keeps the bus's own
+/// per-connection state warm rather than re-authenticating every poll.
+struct BusConnection {
+    connection: Option<Connection>,
+}
+
+impl BusConnection {
+    fn new() -> Self {
+        Self { connection: None }
+    }
+
+    /// Run `call` against the held connection, reconnecting once and retrying when the
+    /// held connection is missing or has gone stale.
+    fn with_connection<T>(&mut self, mut call: impl FnMut(&Connection) -> Option<T>) -> Option<T> {
+        if let Some(connection) = self.connection.as_ref() {
+            if let Some(result) = call(connection) {
+                return Some(result);
+            }
+            self.connection = None;
+        }
+        let connection = Connection::system().ok()?;
+        let result = call(&connection)?;
+        self.connection = Some(connection);
+        Some(result)
+    }
+}
+
+/// NetworkManager reads served from the gauge's held bus connection.
+struct NmClient {
+    bus: RefCell<BusConnection>,
+}
+
+impl NmClient {
+    fn new() -> Self {
+        Self {
+            bus: RefCell::new(BusConnection::new()),
+        }
+    }
+
+    fn ssid_for_iface(&self, iface: &str) -> NmSsid {
+        self.bus
+            .borrow_mut()
+            .with_connection(|connection| read_ssid_network_manager(connection, iface))
+            .unwrap_or(NmSsid::Unavailable)
+    }
+
+    /// The wireless device object for `iface`, or None when NM is not reachable.
+    fn device_path(&self, iface: &str) -> Option<OwnedObjectPath> {
+        self.bus
+            .borrow_mut()
+            .with_connection(|connection| nm_device_path(connection, iface))
+    }
+
+    fn with_connection<T>(&self, call: impl FnOnce(&Connection) -> T) -> Option<T> {
+        // The held connection is only replaced after a failed call, so a call made
+        // through it either succeeds or leaves the connection to be reopened.
+        self.bus
+            .borrow_mut()
+            .with_connection(|connection| Some(call(connection)))
+    }
+}
+
+fn read_ssid_network_manager(connection: &Connection, iface: &str) -> Option<NmSsid> {
+    let device_path = nm_device_path(connection, iface)?;
     let wifi_proxy = Proxy::new(
-        &connection,
+        connection,
         NM_SERVICE,
         device_path,
         NM_DEVICE_WIRELESS_IFACE,
@@ -150,11 +248,14 @@ fn read_ssid_network_manager(iface: &str) -> Option<String> {
     .ok()?;
     let ap_path: OwnedObjectPath = wifi_proxy.get_property("ActiveAccessPoint").ok()?;
     if ap_path.as_str() == "/" {
-        return None;
+        return Some(NmSsid::NoActiveAccessPoint);
     }
-    let ap_proxy = Proxy::new(&connection, NM_SERVICE, ap_path, NM_ACCESS_POINT_IFACE).ok()?;
+    let ap_proxy = Proxy::new(connection, NM_SERVICE, ap_path, NM_ACCESS_POINT_IFACE).ok()?;
     let ssid_bytes: Vec<u8> = ap_proxy.get_property("Ssid").ok()?;
-    normalize_ssid_bytes(&ssid_bytes)
+    Some(match normalize_ssid_bytes(&ssid_bytes) {
+        Some(ssid) => NmSsid::Ssid(ssid),
+        None => NmSsid::NoActiveAccessPoint,
+    })
 }
 
 fn read_ssid_wpa_ctrl(path: &Path) -> Option<String> {
