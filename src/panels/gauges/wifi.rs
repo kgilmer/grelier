@@ -2,6 +2,7 @@
 // Consumes Settings: grelier.gauge.wifi.*.
 use crate::dialog::info::InfoDialog;
 use crate::icon::{icon_quantity, svg_asset};
+use crate::panels::gauges::bus::BusConnection;
 use crate::panels::gauges::gauge::{Gauge, GaugeReadyNotify};
 use crate::panels::gauges::gauge::{
     GaugeDisplay, GaugeInteractionModel, GaugeMenu, GaugeMenuItem, GaugeModel,
@@ -172,59 +173,6 @@ fn read_ssid_wpa_ctrl_any(iface: &str) -> Option<String> {
     None
 }
 
-/// How long to leave the session bus closed after a failed call before reopening it.
-/// Bounds the cost of a machine with no NetworkManager, or of a bus that has gone
-/// away, to one reconnect per interval instead of one per tick.
-const BUS_RETRY_COOLDOWN: Duration = Duration::from_secs(30);
-
-/// One cached session bus connection, reopened after a failed call.
-///
-/// `Connection::system()` costs ~0.17ms on a quiet x86 bus and was paid one or two
-/// times per tick before this existed.
-struct BusConnection {
-    connection: Option<Connection>,
-    /// Not before this instant will the bus be reopened following a failure.
-    retry_deadline: Instant,
-}
-
-impl BusConnection {
-    fn new() -> Self {
-        Self {
-            connection: None,
-            retry_deadline: Instant::now(),
-        }
-    }
-
-    /// The held session bus, opening it unless a recent failure put it on cooldown.
-    fn connection_at(&mut self, now: Instant) -> Option<&Connection> {
-        if self.connection.is_none() {
-            if now < self.retry_deadline {
-                return None;
-            }
-            self.connection = Connection::system().ok();
-            if self.connection.is_none() {
-                self.retry_deadline = now + BUS_RETRY_COOLDOWN;
-            }
-        }
-        self.connection.as_ref()
-    }
-
-    /// Run `call` against the held connection. A failure retires the connection and
-    /// puts the bus on cooldown, so a permanently absent service cannot cost a
-    /// reconnect every tick.
-    fn with_connection<T>(&mut self, call: impl FnOnce(&Connection) -> Option<T>) -> Option<T> {
-        let now = Instant::now();
-        let result = self
-            .connection_at(now)
-            .and_then(|connection| call(connection));
-        if result.is_none() {
-            self.connection = None;
-            self.retry_deadline = now + BUS_RETRY_COOLDOWN;
-        }
-        result
-    }
-}
-
 /// NetworkManager reads served from the gauge's held bus connection.
 struct NmClient {
     bus: RefCell<BusConnection>,
@@ -261,7 +209,7 @@ impl NmClient {
 
     /// Whether the session bus is reachable, connecting once if it is not held yet.
     fn is_reachable(&self) -> bool {
-        self.bus.borrow_mut().connection_at(Instant::now()).is_some()
+        self.bus.borrow_mut().connection().is_some()
     }
 }
 
