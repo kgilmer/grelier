@@ -14,6 +14,15 @@ pub struct SettingSpec {
 
 pub const NO_SETTINGS: &[SettingSpec] = &[];
 
+/// Default wall-clock budget for one gauge run, in milliseconds.
+///
+/// Sized for a gauge whose work is a few file reads; gauges doing D-Bus IPC
+/// raise it further with `Gauge::run_budget`.
+pub const GAUGE_WORK_MAX_RUN_MS: u64 = 100;
+
+/// Default number of consecutive over-budget runs before a gauge is unscheduled.
+pub const GAUGE_WORK_MAX_RUN_STRIKES: u8 = 3;
+
 /// Base settings shared by the bar regardless of which gauges are enabled.
 pub fn base_setting_specs(
     default_gauges: &'static str,
@@ -206,6 +215,14 @@ pub fn base_setting_specs(
             key: "grelier.gauge.ui.icon_value_spacing",
             default: "0.0",
         },
+        SettingSpec {
+            key: "grelier.gauge.work.max_run_ms",
+            default: "100",
+        },
+        SettingSpec {
+            key: "grelier.gauge.work.max_run_strikes",
+            default: "3",
+        },
     ]
 }
 
@@ -350,6 +367,29 @@ mod tests {
         path.push(format!("Settings-{}.xresources", env!("CARGO_PKG_VERSION")));
         SettingsStorage::new(path)
     }
+
+    #[test]
+    fn gauge_work_budget_specs_match_manager_constants() {
+        let specs = base_setting_specs("clock", "", DEFAULT_ORIENTATION_FOR_TEST, DEFAULT_THEME_FOR_TEST);
+        let default_of = |key: &str| {
+            specs
+                .iter()
+                .find(|spec| spec.key == key)
+                .map(|spec| spec.default)
+                .unwrap_or("<missing>")
+        };
+        assert_eq!(
+            default_of("grelier.gauge.work.max_run_ms"),
+            GAUGE_WORK_MAX_RUN_MS.to_string()
+        );
+        assert_eq!(
+            default_of("grelier.gauge.work.max_run_strikes"),
+            GAUGE_WORK_MAX_RUN_STRIKES.to_string()
+        );
+    }
+
+    const DEFAULT_ORIENTATION_FOR_TEST: &str = "left";
+    const DEFAULT_THEME_FOR_TEST: &str = "Nord";
 
     #[test]
     fn parse_settings_rejects_missing_separator() {
