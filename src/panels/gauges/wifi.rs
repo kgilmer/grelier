@@ -153,11 +153,17 @@ fn read_ssid(nm: &NmClient, iface: &str, probe_deadline: &mut Instant, now: Inst
         NmSsid::Unavailable => {}
     }
 
-    if now < *probe_deadline {
+    if !should_probe_fallback(now, *probe_deadline) {
         return None;
     }
     *probe_deadline = now + Duration::from_secs(FALLBACK_PROBE_INTERVAL_SECS);
     read_ssid_wpa_ctrl_any(iface)
+}
+
+/// Whether a wpa_supplicant probe is due. Kept separate from the socket work so the
+/// rate limit that bounds the fallback cost is testable without a control socket.
+fn should_probe_fallback(now: Instant, probe_deadline: Instant) -> bool {
+    now >= probe_deadline
 }
 
 fn read_ssid_wpa_ctrl_any(iface: &str) -> Option<String> {
@@ -936,6 +942,54 @@ mod tests {
         assert_eq!(snapshot.strength, 0.0);
 
         let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn snapshot_only_asks_for_an_ssid_when_connected() {
+        let dir = temp_dir("ssid_calls");
+        let sys_net = dir.join("sys_net");
+        fs::create_dir_all(&sys_net).expect("create sys_net");
+        let proc_wireless = dir.join("wireless");
+
+        write_iface(&sys_net, "wlan0", Some("0"), Some("down"));
+        write_wireless(&proc_wireless, &["wlan0: 0000 0. 0. 0. 0. 0. 0."]);
+        let mut calls = 0usize;
+        let snapshot =
+            wifi_snapshot_with_paths(&sys_net, &proc_wireless, 70.0, &mut |_| {
+                calls += 1;
+                None
+            });
+        assert!(matches!(snapshot.state, WifiState::NotConnected));
+        assert_eq!(calls, 0, "a disconnected interface must not cost an SSID read");
+
+        write_iface(&sys_net, "wlan1", Some("1"), Some("up"));
+        write_wireless(&proc_wireless, &["wlan1: 0000 40. 0. 0. 0. 0. 0."]);
+        let mut calls = 0usize;
+        let snapshot =
+            wifi_snapshot_with_paths(&sys_net, &proc_wireless, 70.0, &mut |iface| {
+                calls += 1;
+                assert_eq!(iface, "wlan1");
+                Some("home".to_string())
+            });
+        assert!(matches!(snapshot.state, WifiState::Connected));
+        assert_eq!(snapshot.ssid.as_deref(), Some("home"));
+        assert_eq!(calls, 1);
+
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn wpa_fallback_is_probed_at_most_once_per_interval() {
+        let now = Instant::now();
+        assert!(should_probe_fallback(now, now));
+        assert!(!should_probe_fallback(
+            now + Duration::from_secs(1),
+            now + Duration::from_secs(FALLBACK_PROBE_INTERVAL_SECS)
+        ));
+        assert!(should_probe_fallback(
+            now + Duration::from_secs(FALLBACK_PROBE_INTERVAL_SECS),
+            now + Duration::from_secs(FALLBACK_PROBE_INTERVAL_SECS)
+        ));
     }
 
     #[test]

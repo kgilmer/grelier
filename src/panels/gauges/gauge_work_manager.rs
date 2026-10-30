@@ -573,6 +573,8 @@ mod tests {
         run_duration: Duration,
         /// Whether `run_once` should emit a model update.
         emit_model: bool,
+        /// Budget floor returned from `run_budget`.
+        run_budget: Duration,
     }
 
     impl TestGauge {
@@ -591,6 +593,7 @@ mod tests {
                 interval,
                 run_duration,
                 emit_model,
+                run_budget: Duration::ZERO,
             }
         }
     }
@@ -602,6 +605,10 @@ mod tests {
 
         fn next_deadline(&self) -> Instant {
             self.next_deadline
+        }
+
+        fn run_budget(&self) -> Duration {
+            self.run_budget
         }
 
         fn run_once(&mut self, now: Instant) -> Option<GaugeModel> {
@@ -802,6 +809,43 @@ mod tests {
         assert_eq!(runtime(&second, "slow").status, GaugeStatus::Dead);
         assert_eq!(runtime(&second, "slow").strike_count, 2);
         assert!(!manager.mark_ready("slow"));
+    }
+
+    #[test]
+    fn gauge_run_budget_relaxes_the_global_budget() {
+        let start = Instant::now();
+        let clock = FakeClock::new(start);
+        let mut gauge = TestGauge::new(
+            "ipc",
+            clock.clone(),
+            start,
+            Duration::from_millis(1),
+            Duration::from_millis(60),
+            true,
+        );
+        // Over the 40ms global budget, inside the gauge's own 250ms floor.
+        gauge.run_budget = Duration::from_millis(250);
+        let mut manager = GaugeWorkManager::new(
+            clock.clone(),
+            Duration::from_millis(40),
+            2,
+            noop_notify(),
+            vec![Box::new(gauge)],
+        );
+
+        assert!(manager.step_once().is_some());
+        assert_eq!(
+            runtime(&manager.snapshot(), "ipc").strike_count,
+            0,
+            "a run inside the gauge's own floor must not strike"
+        );
+
+        // The same gauge over its own floor still strikes.
+        clock.advance(Duration::from_millis(1));
+        assert!(manager.step_once().is_some());
+        let after = manager.step_once();
+        assert!(after.is_some());
+        assert_eq!(runtime(&manager.snapshot(), "ipc").status, GaugeStatus::Dead);
     }
 
     #[test]
