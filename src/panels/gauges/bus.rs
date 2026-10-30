@@ -19,6 +19,9 @@ const RECONNECT_AFTER_FAILURE_COOLDOWN: Duration = Duration::from_secs(5);
 /// work on its interval; holding one connection removes that from the tick entirely.
 pub struct BusConnection {
     connection: Option<Connection>,
+    /// A session bus has been opened successfully at least once and no open has failed
+    /// since. Lets "is there a bus" be answered without reconnecting.
+    bus_seen: bool,
     /// Not before this instant will a failed open be retried.
     open_retry_deadline: Instant,
     /// Not before this instant will a reconnect following a failed call be attempted.
@@ -36,6 +39,7 @@ impl BusConnection {
         let now = Instant::now();
         Self {
             connection: None,
+            bus_seen: false,
             open_retry_deadline: now,
             reconnect_deadline: now,
         }
@@ -48,6 +52,7 @@ impl BusConnection {
                 return None;
             }
             self.connection = Connection::system().ok();
+            self.bus_seen = self.connection.is_some();
             if self.connection.is_none() {
                 self.open_retry_deadline = now + OPEN_RETRY_COOLDOWN;
             }
@@ -67,18 +72,10 @@ impl BusConnection {
     /// evidence the bus is gone, and gating UI on the method-call path makes it flicker
     /// once per cooldown. Only a failed *open* is rate-limited here.
     pub fn bus_available(&mut self) -> bool {
-        if self.connection.is_some() {
+        if self.connection.is_some() || self.bus_seen {
             return true;
         }
-        let now = Instant::now();
-        if now < self.open_retry_deadline {
-            return false;
-        }
-        self.connection = Connection::system().ok();
-        if self.connection.is_none() {
-            self.open_retry_deadline = now + OPEN_RETRY_COOLDOWN;
-        }
-        self.connection.is_some()
+        self.connection().is_some()
     }
 
     /// Run `call` against the held connection.
