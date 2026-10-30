@@ -99,8 +99,7 @@ mod tests {
             "a failed open must postpone the next attempt"
         );
         assert!(
-            bus.connection_at(first + Duration::from_secs(1))
-                .is_none(),
+            bus.connection_at(first + Duration::from_secs(1)).is_none(),
             "the open cooldown window must not reopen the bus"
         );
     }
@@ -115,7 +114,10 @@ mod tests {
         }
         let result: Option<u8> = bus.with_connection(|_| None);
         assert!(result.is_none());
-        assert!(bus.connection.is_none(), "a failed call must retire the connection");
+        assert!(
+            bus.connection.is_none(),
+            "a failed call must retire the connection"
+        );
         assert!(
             bus.reconnect_deadline > Instant::now(),
             "a failed call must not be retried on every tick"
