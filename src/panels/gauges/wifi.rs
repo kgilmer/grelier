@@ -219,9 +219,10 @@ impl NmClient {
             .with_connection(|connection| Some(call(connection)))
     }
 
-    /// Whether the session bus is reachable, connecting once if it is not held yet.
+    /// Whether the session bus is reachable, which is what the menu's existence depends
+    /// on — not whether NetworkManager will answer a particular request.
     fn is_reachable(&self) -> bool {
-        self.bus.borrow_mut().connection().is_some()
+        self.bus.borrow_mut().bus_available()
     }
 }
 
