@@ -839,13 +839,38 @@ mod tests {
             0,
             "a run inside the gauge's own floor must not strike"
         );
+    }
 
-        // The same gauge over its own floor still strikes.
-        clock.advance(Duration::from_millis(1));
+    #[test]
+    fn run_over_its_own_floor_strikes() {
+        let start = Instant::now();
+        let clock = FakeClock::new(start);
+        let mut gauge = TestGauge::new(
+            "slow-ipc",
+            clock.clone(),
+            start,
+            Duration::from_millis(1),
+            Duration::from_millis(300),
+            true,
+        );
+        gauge.run_budget = Duration::from_millis(250);
+        let mut manager = GaugeWorkManager::new(
+            clock.clone(),
+            Duration::from_millis(40),
+            2,
+            noop_notify(),
+            vec![Box::new(gauge)],
+        );
+
         assert!(manager.step_once().is_some());
-        let after = manager.step_once();
-        assert!(after.is_some());
-        assert_eq!(runtime(&manager.snapshot(), "ipc").status, GaugeStatus::Dead);
+        assert_eq!(runtime(&manager.snapshot(), "slow-ipc").strike_count, 1);
+
+        clock.advance(Duration::from_millis(1));
+        let dead = manager
+            .step_once()
+            .expect("second strike over the gauge's own budget kills it");
+        assert_eq!(runtime(&manager.snapshot(), "slow-ipc").status, GaugeStatus::Dead);
+        assert_eq!(dead[0].icon, svg_asset("turtle.svg"));
     }
 
     #[test]
