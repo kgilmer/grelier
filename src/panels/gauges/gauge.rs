@@ -3,7 +3,7 @@ use iced::mouse;
 use iced::widget::svg;
 use std::fmt;
 use std::sync::Arc;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use crate::dialog::info::InfoDialog;
 
@@ -234,6 +234,20 @@ pub trait Gauge: Send + 'static {
     /// The scheduler will not run the gauge before this deadline unless it is explicitly
     /// marked ready via `GaugeReadyNotify`.
     fn next_deadline(&self) -> Instant;
+
+    /// Minimum wall-clock budget for one run of this gauge.
+    ///
+    /// The work manager strikes a run that exceeds the **larger** of the global
+    /// `grelier.gauge.work.max_run_ms` setting and this floor, so raising the setting
+    /// still raises every gauge and a gauge can only relax, never tighten, the policy.
+    ///
+    /// Keep the default (zero) for gauges whose work is a few local file reads: they
+    /// should stay inside the tight global budget. Override it for gauges whose tick is
+    /// D-Bus or other IPC, where ordinary round-trip latency on a loaded machine would
+    /// otherwise be mistaken for a performance regression.
+    fn run_budget(&self) -> Duration {
+        Duration::ZERO
+    }
 
     /// Execute one unit of gauge work.
     ///
