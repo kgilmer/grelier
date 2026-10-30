@@ -53,9 +53,12 @@ fn gauge_batch_stream_by_ids(ids: &Arc<[String]>) -> GaugeBatchMessageStream {
             gauge.bind_ready_notify(ready_notify.clone());
         }
 
-        let max_run_ms = settings::settings().get_parsed_or("grelier.gauge.work.max_run_ms", 40u64);
-        let max_run_strikes =
-            settings::settings().get_parsed_or("grelier.gauge.work.max_run_strikes", 3u8);
+        let max_run_ms = settings::settings()
+            .get_parsed_or("grelier.gauge.work.max_run_ms", settings::GAUGE_WORK_MAX_RUN_MS);
+        let max_run_strikes = settings::settings().get_parsed_or(
+            "grelier.gauge.work.max_run_strikes",
+            settings::GAUGE_WORK_MAX_RUN_STRIKES,
+        );
         let mut manager = GaugeWorkManager::new(
             SystemClock,
             Duration::from_millis(max_run_ms),
@@ -215,7 +218,8 @@ impl GaugeRegistrar for RegistrationCollector {
 /// Deterministic scheduler used by runtime and unit tests.
 ///
 /// The manager runs gauges sequentially, enforces a per-run timeout policy,
-/// and returns update batches for atomic UI application.
+/// and returns update batches for atomic UI application. A gauge's effective
+/// budget is the larger of `max_run` and its own `Gauge::run_budget()`.
 pub struct GaugeWorkManager<C: Clock> {
     clock: C,
     max_run: Duration,
@@ -369,13 +373,14 @@ impl<C: Clock> GaugeWorkManager<C> {
             let elapsed = self.clock.now().saturating_duration_since(started);
             runtime.run_count = runtime.run_count.saturating_add(1);
 
-            if elapsed > self.max_run {
+            let budget = self.max_run.max(runtime.gauge.run_budget());
+            if elapsed > budget {
                 runtime.strike_count = runtime.strike_count.saturating_add(1);
                 log::warn!(
                     "gauge '{}' took {}ms, over its {}ms budget (strike {}/{})",
                     runtime.gauge.id(),
                     elapsed.as_millis(),
-                    self.max_run.as_millis(),
+                    budget.as_millis(),
                     runtime.strike_count,
                     self.max_run_strikes
                 );
