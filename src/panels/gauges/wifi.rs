@@ -2,6 +2,7 @@
 // Consumes Settings: grelier.gauge.wifi.*.
 use crate::dialog::info::InfoDialog;
 use crate::icon::{icon_quantity, svg_asset};
+use crate::panels::gauges::bus::BusConnection;
 use crate::panels::gauges::gauge::{Gauge, GaugeReadyNotify};
 use crate::panels::gauges::gauge::{
     GaugeDisplay, GaugeInteractionModel, GaugeMenu, GaugeMenuItem, GaugeModel,
@@ -10,7 +11,7 @@ use crate::panels::gauges::gauge::{
 use crate::panels::gauges::gauge_registry::GaugeSpec;
 use crate::settings;
 use crate::settings::SettingSpec;
-use std::collections::{HashMap, HashSet};
+use std::cell::RefCell;
 use std::fs;
 use std::os::unix::net::UnixDatagram;
 use std::path::{Path, PathBuf};
@@ -36,6 +37,15 @@ const NM_SETTINGS_CONNECTION_IFACE: &str = "org.freedesktop.NetworkManager.Setti
 const NM_DEVICE_IFACE: &str = "org.freedesktop.NetworkManager.Device";
 const NM_DEVICE_WIRELESS_IFACE: &str = "org.freedesktop.NetworkManager.Device.Wireless";
 const NM_ACCESS_POINT_IFACE: &str = "org.freedesktop.NetworkManager.AccessPoint";
+use std::collections::{HashMap, HashSet};
+
+/// Run-budget floor: every tick is NetworkManager IPC, so the budget has to cover
+/// ordinary round-trip latency rather than one frame.
+const RUN_BUDGET: Duration = Duration::from_millis(250);
+/// Minimum gap between wpa_supplicant control-socket probes. Only relevant on ticks
+/// where NetworkManager could not answer at all (see `read_ssid`), and it bounds the
+/// cost of a silent control socket to one `WPA_CTRL_READ_TIMEOUT` per interval.
+const FALLBACK_PROBE_INTERVAL_SECS: u64 = 30;
 
 #[derive(Clone, Copy, Debug)]
 enum WifiState {
@@ -117,11 +127,52 @@ fn read_link_quality_at(proc_net_wireless: &Path, iface: &str) -> Option<f32> {
     None
 }
 
-fn read_ssid(iface: &str) -> Option<String> {
-    if let Some(ssid) = read_ssid_network_manager(iface) {
-        return Some(ssid);
+/// Outcome of asking NetworkManager about an interface.
+enum NmSsid {
+    /// NetworkManager reported the associated SSID.
+    Ssid(String),
+    /// NetworkManager is reachable and managing the device, but no access point is
+    /// active yet (re-association, suspend/resume, driver reload). A silent NM reply
+    /// is an answer, not a failure, so it must not fall through to wpa_supplicant.
+    NoActiveAccessPoint,
+    /// NetworkManager could not answer at all: no bus, no service, or no such device.
+    Unavailable,
+}
+
+/// Per-tick SSID read.
+///
+/// The wpa_supplicant control-socket fallback is bounded to the case it exists for —
+/// an interface NetworkManager does not manage — and rate-limited, because a socket
+/// that exists and stays silent costs the full `WPA_CTRL_READ_TIMEOUT` per attempt.
+/// Previously any NM miss, including the perfectly normal "no active AP yet", fell
+/// through, so a connected-but-not-yet-associated interface paid ~30ms on **every**
+/// tick.
+fn read_ssid(
+    nm: &NmClient,
+    iface: &str,
+    probe_deadline: &mut Instant,
+    now: Instant,
+) -> Option<String> {
+    match nm.ssid_for_iface(iface) {
+        NmSsid::Ssid(ssid) => return Some(ssid),
+        NmSsid::NoActiveAccessPoint => return None,
+        NmSsid::Unavailable => {}
     }
 
+    if !should_probe_fallback(now, *probe_deadline) {
+        return None;
+    }
+    *probe_deadline = now + Duration::from_secs(FALLBACK_PROBE_INTERVAL_SECS);
+    read_ssid_wpa_ctrl_any(iface)
+}
+
+/// Whether a wpa_supplicant probe is due. Kept separate from the socket work so the
+/// rate limit that bounds the fallback cost is testable without a control socket.
+fn should_probe_fallback(now: Instant, probe_deadline: Instant) -> bool {
+    now >= probe_deadline
+}
+
+fn read_ssid_wpa_ctrl_any(iface: &str) -> Option<String> {
     for dir in WPA_CTRL_DIRS {
         let path = Path::new(dir).join(iface);
         if !path.exists() {
@@ -134,12 +185,51 @@ fn read_ssid(iface: &str) -> Option<String> {
     None
 }
 
-fn read_ssid_network_manager(iface: &str) -> Option<String> {
-    let connection = Connection::system().ok()?;
-    let nm_proxy = Proxy::new(&connection, NM_SERVICE, NM_PATH, NM_IFACE).ok()?;
-    let device_path: OwnedObjectPath = nm_proxy.call("GetDeviceByIpIface", &(iface)).ok()?;
+/// NetworkManager reads served from the gauge's held bus connection.
+struct NmClient {
+    bus: RefCell<BusConnection>,
+}
+
+impl NmClient {
+    fn new() -> Self {
+        Self {
+            bus: RefCell::new(BusConnection::new()),
+        }
+    }
+
+    fn ssid_for_iface(&self, iface: &str) -> NmSsid {
+        self.bus
+            .borrow_mut()
+            .with_connection(|connection| read_ssid_network_manager(connection, iface))
+            .unwrap_or(NmSsid::Unavailable)
+    }
+
+    /// The wireless device object for `iface`, or None when NM is not reachable.
+    fn device_path(&self, iface: &str) -> Option<OwnedObjectPath> {
+        self.bus
+            .borrow_mut()
+            .with_connection(|connection| nm_device_path(connection, iface))
+    }
+
+    fn with_connection<T>(&self, call: impl FnOnce(&Connection) -> T) -> Option<T> {
+        // The held connection is only replaced after a failed call, so a call made
+        // through it either succeeds or leaves the connection to be reopened.
+        self.bus
+            .borrow_mut()
+            .with_connection(|connection| Some(call(connection)))
+    }
+
+    /// Whether the session bus is reachable, which is what the menu's existence depends
+    /// on — not whether NetworkManager will answer a particular request.
+    fn is_reachable(&self) -> bool {
+        self.bus.borrow_mut().bus_available()
+    }
+}
+
+fn read_ssid_network_manager(connection: &Connection, iface: &str) -> Option<NmSsid> {
+    let device_path = nm_device_path(connection, iface)?;
     let wifi_proxy = Proxy::new(
-        &connection,
+        connection,
         NM_SERVICE,
         device_path,
         NM_DEVICE_WIRELESS_IFACE,
@@ -147,11 +237,14 @@ fn read_ssid_network_manager(iface: &str) -> Option<String> {
     .ok()?;
     let ap_path: OwnedObjectPath = wifi_proxy.get_property("ActiveAccessPoint").ok()?;
     if ap_path.as_str() == "/" {
-        return None;
+        return Some(NmSsid::NoActiveAccessPoint);
     }
-    let ap_proxy = Proxy::new(&connection, NM_SERVICE, ap_path, NM_ACCESS_POINT_IFACE).ok()?;
+    let ap_proxy = Proxy::new(connection, NM_SERVICE, ap_path, NM_ACCESS_POINT_IFACE).ok()?;
     let ssid_bytes: Vec<u8> = ap_proxy.get_property("Ssid").ok()?;
-    normalize_ssid_bytes(&ssid_bytes)
+    Some(match normalize_ssid_bytes(&ssid_bytes) {
+        Some(ssid) => NmSsid::Ssid(ssid),
+        None => NmSsid::NoActiveAccessPoint,
+    })
 }
 
 fn read_ssid_wpa_ctrl(path: &Path) -> Option<String> {
@@ -481,18 +574,27 @@ fn pick_interface(ifaces: &[String], sys_net: &Path, proc_net_wireless: &Path) -
     ifaces.first().cloned()
 }
 
-fn wifi_snapshot(quality_max: f32) -> WifiSnapshot {
+fn wifi_snapshot(
+    quality_max: f32,
+    nm: &NmClient,
+    fallback_probe_deadline: &mut Instant,
+    now: Instant,
+) -> WifiSnapshot {
     wifi_snapshot_with_paths(
         Path::new(SYS_NET),
         Path::new(PROC_NET_WIRELESS),
         quality_max,
+        &mut |iface| read_ssid(nm, iface, fallback_probe_deadline, now),
     )
 }
 
+/// Sysfs/proc snapshot with SSID lookup injected, so the D-Bus and wpa_supplicant
+/// paths stay testable without a wireless interface.
 fn wifi_snapshot_with_paths(
     sys_net: &Path,
     proc_net_wireless: &Path,
     quality_max: f32,
+    read_ssid: &mut dyn FnMut(&str) -> Option<String>,
 ) -> WifiSnapshot {
     let ifaces = wifi_interfaces_at(sys_net);
     if ifaces.is_empty() {
@@ -603,6 +705,10 @@ struct WifiGauge {
     cached_menu_iface: Option<String>,
     /// Absolute deadline for refreshing cached menu data.
     menu_refresh_deadline: Instant,
+    /// NetworkManager reads, served from one held session bus connection.
+    nm: NmClient,
+    /// Earliest next wpa_supplicant control-socket probe.
+    fallback_probe_deadline: Instant,
     /// Scheduler deadline for the next run.
     next_deadline: Instant,
 }
@@ -620,22 +726,32 @@ impl Gauge for WifiGauge {
         self.next_deadline
     }
 
+    fn run_budget(&self) -> Duration {
+        RUN_BUDGET
+    }
+
     fn run_once(&mut self, now: Instant) -> Option<GaugeModel> {
-        let snapshot = wifi_snapshot(self.quality_max);
-        let nm_connection = Connection::system().ok();
-        let device_path = nm_connection.as_ref().and_then(|connection| {
-            snapshot
-                .iface
-                .as_deref()
-                .and_then(|iface| nm_device_path(connection, iface))
-        });
+        let snapshot = wifi_snapshot(
+            self.quality_max,
+            &self.nm,
+            &mut self.fallback_probe_deadline,
+            now,
+        );
+        let device_path = snapshot
+            .iface
+            .as_deref()
+            .and_then(|iface| self.nm.device_path(iface));
 
         while let Ok(command) = self.command_rx.try_recv() {
-            if let (Some(connection), Some(device_path)) =
-                (nm_connection.as_ref(), device_path.as_ref())
-            {
+            if let Some(device_path) = device_path.as_ref() {
                 let WifiCommand::Connect(connection_path) = command;
-                let _ = activate_connection(connection, &connection_path, device_path);
+                let _ = self.nm.with_connection(|connection| {
+                    Some(activate_connection(
+                        connection,
+                        &connection_path,
+                        device_path,
+                    ))
+                });
             }
         }
 
@@ -657,15 +773,15 @@ impl Gauge for WifiGauge {
             self.cached_menu_iface.as_deref(),
             current_iface,
         ) {
-            self.cached_menu_items = nm_connection
-                .as_ref()
-                .map(|connection| refresh_wifi_menu_items(connection, &snapshot))
+            self.cached_menu_items = self
+                .nm
+                .with_connection(|connection| refresh_wifi_menu_items(connection, &snapshot))
                 .unwrap_or_default();
             self.cached_menu_iface = current_iface.map(ToString::to_string);
             self.menu_refresh_deadline = now + self.menu_refresh_interval;
         }
 
-        let menu = if nm_connection.is_some() && snapshot.iface.is_some() {
+        let menu = if snapshot.iface.is_some() && self.nm.is_reachable() {
             Some(GaugeMenu {
                 title: "Wi-Fi Networks".to_string(),
                 items: self.cached_menu_items.clone(),
@@ -706,6 +822,8 @@ pub fn create_gauge(now: Instant) -> Box<dyn Gauge> {
         cached_menu_items: Vec::new(),
         cached_menu_iface: None,
         menu_refresh_deadline: now,
+        nm: NmClient::new(),
+        fallback_probe_deadline: now,
         next_deadline: now,
     })
 }
@@ -815,7 +933,7 @@ mod tests {
         write_iface(&sys_net, "wlan0", Some("1"), Some("up"));
         write_wireless(&proc_wireless, &["wlan0: 0000 100. 0. 0. 0. 0. 0."]);
 
-        let snapshot = wifi_snapshot_with_paths(&sys_net, &proc_wireless, 70.0);
+        let snapshot = wifi_snapshot_with_paths(&sys_net, &proc_wireless, 70.0, &mut |_| None);
         assert!(matches!(snapshot.state, WifiState::Connected));
         assert!((snapshot.strength - 1.0).abs() < f32::EPSILON);
 
@@ -830,11 +948,60 @@ mod tests {
         let proc_wireless = dir.join("wireless");
         write_wireless(&proc_wireless, &[]);
 
-        let snapshot = wifi_snapshot_with_paths(&sys_net, &proc_wireless, 70.0);
+        let snapshot = wifi_snapshot_with_paths(&sys_net, &proc_wireless, 70.0, &mut |_| None);
         assert!(matches!(snapshot.state, WifiState::NoDevice));
         assert_eq!(snapshot.strength, 0.0);
 
         let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn snapshot_only_asks_for_an_ssid_when_connected() {
+        let dir = temp_dir("ssid_calls");
+        let sys_net = dir.join("sys_net");
+        fs::create_dir_all(&sys_net).expect("create sys_net");
+        let proc_wireless = dir.join("wireless");
+
+        write_iface(&sys_net, "wlan0", Some("0"), Some("down"));
+        write_wireless(&proc_wireless, &["wlan0: 0000 0. 0. 0. 0. 0. 0."]);
+        let mut calls = 0usize;
+        let snapshot = wifi_snapshot_with_paths(&sys_net, &proc_wireless, 70.0, &mut |_| {
+            calls += 1;
+            None
+        });
+        assert!(matches!(snapshot.state, WifiState::NotConnected));
+        assert_eq!(
+            calls, 0,
+            "a disconnected interface must not cost an SSID read"
+        );
+
+        write_iface(&sys_net, "wlan1", Some("1"), Some("up"));
+        write_wireless(&proc_wireless, &["wlan1: 0000 40. 0. 0. 0. 0. 0."]);
+        let mut calls = 0usize;
+        let snapshot = wifi_snapshot_with_paths(&sys_net, &proc_wireless, 70.0, &mut |iface| {
+            calls += 1;
+            assert_eq!(iface, "wlan1");
+            Some("home".to_string())
+        });
+        assert!(matches!(snapshot.state, WifiState::Connected));
+        assert_eq!(snapshot.ssid.as_deref(), Some("home"));
+        assert_eq!(calls, 1);
+
+        let _ = fs::remove_dir_all(dir);
+    }
+
+    #[test]
+    fn wpa_fallback_is_probed_at_most_once_per_interval() {
+        let now = Instant::now();
+        assert!(should_probe_fallback(now, now));
+        assert!(!should_probe_fallback(
+            now + Duration::from_secs(1),
+            now + Duration::from_secs(FALLBACK_PROBE_INTERVAL_SECS)
+        ));
+        assert!(should_probe_fallback(
+            now + Duration::from_secs(FALLBACK_PROBE_INTERVAL_SECS),
+            now + Duration::from_secs(FALLBACK_PROBE_INTERVAL_SECS)
+        ));
     }
 
     #[test]

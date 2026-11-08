@@ -2,6 +2,7 @@ pub mod audio_in;
 pub mod audio_out;
 pub mod battery;
 pub mod brightness;
+pub mod bus;
 pub mod clock;
 pub mod cpu;
 pub mod date;

@@ -1,6 +1,7 @@
 // Battery gauge driven by udev power_supply events and snapshots.
 use crate::dialog::info::InfoDialog;
 use crate::icon::{icon_quantity, svg_asset};
+use crate::panels::gauges::bus::BusConnection;
 use crate::panels::gauges::gauge::{Gauge, GaugeEventSource, GaugeReadyNotify, GaugeRegistrar};
 use crate::panels::gauges::gauge::{
     GaugeDisplay, GaugeInteractionModel, GaugeMenu, GaugeMenuItem, GaugeModel,
@@ -11,6 +12,7 @@ use crate::settings;
 use crate::settings::SettingSpec;
 use battery::State as BatteryState;
 use battery::units::{energy::watt_hour, time::second};
+use std::cell::RefCell;
 use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::sync::mpsc;
@@ -29,6 +31,9 @@ const PPD_PATH: &str = "/net/hadess/PowerProfiles";
 const PPD_IFACE: &str = "net.hadess.PowerProfiles";
 const SYS_PLATFORM_PROFILE: &str = "/sys/firmware/acpi/platform_profile";
 const SYS_PLATFORM_PROFILE_CHOICES: &str = "/sys/firmware/acpi/platform_profile_choices";
+/// Run-budget floor: a run scans udev `power_supply` and round-trips to
+/// power-profiles-daemon, so the budget has to cover IPC latency, not one frame.
+const RUN_BUDGET: Duration = Duration::from_millis(250);
 
 #[derive(Debug)]
 enum BatteryCommand {
@@ -92,6 +97,7 @@ fn snapshot_model(
     info_state: &Arc<Mutex<InfoDialog>>,
     manager: Option<&battery::Manager>,
     menu_select: Option<&MenuSelectAction>,
+    bus: &RefCell<BusConnection>,
 ) -> Option<GaugeModel> {
     let mut enumerator = match udev::Enumerator::new() {
         Ok(e) => e,
@@ -138,7 +144,7 @@ fn snapshot_model(
         }
         if let Some(display) = battery_value(&dev, warning_percent, danger_percent) {
             let icon = svg_asset(power_icon_for_status(status.as_deref(), ac_online));
-            let menu = menu_select.and_then(|select| power_profile_menu(select.clone()));
+            let menu = menu_select.and_then(|select| power_profile_menu(select.clone(), bus));
             return Some(GaugeModel {
                 id: "battery",
                 icon,
@@ -170,7 +176,7 @@ fn snapshot_model(
             ],
         },
     );
-    let menu = menu_select.and_then(|select| power_profile_menu(select.clone()));
+    let menu = menu_select.and_then(|select| power_profile_menu(select.clone(), bus));
     Some(GaugeModel {
         id: "battery",
         icon: svg_asset("power.svg"),
@@ -521,8 +527,11 @@ fn property_str(dev: &udev::Device, key: &str) -> Option<String> {
         })
 }
 
-fn power_profile_menu(on_select: MenuSelectAction) -> Option<GaugeMenu> {
-    let snapshot = power_profiles_snapshot()?;
+fn power_profile_menu(
+    on_select: MenuSelectAction,
+    bus: &RefCell<BusConnection>,
+) -> Option<GaugeMenu> {
+    let snapshot = power_profiles_snapshot(bus)?;
     if snapshot.profiles.is_empty() {
         return None;
     }
@@ -544,16 +553,20 @@ fn power_profile_menu(on_select: MenuSelectAction) -> Option<GaugeMenu> {
     })
 }
 
-fn power_profiles_snapshot() -> Option<PowerProfilesSnapshot> {
-    if let Some(snapshot) = power_profiles_snapshot_ppd() {
+fn power_profiles_snapshot(bus: &RefCell<BusConnection>) -> Option<PowerProfilesSnapshot> {
+    if let Some(snapshot) = power_profiles_snapshot_ppd(bus) {
         return Some(snapshot);
     }
     power_profiles_snapshot_platform()
 }
 
-fn power_profiles_snapshot_ppd() -> Option<PowerProfilesSnapshot> {
-    let connection = Connection::system().ok()?;
-    let proxy = Proxy::new(&connection, PPD_SERVICE, PPD_PATH, PPD_IFACE).ok()?;
+fn power_profiles_snapshot_ppd(bus: &RefCell<BusConnection>) -> Option<PowerProfilesSnapshot> {
+    bus.borrow_mut()
+        .with_connection(power_profiles_snapshot_ppd_on)
+}
+
+fn power_profiles_snapshot_ppd_on(connection: &Connection) -> Option<PowerProfilesSnapshot> {
+    let proxy = Proxy::new(connection, PPD_SERVICE, PPD_PATH, PPD_IFACE).ok()?;
     let active: String = proxy.get_property("ActiveProfile").ok()?;
     let profiles: Vec<HashMap<String, OwnedValue>> = proxy.get_property("Profiles").ok()?;
     let mut supported = HashSet::new();
@@ -585,22 +598,25 @@ fn power_profiles_snapshot_platform() -> Option<PowerProfilesSnapshot> {
     Some(PowerProfilesSnapshot { profiles, active })
 }
 
-fn set_active_power_profile(profile: &str) -> bool {
-    if set_active_power_profile_ppd(profile) {
+fn set_active_power_profile(profile: &str, bus: &RefCell<BusConnection>) -> bool {
+    if set_active_power_profile_ppd(profile, bus) {
         return true;
     }
     set_active_power_profile_platform(profile)
 }
 
-fn set_active_power_profile_ppd(profile: &str) -> bool {
-    let connection = match Connection::system() {
-        Ok(connection) => connection,
-        Err(err) => {
-            log::error!("battery gauge: power profiles daemon connection error: {err}");
-            return false;
-        }
+fn set_active_power_profile_ppd(profile: &str, bus: &RefCell<BusConnection>) -> bool {
+    let Some(result) = bus
+        .borrow_mut()
+        .with_connection(|connection| Some(set_active_power_profile_ppd_on(connection, profile)))
+    else {
+        return false;
     };
-    let proxy = match Proxy::new(&connection, PPD_SERVICE, PPD_PATH, PPD_IFACE) {
+    result
+}
+
+fn set_active_power_profile_ppd_on(connection: &Connection, profile: &str) -> bool {
+    let proxy = match Proxy::new(connection, PPD_SERVICE, PPD_PATH, PPD_IFACE) {
         Ok(proxy) => proxy,
         Err(err) => {
             log::error!("battery gauge: power profiles daemon proxy error: {err}");
@@ -705,6 +721,8 @@ struct BatteryGauge {
     event_source: Option<BatteryEventSource>,
     /// Shared info dialog state updated by the battery event source.
     info_state: Arc<Mutex<InfoDialog>>,
+    /// power-profiles-daemon reads and writes, served from one held bus connection.
+    bus: RefCell<BusConnection>,
     /// Scheduler deadline for the next run.
     next_deadline: Instant,
 }
@@ -728,10 +746,14 @@ impl Gauge for BatteryGauge {
         self.next_deadline
     }
 
+    fn run_budget(&self) -> Duration {
+        RUN_BUDGET
+    }
+
     fn run_once(&mut self, now: Instant) -> Option<GaugeModel> {
         while let Ok(command) = self.command_rx.try_recv() {
             let BatteryCommand::SetPowerProfile(profile) = command;
-            if !set_active_power_profile(&profile) {
+            if !set_active_power_profile(&profile, &self.bus) {
                 log::error!("battery gauge: failed to set power profile to '{profile}'");
             }
         }
@@ -754,6 +776,7 @@ impl Gauge for BatteryGauge {
             &self.info_state,
             manager.as_ref(),
             Some(&menu_select),
+            &self.bus,
         )
     }
 }
@@ -785,6 +808,7 @@ pub fn create_gauge(now: Instant) -> Box<dyn Gauge> {
                 "Discharge rate: Unknown".to_string(),
             ],
         })),
+        bus: RefCell::new(BusConnection::new()),
         next_deadline: now,
     })
 }

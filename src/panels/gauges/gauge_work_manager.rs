@@ -53,9 +53,14 @@ fn gauge_batch_stream_by_ids(ids: &Arc<[String]>) -> GaugeBatchMessageStream {
             gauge.bind_ready_notify(ready_notify.clone());
         }
 
-        let max_run_ms = settings::settings().get_parsed_or("grelier.gauge.work.max_run_ms", 40u64);
-        let max_run_strikes =
-            settings::settings().get_parsed_or("grelier.gauge.work.max_run_strikes", 3u8);
+        let max_run_ms = settings::settings().get_parsed_or(
+            "grelier.gauge.work.max_run_ms",
+            settings::GAUGE_WORK_MAX_RUN_MS,
+        );
+        let max_run_strikes = settings::settings().get_parsed_or(
+            "grelier.gauge.work.max_run_strikes",
+            settings::GAUGE_WORK_MAX_RUN_STRIKES,
+        );
         let mut manager = GaugeWorkManager::new(
             SystemClock,
             Duration::from_millis(max_run_ms),
@@ -215,7 +220,8 @@ impl GaugeRegistrar for RegistrationCollector {
 /// Deterministic scheduler used by runtime and unit tests.
 ///
 /// The manager runs gauges sequentially, enforces a per-run timeout policy,
-/// and returns update batches for atomic UI application.
+/// and returns update batches for atomic UI application. A gauge's effective
+/// budget is the larger of `max_run` and its own `Gauge::run_budget()`.
 pub struct GaugeWorkManager<C: Clock> {
     clock: C,
     max_run: Duration,
@@ -369,10 +375,25 @@ impl<C: Clock> GaugeWorkManager<C> {
             let elapsed = self.clock.now().saturating_duration_since(started);
             runtime.run_count = runtime.run_count.saturating_add(1);
 
-            if elapsed > self.max_run {
+            let budget = self.max_run.max(runtime.gauge.run_budget());
+            if elapsed > budget {
                 runtime.strike_count = runtime.strike_count.saturating_add(1);
+                log::warn!(
+                    "gauge '{}' took {}ms, over its {}ms budget (strike {}/{})",
+                    runtime.gauge.id(),
+                    elapsed.as_millis(),
+                    budget.as_millis(),
+                    runtime.strike_count,
+                    self.max_run_strikes
+                );
                 if runtime.strike_count >= self.max_run_strikes {
                     // Emit one final model (turtle icon) and permanently unschedule this gauge.
+                    log::warn!(
+                        "gauge '{}' unscheduled after {} consecutive runs over budget; \
+                         restart grelier to re-enable it",
+                        runtime.gauge.id(),
+                        runtime.strike_count
+                    );
                     runtime.status = GaugeStatus::Dead;
                     updates.push(dead_gauge_model(runtime.gauge.id()));
                     continue;
@@ -554,6 +575,8 @@ mod tests {
         run_duration: Duration,
         /// Whether `run_once` should emit a model update.
         emit_model: bool,
+        /// Budget floor returned from `run_budget`.
+        run_budget: Duration,
     }
 
     impl TestGauge {
@@ -572,6 +595,7 @@ mod tests {
                 interval,
                 run_duration,
                 emit_model,
+                run_budget: Duration::ZERO,
             }
         }
     }
@@ -583,6 +607,10 @@ mod tests {
 
         fn next_deadline(&self) -> Instant {
             self.next_deadline
+        }
+
+        fn run_budget(&self) -> Duration {
+            self.run_budget
         }
 
         fn run_once(&mut self, now: Instant) -> Option<GaugeModel> {
@@ -783,6 +811,71 @@ mod tests {
         assert_eq!(runtime(&second, "slow").status, GaugeStatus::Dead);
         assert_eq!(runtime(&second, "slow").strike_count, 2);
         assert!(!manager.mark_ready("slow"));
+    }
+
+    #[test]
+    fn gauge_run_budget_relaxes_the_global_budget() {
+        let start = Instant::now();
+        let clock = FakeClock::new(start);
+        let mut gauge = TestGauge::new(
+            "ipc",
+            clock.clone(),
+            start,
+            Duration::from_millis(1),
+            Duration::from_millis(60),
+            true,
+        );
+        // Over the 40ms global budget, inside the gauge's own 250ms floor.
+        gauge.run_budget = Duration::from_millis(250);
+        let mut manager = GaugeWorkManager::new(
+            clock.clone(),
+            Duration::from_millis(40),
+            2,
+            noop_notify(),
+            vec![Box::new(gauge)],
+        );
+
+        assert!(manager.step_once().is_some());
+        assert_eq!(
+            runtime(&manager.snapshot(), "ipc").strike_count,
+            0,
+            "a run inside the gauge's own floor must not strike"
+        );
+    }
+
+    #[test]
+    fn run_over_its_own_floor_strikes() {
+        let start = Instant::now();
+        let clock = FakeClock::new(start);
+        let mut gauge = TestGauge::new(
+            "slow-ipc",
+            clock.clone(),
+            start,
+            Duration::from_millis(1),
+            Duration::from_millis(300),
+            true,
+        );
+        gauge.run_budget = Duration::from_millis(250);
+        let mut manager = GaugeWorkManager::new(
+            clock.clone(),
+            Duration::from_millis(40),
+            2,
+            noop_notify(),
+            vec![Box::new(gauge)],
+        );
+
+        assert!(manager.step_once().is_some());
+        assert_eq!(runtime(&manager.snapshot(), "slow-ipc").strike_count, 1);
+
+        clock.advance(Duration::from_millis(1));
+        let dead = manager
+            .step_once()
+            .expect("second strike over the gauge's own budget kills it");
+        assert_eq!(
+            runtime(&manager.snapshot(), "slow-ipc").status,
+            GaugeStatus::Dead
+        );
+        assert_eq!(dead[0].icon, svg_asset("turtle.svg"));
     }
 
     #[test]
